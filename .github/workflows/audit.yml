@@ -12,6 +12,10 @@ on:
         description: '对标仓库列表 (逗号分隔，可选)'
         required: false
         default: ''
+      create_issues:
+        description: '是否创建 Issues (默认: false)'
+        required: false
+        default: 'false'
 
   # Issue/PR 评论触发
   issue_comment:
@@ -40,7 +44,9 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_MODEL: glm-4.7
-      GH_TOKEN: ${{ secrets.GH_PAT }}
+    outputs:
+      target_repo: ${{ env.TARGET_REPO }}
+      create_issues: ${{ env.CREATE_ISSUES }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -55,6 +61,7 @@ jobs:
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
+          CREATE_ISSUES: ${{ github.event.inputs.create_issues || 'false' }}
         run: |
           if [ -n "$BENCHMARKS" ]; then
             uv run repo-auditor audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
@@ -68,10 +75,88 @@ jobs:
           name: audit-results
           path: audit-output/
 
-      - name: Comment results (if triggered by issue/PR)
-        if: github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'issues'
+  create-issues:
+    # 只在手动触发且 create_issues=true 时执行
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.create_issues == 'true'
+    needs: audit
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download results
+        uses: actions/download-artifact@v4
+        with:
+          name: audit-results
+          path: ./audit-output
+
+      - name: Create GitHub Issues
         run: |
-          # 读取 comparison.md 并评论
+          if [ ! -f "audit-output/issues.json" ]; then
+            echo "❌ issues.json not found!"
+            exit 1
+          fi
+
+          # 读取 issues.json 并创建 Issues
+          python3 << 'PYTHON_SCRIPT'
+          import json
+          import subprocess
+          import sys
+
+          with open('audit-output/issues.json', 'r') as f:
+              data = json.load(f)
+
+          issues = data.get('issues', [])
+          print(f"Found {len(issues)} issues to create")
+
+          created = []
+          failed = []
+
+          for i, issue in enumerate(issues, 1):
+              repo = issue.get('repo')
+              title = issue.get('title')
+              body = issue.get('body')
+              labels = issue.get('labels', '')
+
+              if not all([repo, title, body]):
+                  print(f"⚠️  Issue {i} missing required fields, skipping")
+                  failed.append(f"{i}: {title}")
+                  continue
+
+              try:
+                  cmd = ['gh', 'issue', 'create', '--repo', repo, '--title', title, '--body', body]
+                  if labels:
+                      for label in labels.split(','):
+                          cmd.extend(['--label', label.strip()])
+
+                  result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                  issue_url = result.stdout.strip()
+                  print(f"✅ [{i}/{len(issues)}] Created: {title}")
+                  print(f"   {issue_url}")
+                  created.append(issue_url)
+              except subprocess.CalledProcessError as e:
+                  print(f"❌ Failed to create issue: {title}")
+                  print(f"   Error: {e.stderr}")
+                  failed.append(f"{title}")
+
+          print(f"\n## Summary")
+          print(f"✅ Created: {len(created)}")
+          print(f"❌ Failed: {len(failed)}")
+
+          if failed:
+              print(f"\nFailed issues:")
+              for f in failed:
+                  print(f"  - {f}")
+              sys.exit(1)
+          PYTHON_SCRIPT
+
+      - name: Comment results (if triggered by issue/PR)
+        if: |
+          github.event_name == 'issue_comment' ||
+          github.event_name == 'pull_request_review_comment' ||
+          github.event_name == 'issues'
+        run: |
           if [ -f "audit-output/comparison.md" ]; then
             COMMENT_BODY=$(cat audit-output/comparison.md)
 

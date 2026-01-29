@@ -16,7 +16,7 @@ from claude_agent_sdk import (
 from repo_auditor.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
 from repo_auditor.tools.benchmark import discover_benchmarks
 from repo_auditor.tools.compare import create_comparison
-from repo_auditor.tools.issue import create_github_issue
+from repo_auditor.tools.issue import generate_issue_content
 from repo_auditor.tools.profile import generate_profile
 
 # 创建自定义 MCP 服务器
@@ -27,7 +27,7 @@ AUDITOR_SERVER = create_sdk_mcp_server(
         generate_profile,
         discover_benchmarks,
         create_comparison,
-        create_github_issue,
+        generate_issue_content,
     ],
 )
 
@@ -50,7 +50,7 @@ SYSTEM_PROMPT = """你是 Repo Auditor，一个专业的代码库审计专家。
 - **generate_profile**: 生成仓库 Profile（项目类型、构建配置、质量工具等）
 - **discover_benchmarks**: 发现对标项目（基于 Topics、语言搜索）
 - **create_comparison**: 生成 15 个能力维度的对比矩阵
-- **create_github_issue**: 在 GitHub 上创建 Issue（需要 repo, title, body, labels 参数）
+- **generate_issue_content**: 生成 Issue 内容模板（标题、问题、证据、解决方案、标签）
 
 **GitHub 仓库操作**:
 使用 `gh` 命令（GitHub CLI）而不是 MCP 工具：
@@ -58,11 +58,6 @@ SYSTEM_PROMPT = """你是 Repo Auditor，一个专业的代码库审计专家。
 - `gh search repos --language python --stars >1000 topic:cli` - 搜索仓库
 - `gh api /repos/owner/repo/topics` - 获取 topics
 - `gh api /repos/owner/repo/languages` - 获取语言统计
-
-**跨仓库 Issue 创建**:
-- 环境变量 `GH_TOKEN` 已配置为 PAT，支持跨仓库创建 Issue
-- 使用 `create_github_issue` 工具可以直接在目标仓库创建 Issues
-- 参数格式: `{"repo": "owner/repo", "title": "标题", "body": "内容", "labels": "label1,label2"}`
 
 ## 分析流程（灵活调整）
 
@@ -74,25 +69,30 @@ SYSTEM_PROMPT = """你是 Repo Auditor，一个专业的代码库审计专家。
 
 ## 输出格式
 
-**文件输出**（保存到指定目录）:
+**必须生成以下文件**（保存到指定目录）:
 - `profile.json` - 仓库 Profile
 - `comparison.md` - 对比矩阵（Markdown 表格）
+- `issues.json` - 改进建议列表（**重要！必须创建**）
 
-**GitHub Issue 创建**（重要！）:
-- ✅ **优先使用 `create_github_issue` 工具直接在目标仓库创建 Issues**
-- GH_TOKEN 已配置为 PAT，支持跨仓库 Issue 创建
-- 每个主要改进点创建一个独立的 Issue
-- Issue 应包含：问题描述、对标参考（带链接）、实施方案、预期收益
-
-示例调用：
-```python
-create_github_issue({
-    "repo": "gqy20/biotools_agent",
-    "title": "添加 LICENSE 文件以确保法律合规",
-    "body": "## 问题描述\n...",
-    "labels": "critical,legal,enhancement"
-})
+**issues.json 格式**:
+```json
+{
+  "issues": [
+    {
+      "repo": "owner/repo",
+      "title": "问题标题",
+      "body": "## 问题描述\n...",
+      "labels": "critical,enhancement"
+    }
+  ]
+}
 ```
+
+**注意事项**:
+- 使用 Write 工具创建 issues.json
+- 每个 Issue 应包含：问题描述、对标参考、实施方案、预期收益
+- 标签应包含优先级（critical/high/medium/low）和分类
+- 不要尝试直接创建 GitHub Issue，只生成 JSON 文件
 
 ## 改进建议质量要求
 

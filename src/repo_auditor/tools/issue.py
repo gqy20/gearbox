@@ -1,81 +1,74 @@
-"""Issue 创建工具 - 实际创建 GitHub Issue"""
+"""Issue 生成工具 - 生成 Issue 内容供 workflow 使用"""
 
-import subprocess
 from typing import Any
 
 from claude_agent_sdk import tool
 
 
 @tool(
-    "create_github_issue",
-    "创建 GitHub Issue",
+    "generate_issue_content",
+    "生成 Issue 内容模板",
     {
-        "repo": str,
         "title": str,
-        "body": str,
-        "labels": str,  # 逗号分隔的标签
+        "problem": str,
+        "evidence": str,
+        "solution": str,
+        "labels": str,
     },
 )
-async def create_github_issue(args: dict[str, Any]) -> dict[str, Any]:
+async def generate_issue_content(args: dict[str, Any]) -> dict[str, Any]:
     """
-    在指定仓库创建一个 GitHub Issue。
+    生成格式化的 Issue 内容（供写入 issues.json 使用）。
 
     Args:
-        repo: 仓库标识 (格式: owner/repo)
         title: Issue 标题
-        body: Issue 内容 (支持 Markdown)
-        labels: 标签 (逗号分隔，如: "enhancement,documentation")
+        problem: 问题描述
+        evidence: 对标参考（带链接）
+        solution: 解决方案
+        labels: 标签（逗号分隔）
 
     Returns:
-        创建结果，包含 issue URL 和编号
+        格式化的 Issue 内容
     """
-    repo = args["repo"]
     title = args["title"]
-    body = args["body"]
+    problem = args["problem"]
+    evidence = args.get("evidence", "")
+    solution = args.get("solution", "")
     labels = args.get("labels", "")
 
-    # 构建 gh 命令
-    cmd = ["gh", "issue", "create", "--repo", repo, "--title", title, "--body", body]
+    body = f"""## 问题描述
 
-    if labels:
-        for label in labels.split(","):
-            cmd.extend(["--label", label.strip()])
+{problem}
 
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+"""
 
-        # gh issue create 输出格式: https://github.com/owner/repo/issues/123
-        issue_url = result.stdout.strip()
+    if evidence:
+        body += f"""## 对标参考
 
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"✅ Issue 创建成功: {issue_url}",
-                }
-            ],
-            "structured_output": {
-                "success": True,
-                "url": issue_url,
-                "repo": repo,
-                "title": title,
-            },
-        }
-    except subprocess.CalledProcessError as e:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"❌ 创建 Issue 失败: {e.stderr}",
-                }
-            ],
-            "structured_output": {
-                "success": False,
-                "error": e.stderr,
-            },
-        }
+{evidence}
+
+"""
+
+    body += f"""## 解决方案
+
+{solution}
+
+## 预期收益
+
+- 实施此改进将提升项目质量
+- 参考业界最佳实践
+"""
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"生成的 Issue: {title}",
+            }
+        ],
+        "structured_output": {
+            "title": title,
+            "body": body,
+            "labels": labels,
+        },
+    }

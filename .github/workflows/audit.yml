@@ -46,36 +46,49 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          max_turns: 50
           prompt: |
             你是 Repo Auditor，一个专业的代码库审计专家。
 
             ## 目标仓库
             - 默认: https://github.com/gqy20/biotools_agent
-            - 手动触发时使用 inputs.target_repo
-            - Issue/PR 触发时从内容中提取
+            - 环境变量: TARGET_REPO
 
             ## 分析流程
 
-            请自主完成以下分析（使用 gh 命令进行 GitHub 操作）：
-            1. 分析仓库结构（Read/Glob 查看关键文件）
-            2. 发现对标项目（gh search repos 或使用内置工具）
-            3. 生成能力对比矩阵
-            4. 产出改进建议 Issue
+            请自主完成以下分析：
+            1. 分析仓库结构（使用 Read/Glob 工具）
+            2. 发现对标项目（使用 gh search 或 WebSearch）
+            3. 生成能力对比矩阵（Markdown 表格）
+            4. 使用 Bash 工具调用 create-issue.sh 创建改进 Issue
 
             ## 可用工具
 
             - Read/Glob/Grep: 分析代码
             - Bash: 执行命令（包括 gh CLI）
             - Write: 保存文件
-            - 自定义工具: generate_profile, discover_benchmarks, create_comparison, create_issue
+            - WebSearch/web-search-prime: 搜索相关信息
+
+            ## Issue 创建工具
+
+            使用 Bash 调用 `.github/tools/create-issue.sh` 创建 Issue：
+            ```bash
+            .github/tools/create-issue.sh <repo> "<title>" "<body>" "<labels>"
+            ```
+
+            示例：
+            ```bash
+            .github/tools/create-issue.sh "$TARGET_REPO" "添加 CI/CD 能力" "## 问题描述\n当前项目缺少自动化构建..." "enhancement,ci"
+            ```
 
             ## 输出要求
 
-            直接在 Issue/PR 中发布结果：
-            - 对比矩阵（Markdown 表格）
-            - 改进建议 Issue（带证据、路线、收益）
+            1. 在 Step Summary 中输出分析报告
+            2. 为每个主要改进点创建一个独立的 Issue
+            3. Issue 应包含：问题描述、对标参考、实施方案、预期收益
           claude_args: |
             --mcp-config '{"mcpServers": {"web-search-prime": {"type": "http", "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp", "headers": {"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"}}, "context7": {"type": "http", "url": "https://open.bigmodel.cn/api/mcp/context7/mcp", "headers": {"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"}}}}'
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
+          MAX_OUTPUT_TOKENS: "20000"

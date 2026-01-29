@@ -1,7 +1,7 @@
 name: Repo Audit
 
 on:
-  # 手动触发（在 Actions 页面点击运行）
+  # 手动触发
   workflow_dispatch:
     inputs:
       target_repo:
@@ -41,7 +41,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          system-prompt: |
+          prompt: |
             你是 Repo Auditor，一个专业的代码库审计专家。
 
             ## 目标仓库
@@ -69,7 +69,6 @@ jobs:
             直接在 Issue/PR 中发布结果：
             - 对比矩阵（Markdown 表格）
             - 改进建议 Issue（带证据、路线、收益）
-
         settings: |
           {
             "mcpServers": {

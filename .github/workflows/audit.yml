@@ -1,6 +1,19 @@
 name: Repo Audit
 
 on:
+  # 手动触发（在 Actions 页面点击运行）
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: '目标仓库 (默认: gqy20/biotools_agent)'
+        required: false
+        default: 'gqy20/biotools_agent'
+      benchmarks:
+        description: '对标仓库列表 (逗号分隔，可选)'
+        required: false
+        default: ''
+
+  # Issue/PR 评论触发
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -15,60 +28,68 @@ permissions:
 
 jobs:
   audit:
-    if: contains(github.event.comment.body, '@repo-auditor') || contains(github.event.issue.body, '@repo-auditor')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
+  # 手动触发或包含 @repo-auditor 时执行
+  if: |
+    github.event_name == 'workflow_dispatch' ||
+    contains(github.event.comment.body, '@repo-auditor') ||
+    contains(github.event.issue.body, '@repo-auditor')
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v5
 
-      - uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          system-prompt: |
-            你是 Repo Auditor，一个专业的代码库审计专家。
+    - uses: anthropics/claude-code-action@v1
+      with:
+        anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        system-prompt: |
+          你是 Repo Auditor，一个专业的代码库审计专家。
 
-            当收到 @repo-auditor audit 命令时，请审计仓库：
-            - 默认目标: https://github.com/gqy20/biotools_agent
-            - 如果用户指定了其他仓库，则审计用户指定的仓库
+          ## 目标仓库
+          - 默认: https://github.com/gqy20/biotools_agent
+          - 手动触发时使用 inputs.target_repo
+          - Issue/PR 触发时从内容中提取
 
-            ## 分析流程
+          ## 分析流程
 
-            请自主完成以下分析（使用 gh 命令进行 GitHub 操作）：
-            1. 分析仓库结构（Read/Glob 查看关键文件）
-            2. 发现对标项目（gh search repos 或使用内置工具）
-            3. 生成能力对比矩阵
-            4. 产出改进建议 Issue
+          请自主完成以下分析（使用 gh 命令进行 GitHub 操作）：
+          1. 分析仓库结构（Read/Glob 查看关键文件）
+          2. 发现对标项目（gh search repos 或使用内置工具）
+          3. 生成能力对比矩阵
+          4. 产出改进建议 Issue
 
-            ## 可用工具
+          ## 可用工具
 
-            - Read/Glob/Grep: 分析代码
-            - Bash: 执行命令（包括 gh CLI）
-            - Write: 保存文件
-            - 自定义工具: generate_profile, discover_benchmarks, create_comparison, create_issue
+          - Read/Glob/Grep: 分析代码
+          - Bash: 执行命令（包括 gh CLI）
+          - Write: 保存文件
+          - 自定义工具: generate_profile, discover_benchmarks, create_comparison, create_issue
 
-            ## 输出要求
+          ## 输出要求
 
-            直接在 Issue/PR 中发布结果：
-            - 对比矩阵（Markdown 表格）
-            - 改进建议 Issue（带证据、路线、收益）
+          直接在 Issue/PR 中发布结果：
+          - 对比矩阵（Markdown 表格）
+          - 改进建议 Issue（带证据、路线、收益）
 
-          settings: |
-            {
-              "mcpServers": {
-                "web-search-prime": {
-                  "type": "http",
-                  "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
-                  "headers": {
-                    "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"
-                  }
-                },
-                "context7": {
-                  "type": "http",
-                  "url": "https://open.bigmodel.cn/api/mcp/context7/mcp",
-                  "headers": {
-                    "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"
-                  }
+        env:
+          TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
+          BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
+        settings: |
+          {
+            "mcpServers": {
+              "web-search-prime": {
+                "type": "http",
+                "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
+                "headers": {
+                  "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"
+                }
+              },
+              "context7": {
+                "type": "http",
+                "url": "https://open.bigmodel.cn/api/mcp/context7/mcp",
+                "headers": {
+                  "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"
                 }
               }
             }
+          }
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

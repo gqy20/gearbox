@@ -75,4 +75,5 @@ jobs:
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}

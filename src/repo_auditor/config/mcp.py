@@ -7,16 +7,12 @@ MCP_SERVERS = {
     "web-search-prime": {
         "type": "http",
         "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
-        "headers": {
-            "Authorization": f"Bearer {get_anthropic_api_key() or ''}"
-        },
+        "headers": {"Authorization": f"Bearer {get_anthropic_api_key() or ''}"},
     },
     "context7": {
         "type": "http",
         "url": "https://open.bigmodel.cn/api/mcp/context7/mcp",
-        "headers": {
-            "Authorization": f"Bearer {get_anthropic_api_key() or ''}"
-        },
+        "headers": {"Authorization": f"Bearer {get_anthropic_api_key() or ''}"},
     },
 }
 

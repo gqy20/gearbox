@@ -154,6 +154,8 @@ async def run_audit(
     return results
 
 
-def run_audit_sync(repo: str, benchmarks: list[str] | None = None, output_dir: str = "./output") -> dict[str, Any]:
+def run_audit_sync(
+    repo: str, benchmarks: list[str] | None = None, output_dir: str = "./output"
+) -> dict[str, Any]:
     """同步包装器 - 用于 CLI 调用"""
     return asyncio.run(run_audit(repo, benchmarks, output_dir))

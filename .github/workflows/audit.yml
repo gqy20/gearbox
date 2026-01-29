@@ -70,9 +70,6 @@ jobs:
             - 对比矩阵（Markdown 表格）
             - 改进建议 Issue（带证据、路线、收益）
 
-        env:
-          TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
-          BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
         settings: |
           {
             "mcpServers": {
@@ -93,4 +90,6 @@ jobs:
             }
           }
         env:
+          TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
+          BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

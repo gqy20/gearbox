@@ -3,7 +3,7 @@
 import pytest
 
 from repo_auditor.tools.benchmark import discover_benchmarks
-from repo_auditor.tools.compare import create_comparison, CAPABILITY_DIMENSIONS
+from repo_auditor.tools.compare import CAPABILITY_DIMENSIONS, create_comparison
 from repo_auditor.tools.issue import create_issue
 from repo_auditor.tools.profile import generate_profile
 
@@ -21,11 +21,13 @@ async def test_generate_profile() -> None:
 @pytest.mark.asyncio
 async def test_discover_benchmarks() -> None:
     """测试对标发现工具"""
-    result = await discover_benchmarks.handler({
-        "repo_name": "test/repo",
-        "top": 3,
-        "min_stars": 100,
-    })
+    result = await discover_benchmarks.handler(
+        {
+            "repo_name": "test/repo",
+            "top": 3,
+            "min_stars": 100,
+        }
+    )
 
     assert "content" in result
     assert "structured_output" in result
@@ -37,10 +39,12 @@ async def test_discover_benchmarks() -> None:
 @pytest.mark.asyncio
 async def test_create_comparison() -> None:
     """测试对比矩阵工具"""
-    result = await create_comparison.handler({
-        "target_profile": {},
-        "benchmarks": [{"name": "test/repo"}],
-    })
+    result = await create_comparison.handler(
+        {
+            "target_profile": {},
+            "benchmarks": [{"name": "test/repo"}],
+        }
+    )
 
     assert "content" in result
     assert "structured_output" in result
@@ -53,10 +57,12 @@ async def test_create_comparison() -> None:
 @pytest.mark.asyncio
 async def test_create_issue() -> None:
     """测试 Issue 生成工具"""
-    result = await create_issue.handler({
-        "comparison": {},
-        "gap_count": 2,
-    })
+    result = await create_issue.handler(
+        {
+            "comparison": {},
+            "gap_count": 2,
+        }
+    )
 
     assert "content" in result
     assert "structured_output" in result

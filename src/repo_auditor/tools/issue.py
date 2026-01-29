@@ -59,9 +59,7 @@ async def create_issue(args: dict[str, Any]) -> dict[str, Any]:
             {
                 "type": "text",
                 "text": f"生成了 {len(issues)} 个改进建议:\n\n"
-                + "\n\n".join(
-                    f"### {i['title']}\n{i['body'][:200]}..." for i in issues
-                ),
+                + "\n\n".join(f"### {i['title']}\n{i['body'][:200]}..." for i in issues),
             }
         ],
         "structured_output": issues,

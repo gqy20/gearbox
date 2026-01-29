@@ -6,21 +6,21 @@ from claude_agent_sdk import tool
 
 # 15 个能力维度
 CAPABILITY_DIMENSIONS = [
-    "has_ci",                     # 是否有 CI/CD
-    "has_lint",                   # 是否有代码检查
-    "has_type_check",             # 是否有类型检查
-    "has_coverage",               # 是否有测试覆盖
-    "has_dependabot",             # 是否有依赖更新
-    "has_plugin_system",          # 是否有插件系统
-    "has_config_schema",          # 是否有配置 Schema
-    "has_error_handling",         # 是否有统一错误处理
-    "has_logging",                # 是否有日志系统
-    "has_tests",                  # 是否有测试套件
-    "has_docker",                 # 是否有 Docker 支持
-    "has_documentation",          # 是否有文档
-    "has_changelog",              # 是否有变更日志
-    "has_contributing_guide",     # 是否有贡献指南
-    "has_code_of_conduct",        # 是否有行为准则
+    "has_ci",  # 是否有 CI/CD
+    "has_lint",  # 是否有代码检查
+    "has_type_check",  # 是否有类型检查
+    "has_coverage",  # 是否有测试覆盖
+    "has_dependabot",  # 是否有依赖更新
+    "has_plugin_system",  # 是否有插件系统
+    "has_config_schema",  # 是否有配置 Schema
+    "has_error_handling",  # 是否有统一错误处理
+    "has_logging",  # 是否有日志系统
+    "has_tests",  # 是否有测试套件
+    "has_docker",  # 是否有 Docker 支持
+    "has_documentation",  # 是否有文档
+    "has_changelog",  # 是否有变更日志
+    "has_contributing_guide",  # 是否有贡献指南
+    "has_code_of_conduct",  # 是否有行为准则
 ]
 
 

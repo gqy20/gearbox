@@ -125,10 +125,21 @@ jobs:
                   continue
 
               try:
-                  cmd = ['gh', 'issue', 'create', '--repo', repo, '--title', title, '--body', body]
+                  # 过滤标签，只使用已存在的标签
+                  valid_labels = ["bug", "documentation", "duplicate", "enhancement",
+                                  "good first issue", "help wanted", "invalid", "question", "wontfix"]
+                  filtered_labels = []
                   if labels:
                       for label in labels.split(','):
-                          cmd.extend(['--label', label.strip()])
+                          label = label.strip()
+                          if label in valid_labels:
+                              filtered_labels.append(label)
+                          else:
+                              print(f"  ⚠️  Skipping unknown label: {label}")
+
+                  cmd = ['gh', 'issue', 'create', '--repo', repo, '--title', title, '--body', body]
+                  for label in filtered_labels:
+                      cmd.extend(['--label', label])
 
                   result = subprocess.run(cmd, check=True, capture_output=True, text=True)
                   issue_url = result.stdout.strip()

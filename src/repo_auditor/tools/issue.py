@@ -1,66 +1,81 @@
-"""Issue 生成工具 - 基于对比矩阵生成改进建议"""
+"""Issue 创建工具 - 实际创建 GitHub Issue"""
 
+import subprocess
 from typing import Any
 
 from claude_agent_sdk import tool
 
 
-@tool("create_issue", "生成改进Issue", {"comparison": dict, "gap_count": int})
-async def create_issue(args: dict[str, Any]) -> dict[str, Any]:
+@tool(
+    "create_github_issue",
+    "创建 GitHub Issue",
+    {
+        "repo": str,
+        "title": str,
+        "body": str,
+        "labels": str,  # 逗号分隔的标签
+    },
+)
+async def create_github_issue(args: dict[str, Any]) -> dict[str, Any]:
     """
-    基于对比矩阵生成带证据的高质量改进建议 Issue。
+    在指定仓库创建一个 GitHub Issue。
 
-    每个 Issue 应包含：
-    1. 清晰的标题
-    2. 问题描述和影响
-    3. 对标项目的参考（带链接）
-    4. 具体的实施路线
-    5. 预期收益
+    Args:
+        repo: 仓库标识 (格式: owner/repo)
+        title: Issue 标题
+        body: Issue 内容 (支持 Markdown)
+        labels: 标签 (逗号分隔，如: "enhancement,documentation")
+
+    Returns:
+        创建结果，包含 issue URL 和编号
     """
-    _comparison = args["comparison"]
-    gap_count = args.get("gap_count", 5)
+    repo = args["repo"]
+    title = args["title"]
+    body = args["body"]
+    labels = args.get("labels", "")
 
-    # TODO: 实现实际的 Issue 生成逻辑
-    # 1. 分析差距（target 为 false 但 benchmark 为 true 的维度）
-    # 2. 按优先级排序
-    # 3. 生成具体的 Issue 草稿
+    # 构建 gh 命令
+    cmd = ["gh", "issue", "create", "--repo", repo, "--title", title, "--body", body]
 
-    issues = [
-        {
-            "title": f"添加 {capability} 能力",
-            "body": f"""## 问题描述
+    if labels:
+        for label in labels.split(","):
+            cmd.extend(["--label", label.strip()])
 
-当前仓库缺少 `{capability}` 能力。
+    try:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
-## 对标参考
+        # gh issue create 输出格式: https://github.com/owner/repo/issues/123
+        issue_url = result.stdout.strip()
 
-- benchmark/repo1: 有完善的实现
-- benchmark/repo2: 实现了类似功能
-
-## 实施方案
-
-1. 分析对标项目的实现方式
-2. 适配到当前项目
-3. 添加测试和文档
-
-## 预期收益
-
-- 提升代码质量
-- 改善开发体验
-""",
-            "labels": ["enhancement", capability.replace("has_", "")],
-            "priority": "medium",
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"✅ Issue 创建成功: {issue_url}",
+                }
+            ],
+            "structured_output": {
+                "success": True,
+                "url": issue_url,
+                "repo": repo,
+                "title": title,
+            },
         }
-        for capability in ["has_ci", "has_lint", "has_coverage"][:gap_count]
-    ]
-
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": f"生成了 {len(issues)} 个改进建议:\n\n"
-                + "\n\n".join(f"### {i['title']}\n{i['body'][:200]}..." for i in issues),
-            }
-        ],
-        "structured_output": issues,
-    }
+    except subprocess.CalledProcessError as e:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"❌ 创建 Issue 失败: {e.stderr}",
+                }
+            ],
+            "structured_output": {
+                "success": False,
+                "error": e.stderr,
+            },
+        }

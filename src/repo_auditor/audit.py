@@ -16,7 +16,7 @@ from claude_agent_sdk import (
 from repo_auditor.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
 from repo_auditor.tools.benchmark import discover_benchmarks
 from repo_auditor.tools.compare import create_comparison
-from repo_auditor.tools.issue import create_issue
+from repo_auditor.tools.issue import create_github_issue
 from repo_auditor.tools.profile import generate_profile
 
 # 创建自定义 MCP 服务器
@@ -27,7 +27,7 @@ AUDITOR_SERVER = create_sdk_mcp_server(
         generate_profile,
         discover_benchmarks,
         create_comparison,
-        create_issue,
+        create_github_issue,
     ],
 )
 
@@ -50,7 +50,7 @@ SYSTEM_PROMPT = """你是 Repo Auditor，一个专业的代码库审计专家。
 - **generate_profile**: 生成仓库 Profile（项目类型、构建配置、质量工具等）
 - **discover_benchmarks**: 发现对标项目（基于 Topics、语言搜索）
 - **create_comparison**: 生成 15 个能力维度的对比矩阵
-- **create_issue**: 生成带证据的改进 Issue
+- **create_github_issue**: 在 GitHub 上创建 Issue（需要 repo, title, body, labels 参数）
 
 **GitHub 仓库操作**:
 使用 `gh` 命令（GitHub CLI）而不是 MCP 工具：
@@ -69,10 +69,14 @@ SYSTEM_PROMPT = """你是 Repo Auditor，一个专业的代码库审计专家。
 
 ## 输出格式
 
-将结果保存到指定目录：
+**文件输出**（保存到指定目录）:
 - `profile.json` - 仓库 Profile
 - `comparison.md` - 对比矩阵（Markdown 表格）
-- `issues.md` - 改进建议 Issue 草稿
+
+**GitHub Issue 创建**（使用 create_github_issue 工具）:
+- 直接在目标仓库创建改进建议 Issue
+- 每个主要改进点创建一个独立 Issue
+- Issue 应包含：问题描述、对标参考、实施方案、预期收益
 
 ## 改进建议质量要求
 

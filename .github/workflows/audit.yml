@@ -40,55 +40,48 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_MODEL: glm-4.7
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-      - uses: anthropics/claude-code-action@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          max_turns: 50
-          prompt: |
-            你是 Repo Auditor，一个专业的代码库审计专家。
+          python-version: '3.12'
 
-            ## 目标仓库
-            - 默认: https://github.com/gqy20/biotools_agent
-            - 环境变量: TARGET_REPO
+      - name: Install repo-auditor
+        run: |
+          pip install -e .
+          repo-auditor --version
 
-            ## 分析流程
-
-            请自主完成以下分析：
-            1. 分析仓库结构（使用 Read/Glob 工具）
-            2. 发现对标项目（使用 gh search 或 WebSearch）
-            3. 生成能力对比矩阵（Markdown 表格）
-            4. 使用 Bash 工具调用 create-issue.sh 创建改进 Issue
-
-            ## 可用工具
-
-            - Read/Glob/Grep: 分析代码
-            - Bash: 执行命令（包括 gh CLI）
-            - Write: 保存文件
-            - WebSearch/web-search-prime: 搜索相关信息
-
-            ## Issue 创建工具
-
-            使用 Bash 调用 `.github/tools/create-issue.sh` 创建 Issue：
-            ```bash
-            .github/tools/create-issue.sh <repo> "<title>" "<body>" "<labels>"
-            ```
-
-            示例：
-            ```bash
-            .github/tools/create-issue.sh "$TARGET_REPO" "添加 CI/CD 能力" "## 问题描述\n当前项目缺少自动化构建..." "enhancement,ci"
-            ```
-
-            ## 输出要求
-
-            1. 在 Step Summary 中输出分析报告
-            2. 为每个主要改进点创建一个独立的 Issue
-            3. Issue 应包含：问题描述、对标参考、实施方案、预期收益
-          claude_args: |
-            --mcp-config '{"mcpServers": {"web-search-prime": {"type": "http", "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp", "headers": {"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"}}, "context7": {"type": "http", "url": "https://open.bigmodel.cn/api/mcp/context7/mcp", "headers": {"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"}}}}'
+      - name: Run audit
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
-          MAX_OUTPUT_TOKENS: "20000"
+        run: |
+          if [ -n "$BENCHMARKS" ]; then
+            repo-auditor audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
+          else
+            repo-auditor audit --repo "$TARGET_REPO" --output ./audit-output
+          fi
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-results
+          path: audit-output/
+
+      - name: Comment results (if triggered by issue/PR)
+        if: github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'issues'
+        run: |
+          # 读取 comparison.md 并评论
+          if [ -f "audit-output/comparison.md" ]; then
+            COMMENT_BODY=$(cat audit-output/comparison.md)
+
+            if [ "${{ github.event_name }}" == "issue_comment" ] || [ "${{ github.event_name }}" == "issues" ]; then
+              gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$COMMENT_BODY"
+            else
+              gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "$COMMENT_BODY"
+            fi
+          fi

@@ -1,0 +1,50 @@
+{
+  "mcpServers": {
+    "web-search-prime": {
+      "type": "http",
+      "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ANTHROPIC_AUTH_TOKEN}"
+      }
+    },
+    "web-reader": {
+      "type": "http",
+      "url": "https://open.bigmodel.cn/api/mcp/web_reader/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ANTHROPIC_AUTH_TOKEN}"
+      }
+    },
+    "zread": {
+      "type": "http",
+      "url": "https://api.z.ai/api/mcp/zread/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ANTHROPIC_AUTH_TOKEN}"
+      }
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://open.bigmodel.cn/api/mcp/context7/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ANTHROPIC_AUTH_TOKEN}"
+      }
+    },
+    "github": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "crawl-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["crawl-mcp"],
+      "env": {
+        "OPENAI_API_KEY": "${ANTHROPIC_AUTH_TOKEN}",
+        "OPENAI_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+        "LLM_MODEL": "glm-4.7"
+      }
+    }
+  }
+}

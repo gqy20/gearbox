@@ -69,25 +69,8 @@ jobs:
             直接在 Issue/PR 中发布结果：
             - 对比矩阵（Markdown 表格）
             - 改进建议 Issue（带证据、路线、收益）
-        settings: |
-          {
-            "mcpServers": {
-              "web-search-prime": {
-                "type": "http",
-                "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
-                "headers": {
-                  "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"
-                }
-              },
-              "context7": {
-                "type": "http",
-                "url": "https://open.bigmodel.cn/api/mcp/context7/mcp",
-                "headers": {
-                  "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"
-                }
-              }
-            }
-          }
+          claude_args: |
+            --mcp-config '{"mcpServers": {"web-search-prime": {"type": "http", "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp", "headers": {"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"}}, "context7": {"type": "http", "url": "https://open.bigmodel.cn/api/mcp/context7/mcp", "headers": {"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"}}}}'
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}

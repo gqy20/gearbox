@@ -28,46 +28,47 @@ permissions:
 
 jobs:
   audit:
-  # 手动触发或包含 @repo-auditor 时执行
-  if: |
-    github.event_name == 'workflow_dispatch' ||
-    contains(github.event.comment.body, '@repo-auditor') ||
-    contains(github.event.issue.body, '@repo-auditor')
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v5
+    # 手动触发或包含 @repo-auditor 时执行
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@repo-auditor')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@repo-auditor')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@repo-auditor'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
 
-    - uses: anthropics/claude-code-action@v1
-      with:
-        anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        system-prompt: |
-          你是 Repo Auditor，一个专业的代码库审计专家。
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          system-prompt: |
+            你是 Repo Auditor，一个专业的代码库审计专家。
 
-          ## 目标仓库
-          - 默认: https://github.com/gqy20/biotools_agent
-          - 手动触发时使用 inputs.target_repo
-          - Issue/PR 触发时从内容中提取
+            ## 目标仓库
+            - 默认: https://github.com/gqy20/biotools_agent
+            - 手动触发时使用 inputs.target_repo
+            - Issue/PR 触发时从内容中提取
 
-          ## 分析流程
+            ## 分析流程
 
-          请自主完成以下分析（使用 gh 命令进行 GitHub 操作）：
-          1. 分析仓库结构（Read/Glob 查看关键文件）
-          2. 发现对标项目（gh search repos 或使用内置工具）
-          3. 生成能力对比矩阵
-          4. 产出改进建议 Issue
+            请自主完成以下分析（使用 gh 命令进行 GitHub 操作）：
+            1. 分析仓库结构（Read/Glob 查看关键文件）
+            2. 发现对标项目（gh search repos 或使用内置工具）
+            3. 生成能力对比矩阵
+            4. 产出改进建议 Issue
 
-          ## 可用工具
+            ## 可用工具
 
-          - Read/Glob/Grep: 分析代码
-          - Bash: 执行命令（包括 gh CLI）
-          - Write: 保存文件
-          - 自定义工具: generate_profile, discover_benchmarks, create_comparison, create_issue
+            - Read/Glob/Grep: 分析代码
+            - Bash: 执行命令（包括 gh CLI）
+            - Write: 保存文件
+            - 自定义工具: generate_profile, discover_benchmarks, create_comparison, create_issue
 
-          ## 输出要求
+            ## 输出要求
 
-          直接在 Issue/PR 中发布结果：
-          - 对比矩阵（Markdown 表格）
-          - 改进建议 Issue（带证据、路线、收益）
+            直接在 Issue/PR 中发布结果：
+            - 对比矩阵（Markdown 表格）
+            - 改进建议 Issue（带证据、路线、收益）
 
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}

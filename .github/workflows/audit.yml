@@ -45,15 +45,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
-      - name: Install repo-auditor
-        run: |
-          pip install -e .
-          repo-auditor --version
+      - name: Set up Python with uv
+        run: uv venv && uv pip install -e .
 
       - name: Run audit
         env:
@@ -61,9 +57,9 @@ jobs:
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
         run: |
           if [ -n "$BENCHMARKS" ]; then
-            repo-auditor audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
+            uv run repo-auditor audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
           else
-            repo-auditor audit --repo "$TARGET_REPO" --output ./audit-output
+            uv run repo-auditor audit --repo "$TARGET_REPO" --output ./audit-output
           fi
 
       - name: Upload results

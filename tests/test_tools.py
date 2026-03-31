@@ -1,7 +1,10 @@
 """测试 MCP 工具"""
 
+import json
+
 import pytest
 
+from repo_auditor.tools import benchmark as benchmark_tool
 from repo_auditor.tools.benchmark import discover_benchmarks
 from repo_auditor.tools.compare import CAPABILITY_DIMENSIONS, create_comparison
 from repo_auditor.tools.issue import create_issue
@@ -31,8 +34,53 @@ async def test_generate_profile() -> None:
 
 
 @pytest.mark.asyncio
-async def test_discover_benchmarks() -> None:
+async def test_discover_benchmarks(monkeypatch: pytest.MonkeyPatch) -> None:
     """测试对标发现工具"""
+    captured_commands: list[list[str]] = []
+
+    def fake_run(command: list[str], check: bool, capture_output: bool, text: bool) -> object:
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        captured_commands.append(command)
+
+        payload = [
+            {
+                "fullName": "python-poetry/poetry",
+                "language": "Python",
+                "description": "Python packaging and dependency management",
+                "stargazersCount": 33000,
+                "isArchived": False,
+                "isFork": False,
+                "url": "https://github.com/python-poetry/poetry",
+            },
+            {
+                "fullName": "pallets/click",
+                "language": "Python",
+                "description": "Composable command line interface toolkit",
+                "stargazersCount": 17000,
+                "isArchived": False,
+                "isFork": False,
+                "url": "https://github.com/pallets/click",
+            },
+            {
+                "fullName": "fastapi/typer",
+                "language": "Python",
+                "description": "Typer, build great CLIs. Easy to code. Based on Python type hints.",
+                "stargazersCount": 14000,
+                "isArchived": False,
+                "isFork": False,
+                "url": "https://github.com/fastapi/typer",
+            },
+        ]
+
+        class CompletedProcess:
+            stdout = json.dumps(payload)
+
+        return CompletedProcess()
+
+    monkeypatch.setattr(benchmark_tool.subprocess, "run", fake_run)
+
     target_profile = {
         "project": {
             "type": "cli",
@@ -63,6 +111,8 @@ async def test_discover_benchmarks() -> None:
     assert "same language" in benchmarks[0]["reasons"]
     assert "score" in benchmarks[0]
     assert benchmarks[0]["score"] >= benchmarks[1]["score"]
+    assert captured_commands
+    assert captured_commands[0][:3] == ["gh", "search", "repos"]
 
 
 @pytest.mark.asyncio

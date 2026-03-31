@@ -33,9 +33,22 @@ async def test_generate_profile() -> None:
 @pytest.mark.asyncio
 async def test_discover_benchmarks() -> None:
     """测试对标发现工具"""
+    target_profile = {
+        "project": {
+            "type": "cli",
+            "language": "python",
+            "entry_points": ["repo-auditor"],
+        },
+        "quality": {
+            "linters": ["ruff"],
+            "test_framework": "pytest",
+            "type_checker": "mypy",
+        },
+    }
+
     result = await discover_benchmarks.handler(
         {
-            "repo_name": "test/repo",
+            "target_profile": target_profile,
             "top": 3,
             "min_stars": 100,
         }
@@ -46,6 +59,10 @@ async def test_discover_benchmarks() -> None:
     benchmarks = result["structured_output"]
     assert len(benchmarks) == 3
     assert benchmarks[0]["stars"] >= 100
+    assert benchmarks[0]["language"] == "Python"
+    assert "same language" in benchmarks[0]["reasons"]
+    assert "score" in benchmarks[0]
+    assert benchmarks[0]["score"] >= benchmarks[1]["score"]
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,7 @@
 """CLI 命令定义"""
 
+import traceback
+
 import click
 
 from .audit import run_audit_sync
@@ -84,6 +86,7 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
 
     except Exception as e:
         click.echo(f"❌ 审计失败: {e}", err=True)
+        traceback.print_exc()
         raise click.Abort()
 
 

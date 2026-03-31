@@ -130,6 +130,22 @@ def _has_remote_dependabot(repo_name: str) -> bool:
         return False
 
 
+def _remote_path_exists(repo_name: str, path: str) -> bool:
+    try:
+        _gh_api(f"/repos/{repo_name}/contents/{path}")
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _remote_docs_path(repo_name: str) -> str | None:
+    if _remote_path_exists(repo_name, "docs"):
+        return "docs/"
+    if _remote_path_exists(repo_name, "README.md"):
+        return "README.md"
+    return None
+
+
 def _detect_install_command(has_pyproject: bool) -> str:
     if has_pyproject:
         return "uv sync"
@@ -152,6 +168,11 @@ def _build_profile(
     has_dependabot: bool,
     has_coverage: bool,
     modules: list[str],
+    has_documentation: bool,
+    has_contributing_guide: bool,
+    has_code_of_conduct: bool,
+    has_license: bool,
+    has_docker: bool,
 ) -> dict[str, Any]:
     project_data = pyproject.get("project", {})
     tool_data = pyproject.get("tool", {})
@@ -186,6 +207,18 @@ def _build_profile(
             "dependabot": has_dependabot,
             "secrets_scan": False,
         },
+        "docs": {
+            "has_documentation": has_documentation,
+            "has_changelog": False,
+        },
+        "community": {
+            "has_contributing_guide": has_contributing_guide,
+            "has_code_of_conduct": has_code_of_conduct,
+            "has_license": has_license,
+        },
+        "platform": {
+            "has_docker": has_docker,
+        },
     }
 
 
@@ -202,6 +235,11 @@ def build_profile(repo_path: Path) -> dict[str, Any]:
         modules=[path.name for path in sorted((repo_path / "src").iterdir())]
         if (repo_path / "src").exists()
         else [],
+        has_documentation=(repo_path / "docs").exists() or (repo_path / "README.md").exists(),
+        has_contributing_guide=(repo_path / "CONTRIBUTING.md").exists(),
+        has_code_of_conduct=(repo_path / "CODE_OF_CONDUCT.md").exists(),
+        has_license=(repo_path / "LICENSE").exists() or (repo_path / "LICENSE.md").exists(),
+        has_docker=(repo_path / "Dockerfile").exists(),
     )
 
 
@@ -216,6 +254,12 @@ def build_remote_profile(repo_name: str) -> dict[str, Any]:
         has_dependabot=_has_remote_dependabot(repo_name),
         has_coverage=False,
         modules=[],
+        has_documentation=_remote_docs_path(repo_name) is not None,
+        has_contributing_guide=_remote_path_exists(repo_name, "CONTRIBUTING.md"),
+        has_code_of_conduct=_remote_path_exists(repo_name, "CODE_OF_CONDUCT.md"),
+        has_license=_remote_path_exists(repo_name, "LICENSE")
+        or _remote_path_exists(repo_name, "LICENSE.md"),
+        has_docker=_remote_path_exists(repo_name, "Dockerfile"),
     )
 
 

@@ -32,6 +32,9 @@ async def test_generate_profile() -> None:
     assert profile["quality"]["coverage"] is False
     assert profile["extensibility"]["config_schema"] == "pyproject.toml"
     assert profile["security"]["dependabot"] is False
+    assert profile["docs"]["has_documentation"] is True
+    assert profile["community"]["has_license"] is False
+    assert profile["platform"]["has_docker"] is False
 
 
 @pytest.mark.asyncio
@@ -58,6 +61,7 @@ python_version = "3.10"
 """.strip()
 
     workflow_payload = [{"name": "ci.yml", "path": ".github/workflows/ci.yml", "type": "file"}]
+    docs_payload = [{"name": "index.md", "path": "docs/index.md", "type": "file"}]
 
     def fake_run(command: list[str], check: bool, capture_output: bool, text: bool) -> object:
         assert check is True
@@ -76,7 +80,26 @@ python_version = "3.10"
         if "/contents/.github/workflows" in joined:
             result.stdout = json.dumps(workflow_payload)
             return result
+        if "/contents/docs" in joined:
+            result.stdout = json.dumps(docs_payload)
+            return result
+        if "/contents/README.md" in joined:
+            result.stdout = json.dumps({"name": "README.md", "path": "README.md", "type": "file"})
+            return result
+        if "/contents/CONTRIBUTING.md" in joined:
+            result.stdout = json.dumps(
+                {"name": "CONTRIBUTING.md", "path": "CONTRIBUTING.md", "type": "file"}
+            )
+            return result
+        if "/contents/LICENSE" in joined:
+            result.stdout = json.dumps({"name": "LICENSE", "path": "LICENSE", "type": "file"})
+            return result
         if "/contents/.github/dependabot.yml" in joined:
+            result.stdout = json.dumps(
+                {"name": "dependabot.yml", "path": ".github/dependabot.yml", "type": "file"}
+            )
+            return result
+        if "/contents/CODE_OF_CONDUCT.md" in joined or "/contents/Dockerfile" in joined:
             raise profile_tool.subprocess.CalledProcessError(returncode=1, cmd=command)
 
         raise AssertionError(f"Unexpected command: {command}")
@@ -93,6 +116,10 @@ python_version = "3.10"
     assert profile["quality"]["test_framework"] == "pytest"
     assert profile["quality"]["type_checker"] == "mypy"
     assert "ruff" in profile["quality"]["linters"]
+    assert profile["docs"]["has_documentation"] is True
+    assert profile["community"]["has_contributing_guide"] is True
+    assert profile["community"]["has_license"] is True
+    assert profile["security"]["dependabot"] is True
     assert captured_commands
 
 

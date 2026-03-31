@@ -79,7 +79,7 @@ jobs:
     # 只在手动触发且 create_issues=true 时执行
     if: |
       github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.create_issues == 'true'
+      (inputs.create_issues == 'true' || github.event.inputs.create_issues == 'true')
     needs: audit
     runs-on: ubuntu-latest
     env:

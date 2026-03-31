@@ -8,6 +8,7 @@ from repo_auditor.tools import benchmark as benchmark_tool
 from repo_auditor.tools.benchmark import discover_benchmarks
 from repo_auditor.tools.compare import CAPABILITY_DIMENSIONS, create_comparison
 from repo_auditor.tools.issue import create_issue
+from repo_auditor.tools import profile as profile_tool
 from repo_auditor.tools.profile import generate_profile
 
 
@@ -31,6 +32,68 @@ async def test_generate_profile() -> None:
     assert profile["quality"]["coverage"] is False
     assert profile["extensibility"]["config_schema"] == "pyproject.toml"
     assert profile["security"]["dependabot"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_profile_remote_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """测试远程 GitHub 仓库 Profile 生成"""
+    captured_commands: list[list[str]] = []
+
+    pyproject_text = """
+[project]
+name = "example-cli"
+dependencies = ["click>=8.0.0"]
+
+[project.scripts]
+example = "example.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0.0", "mypy>=1.0.0"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+""".strip()
+
+    workflow_payload = [{"name": "ci.yml", "path": ".github/workflows/ci.yml", "type": "file"}]
+
+    def fake_run(command: list[str], check: bool, capture_output: bool, text: bool) -> object:
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        captured_commands.append(command)
+
+        class CompletedProcess:
+            stdout = ""
+
+        result = CompletedProcess()
+        joined = " ".join(command)
+        if "/contents/pyproject.toml" in joined:
+            result.stdout = json.dumps({"content": pyproject_text, "encoding": "utf-8"})
+            return result
+        if "/contents/.github/workflows" in joined:
+            result.stdout = json.dumps(workflow_payload)
+            return result
+        if "/contents/.github/dependabot.yml" in joined:
+            raise profile_tool.subprocess.CalledProcessError(returncode=1, cmd=command)
+
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(profile_tool.subprocess, "run", fake_run)
+
+    result = await generate_profile.handler({"repo_path": "owner/example-cli"})
+    profile = result["structured_output"]
+
+    assert profile["project"]["type"] == "cli"
+    assert profile["project"]["language"] == "python"
+    assert profile["project"]["entry_points"] == ["example"]
+    assert profile["build"]["ci_file"] == ".github/workflows/ci.yml"
+    assert profile["quality"]["test_framework"] == "pytest"
+    assert profile["quality"]["type_checker"] == "mypy"
+    assert "ruff" in profile["quality"]["linters"]
+    assert captured_commands
 
 
 @pytest.mark.asyncio

@@ -80,6 +80,18 @@ def get_anthropic_base_url() -> str | None:
     return os.environ.get("ANTHROPIC_BASE_URL")
 
 
+def get_anthropic_model() -> str:
+    """获取 Anthropic/Agent 模型名。
+
+    优先级：配置文件 > 环境变量 > 默认值。
+    """
+    config = load_config()
+    if "anthropic_model" in config:
+        return config["anthropic_model"]
+
+    return os.environ.get("ANTHROPIC_MODEL", "glm-5.1")
+
+
 def set_github_token(token: str) -> None:
     """设置 GitHub Token"""
     config = load_config()
@@ -98,4 +110,11 @@ def set_anthropic_base_url(base_url: str) -> None:
     """设置 Anthropic Base URL"""
     config = load_config()
     config["anthropic_base_url"] = base_url
+    save_config(config)
+
+
+def set_anthropic_model(model: str) -> None:
+    """设置 Agent 模型名"""
+    config = load_config()
+    config["anthropic_model"] = model
     save_config(config)

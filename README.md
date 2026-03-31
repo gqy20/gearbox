@@ -1,15 +1,15 @@
 # Repo Auditor
 
-一个用于深度分析 GitHub 仓库并生成高质量改进建议的 AI Agent 工具。
+一个用于分析 GitHub 仓库并生成改进建议草稿的 AI Agent 原型工具。
 
-基于 **Claude Agent SDK** 构建，通过自主规划执行分析任务，产出"有证据、有路线、有业界参照"的改进建议。
+基于 **Claude Agent SDK** 构建，目前已具备 CLI、配置管理、Agent 调度和 GitHub Actions 骨架，但仓库画像、对标发现、能力对比等核心分析能力仍在完善中。
 
-## 特性
+## 当前状态
 
-- **Agent 驱动**: Claude 自主决策分析流程
-- **对标发现**: 自动搜索相似项目
-- **对比矩阵**: 15 个能力维度对比
-- **高质量 Issue**: 带证据、路线、收益的改进建议
+- 已实现 CLI 入口与配置命令
+- 已接入 Claude Agent SDK 审计主流程
+- 已提供 GitHub Actions workflow 骨架
+- 部分自定义工具仍为占位实现，当前结果更适合原型验证而非正式审计
 
 ## 安装
 
@@ -19,56 +19,83 @@ uv sync
 
 ## 使用
 
-### 基本用法
+### CLI 命令
 
 ```bash
-# 审计仓库（自动发现对标）
-repo-auditor --repo owner/repo
+# 查看帮助
+uv run repo-auditor --help
+
+# 审计仓库
+uv run repo-auditor audit --repo owner/repo
 
 # 指定对标项目
-repo-auditor --repo owner/repo --benchmarks click/click,typer.typer
+uv run repo-auditor audit --repo owner/repo --benchmarks click/click,tiangolo/typer
 
 # 审计本地项目
-repo-auditor --repo . --output ./audit-output
+uv run repo-auditor audit --repo . --output ./audit-output
+
+# 查看配置
+uv run repo-auditor config list
+
+# 发布 issues.json 到 GitHub
+uv run repo-auditor publish-issues --input ./audit-output/issues.json
 ```
 
-### Claude Agent 会自主完成
+### 当前实际支持的命令
 
-1. ✓ 分析仓库结构、配置、依赖
-2. ✓ 发现相似的对标项目
-3. ✓ 生成能力对比矩阵
-4. ✓ 产出带证据的改进 Issue
+- `audit`
+- `publish-issues`
+- `config list`
+- `config set`
+- `config path`
 
-### 输出文件
+### 配置要求
 
+运行 `audit` 前需要配置 Anthropic 认证信息：
+
+```bash
+uv run repo-auditor config set anthropic-api-key YOUR_KEY
+uv run repo-auditor config set anthropic-model glm-5.1
 ```
+
+也可以使用环境变量：
+
+- `ANTHROPIC_AUTH_TOKEN`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_BASE_URL`
+- `ANTHROPIC_MODEL`
+- `GITHUB_TOKEN`
+
+## 输出说明
+
+Agent 目标是将结果写入输出目录，例如：
+
+```text
 output/
-├── profile.json      # 仓库 Profile
-├── comparison.md     # 对比矩阵
-└── issues.md         # 改进建议 Issue
+  profile.json
+  comparison.md
+  issues.json
 ```
+
+注意：这些产物目前主要依赖 Agent 在运行时生成，尚未由代码层做完整校验与兜底。
 
 ## 开发
 
 ```bash
-# 运行测试
 uv run pytest -v
-
-# 代码检查
-uv run ruff check src/
-uv run mypy src/
+uv run ruff check src tests
+uv run mypy src
 ```
 
 ## 项目结构
 
-```
+```text
 src/repo_auditor/
-├── cli.py           # CLI 入口（单一命令）
-├── audit.py         # Agent 核心逻辑
-├── config/mcp.py    # MCP 服务器配置
-└── tools/           # 自定义 MCP 工具
-    ├── profile.py   # Profile 生成
-    ├── benchmark.py  # 对标发现
-    ├── compare.py   # 对比矩阵
-    └── issue.py     # Issue 生成
+  cli.py             # CLI 入口
+  audit.py           # Agent 审计主流程
+  config/            # 配置与 MCP 设置
+  tools/             # 自定义工具
+tests/
+  test_cli.py        # CLI 测试
+  test_tools.py      # 工具测试
 ```

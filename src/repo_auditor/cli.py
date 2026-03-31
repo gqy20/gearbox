@@ -9,8 +9,10 @@ from .config import (
     load_config,
     set_anthropic_api_key,
     set_anthropic_base_url,
+    set_anthropic_model,
     set_github_token,
 )
+from .publish import publish_issues_from_file
 
 
 @click.group()
@@ -85,6 +87,44 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
         raise click.Abort()
 
 
+@cli.command("publish-issues")
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    help="issues.json 文件路径",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="仅校验并打印，不真正创建 GitHub Issues",
+)
+def publish_issues(input_path: str, dry_run: bool) -> None:
+    """根据 issues.json 创建 GitHub Issues。"""
+    try:
+        result = publish_issues_from_file(input_path=input_path, dry_run=dry_run)
+    except Exception as e:
+        click.echo(f"❌ 发布失败: {e}", err=True)
+        raise click.Abort()
+
+    click.echo(f"处理 Issue 数量: {result['total']}")
+    click.echo(f"已创建: {len(result['created'])}")
+    click.echo(f"已跳过: {len(result['skipped'])}")
+    click.echo(f"失败: {len(result['failed'])}")
+
+    for item in result["created"]:
+        click.echo(f"✅ {item}")
+
+    for item in result["skipped"]:
+        click.echo(f"⚠️  跳过: {item}")
+
+    for item in result["failed"]:
+        click.echo(f"❌ {item}", err=True)
+
+    if result["failed"]:
+        raise click.Abort()
+
+
 @cli.group()
 def config() -> None:
     """配置管理 - 设置密钥和选项"""
@@ -128,11 +168,13 @@ def config_set(key: str, value: str) -> None:
       github-token           GitHub Token (用于 gh 命令)
       anthropic-api-key      Anthropic API Key (必需)
       anthropic-base-url     Anthropic Base URL (可选，用于代理)
+      anthropic-model        Agent 模型名 (默认: glm-5.1)
 
     \b
     环境变量（优先级更高）:
       ANTHROPIC_AUTH_TOKEN   API Key (官方推荐)
       ANTHROPIC_BASE_URL     Base URL
+      ANTHROPIC_MODEL        Model
       GITHUB_TOKEN           GitHub Token
 
     \b
@@ -140,11 +182,13 @@ def config_set(key: str, value: str) -> None:
         repo-auditor config set github-token ghp_xxxxx
         repo-auditor config set anthropic-api-key sk-ant-xxxxx
         repo-auditor config set anthropic-base-url https://api.anthropic.com
+        repo-auditor config set anthropic-model glm-5.1
     """
     key_map = {
         "github-token": set_github_token,
         "anthropic-api-key": set_anthropic_api_key,
         "anthropic-base-url": set_anthropic_base_url,
+        "anthropic-model": set_anthropic_model,
     }
 
     if key not in key_map:

@@ -41,9 +41,9 @@ jobs:
       (github.event_name == 'issues' && contains(github.event.issue.body, '@repo-auditor'))
     runs-on: ubuntu-latest
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      ANTHROPIC_MODEL: glm-4.7
+      ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || 'glm-5.1' }}
     outputs:
       target_repo: ${{ env.TARGET_REPO }}
       create_issues: ${{ env.CREATE_ISSUES }}
@@ -85,6 +85,15 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Set up Python with uv
+        run: uv venv && uv pip install -e .
+
       - name: Download results
         uses: actions/download-artifact@v4
         with:
@@ -93,74 +102,7 @@ jobs:
 
       - name: Create GitHub Issues
         run: |
-          if [ ! -f "audit-output/issues.json" ]; then
-            echo "❌ issues.json not found!"
-            exit 1
-          fi
-
-          # 读取 issues.json 并创建 Issues
-          python3 << 'PYTHON_SCRIPT'
-          import json
-          import subprocess
-          import sys
-
-          with open('audit-output/issues.json', 'r') as f:
-              data = json.load(f)
-
-          issues = data.get('issues', [])
-          print(f"Found {len(issues)} issues to create")
-
-          created = []
-          failed = []
-
-          for i, issue in enumerate(issues, 1):
-              repo = issue.get('repo')
-              title = issue.get('title')
-              body = issue.get('body')
-              labels = issue.get('labels', '')
-
-              if not all([repo, title, body]):
-                  print(f"⚠️  Issue {i} missing required fields, skipping")
-                  failed.append(f"{i}: {title}")
-                  continue
-
-              try:
-                  # 过滤标签，只使用已存在的标签
-                  valid_labels = ["bug", "documentation", "duplicate", "enhancement",
-                                  "good first issue", "help wanted", "invalid", "question", "wontfix"]
-                  filtered_labels = []
-                  if labels:
-                      for label in labels.split(','):
-                          label = label.strip()
-                          if label in valid_labels:
-                              filtered_labels.append(label)
-                          else:
-                              print(f"  ⚠️  Skipping unknown label: {label}")
-
-                  cmd = ['gh', 'issue', 'create', '--repo', repo, '--title', title, '--body', body]
-                  for label in filtered_labels:
-                      cmd.extend(['--label', label])
-
-                  result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-                  issue_url = result.stdout.strip()
-                  print(f"✅ [{i}/{len(issues)}] Created: {title}")
-                  print(f"   {issue_url}")
-                  created.append(issue_url)
-              except subprocess.CalledProcessError as e:
-                  print(f"❌ Failed to create issue: {title}")
-                  print(f"   Error: {e.stderr}")
-                  failed.append(f"{title}")
-
-          print(f"\n## Summary")
-          print(f"✅ Created: {len(created)}")
-          print(f"❌ Failed: {len(failed)}")
-
-          if failed:
-              print(f"\nFailed issues:")
-              for f in failed:
-                  print(f"  - {f}")
-              sys.exit(1)
-          PYTHON_SCRIPT
+          uv run repo-auditor publish-issues --input ./audit-output/issues.json
 
       - name: Comment results (if triggered by issue/PR)
         if: |

@@ -13,6 +13,7 @@ from claude_agent_sdk import (
     query,
 )
 
+from repo_auditor.config import get_anthropic_model
 from repo_auditor.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
 from repo_auditor.tools.benchmark import discover_benchmarks
 from repo_auditor.tools.compare import create_comparison
@@ -132,6 +133,7 @@ async def run_audit(
 
     # 配置 Agent 选项
     options = ClaudeAgentOptions(
+        model=get_anthropic_model(),
         mcp_servers=MCP_SERVERS,
         allowed_tools=[
             *ALLOWED_TOOLS,

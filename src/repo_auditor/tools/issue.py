@@ -72,3 +72,45 @@ async def generate_issue_content(args: dict[str, Any]) -> dict[str, Any]:
             "labels": labels,
         },
     }
+
+
+@tool("create_issue", "根据对比结果生成多个改进 Issue", {"comparison": dict, "gap_count": int})
+async def create_issue(args: dict[str, Any]) -> dict[str, Any]:
+    """
+    兼容旧测试和调用方的简化 Issue 生成接口。
+
+    当前实现基于 gap_count 返回占位 Issue 列表，后续可替换为
+    基于 comparison 证据的真实优先级排序与内容生成逻辑。
+    """
+    gap_count = max(int(args.get("gap_count", 1)), 0)
+
+    issues = []
+    for index in range(gap_count):
+        priority = "high" if index == 0 else "medium"
+        issues.append(
+            {
+                "title": f"补齐关键能力缺口 {index + 1}",
+                "body": (
+                    "## 问题描述\n\n"
+                    "当前仓库与对标项目相比存在待补齐的能力缺口。\n\n"
+                    "## 解决方案\n\n"
+                    "1. 确认缺失能力及范围\n"
+                    "2. 参考对标项目补齐实现\n"
+                    "3. 增加验证与文档\n\n"
+                    "## 预期收益\n\n"
+                    "- 降低与对标项目的差距\n"
+                    "- 提升项目可维护性与可用性"
+                ),
+                "labels": f"{priority},enhancement",
+            }
+        )
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"生成 {len(issues)} 个改进 Issue",
+            }
+        ],
+        "structured_output": issues,
+    }

@@ -5,7 +5,7 @@ description = "一个用于深度分析 GitHub 仓库并生成高质量改进建
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "claude-agent-sdk>=0.1.0",
+    "claude-agent-sdk>=0.1.53",
     "click>=8.0.0",
     "pydantic>=2.0.0",
     "tomli-w>=1.0.0",

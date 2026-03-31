@@ -146,7 +146,10 @@ async def run_audit(
     # 配置 Agent 选项
     options = ClaudeAgentOptions(
         model=get_anthropic_model(),
-        mcp_servers=MCP_SERVERS,
+        mcp_servers={
+            **MCP_SERVERS,
+            "auditor": AUDITOR_SERVER,
+        },
         allowed_tools=[
             *ALLOWED_TOOLS,
             "mcp__auditor__*",

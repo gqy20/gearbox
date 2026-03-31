@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: '目标仓库 (默认: gqy20/biotools_agent)'
+        description: '目标仓库 (默认: gqy20/repo-issue)'
         required: false
-        default: 'gqy20/biotools_agent'
+        default: 'gqy20/repo-issue'
       benchmarks:
         description: '对标仓库列表 (逗号分隔，可选)'
         required: false
@@ -59,7 +59,7 @@ jobs:
 
       - name: Run audit
         env:
-          TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/biotools_agent' }}
+          TARGET_REPO: ${{ github.event.inputs.target_repo || 'gqy20/repo-issue' }}
           BENCHMARKS: ${{ github.event.inputs.benchmarks || '' }}
           CREATE_ISSUES: ${{ github.event.inputs.create_issues || 'false' }}
         run: |

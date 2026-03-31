@@ -12,10 +12,22 @@ from repo_auditor.tools.profile import generate_profile
 async def test_generate_profile() -> None:
     """测试 Profile 生成工具"""
     result = await generate_profile.handler({"repo_path": "."})
+    profile = result["structured_output"]
 
     assert "content" in result
     assert "structured_output" in result
-    assert result["structured_output"]["project"]["type"] == "unknown"
+    assert profile["project"]["type"] == "cli"
+    assert profile["project"]["language"] == "python"
+    assert "repo-auditor" in profile["project"]["entry_points"]
+    assert profile["build"]["ci_file"] == ".github/workflows/audit.yml"
+    assert profile["build"]["install_command"] == "uv sync"
+    assert profile["build"]["test_command"] == "uv run pytest -v"
+    assert "ruff" in profile["quality"]["linters"]
+    assert profile["quality"]["test_framework"] == "pytest"
+    assert profile["quality"]["type_checker"] == "mypy"
+    assert profile["quality"]["coverage"] is False
+    assert profile["extensibility"]["config_schema"] == "pyproject.toml"
+    assert profile["security"]["dependabot"] is False
 
 
 @pytest.mark.asyncio
@@ -39,19 +51,62 @@ async def test_discover_benchmarks() -> None:
 @pytest.mark.asyncio
 async def test_create_comparison() -> None:
     """测试对比矩阵工具"""
+    target_profile = {
+        "project": {"type": "cli", "language": "python", "entry_points": ["repo-auditor"]},
+        "build": {"ci_file": ".github/workflows/audit.yml"},
+        "quality": {
+            "linters": ["ruff"],
+            "test_framework": "pytest",
+            "type_checker": "mypy",
+            "coverage": False,
+        },
+        "extensibility": {"plugins": False, "config_schema": "pyproject.toml"},
+        "security": {"dependabot": False},
+        "docs": {"has_documentation": True, "has_changelog": False},
+        "community": {"has_contributing_guide": False, "has_code_of_conduct": False},
+        "platform": {"has_docker": False},
+    }
+    benchmark_profile = {
+        "repo": "example/benchmark",
+        "project": {"type": "cli", "language": "python", "entry_points": ["bench"]},
+        "build": {"ci_file": ".github/workflows/test.yml"},
+        "quality": {
+            "linters": ["ruff"],
+            "test_framework": "pytest",
+            "type_checker": "mypy",
+            "coverage": True,
+        },
+        "extensibility": {"plugins": True, "config_schema": "pyproject.toml"},
+        "security": {"dependabot": True},
+        "docs": {"has_documentation": True, "has_changelog": True},
+        "community": {"has_contributing_guide": True, "has_code_of_conduct": True},
+        "platform": {"has_docker": True},
+    }
+
     result = await create_comparison.handler(
         {
-            "target_profile": {},
-            "benchmarks": [{"name": "test/repo"}],
+            "target_profile": target_profile,
+            "benchmark_profiles": [benchmark_profile],
         }
     )
 
     assert "content" in result
     assert "structured_output" in result
     matrix = result["structured_output"]
-    assert "target" in matrix
-    assert "benchmarks" in matrix
+    assert "dimensions" in matrix
+    assert "top_gaps" in matrix
     assert len(CAPABILITY_DIMENSIONS) == 15
+    coverage_dimension = next(
+        item for item in matrix["dimensions"] if item["name"] == "has_coverage"
+    )
+    dependabot_dimension = next(
+        item for item in matrix["dimensions"] if item["name"] == "has_dependabot"
+    )
+    assert coverage_dimension["target"]["value"] is False
+    assert coverage_dimension["benchmarks"][0]["value"] is True
+    assert coverage_dimension["gap_level"] == "high"
+    assert dependabot_dimension["gap_level"] == "high"
+    assert "has_coverage" in matrix["top_gaps"]
 
 
 @pytest.mark.asyncio

@@ -395,6 +395,7 @@ def implement(
 @click.option("--output-dir", default="./output", help="输出目录")
 @click.option("--model", default="", help="使用的模型")
 @click.option("--max-turns", default=20, type=int, help="最大对话轮次")
+@click.option("--system-prompt", default="", help="自定义 System Prompt（可选）")
 @click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
 @click.option("--parallel-count", default=3, type=int, help="并行执行次数")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
@@ -404,6 +405,7 @@ def audit_repo(
     output_dir: str,
     model: str,
     max_turns: int,
+    system_prompt: str,
     parallel: bool,
     parallel_count: int,
     output: str,
@@ -413,6 +415,7 @@ def audit_repo(
 
     benchmark_list = benchmarks.split(",") if benchmarks else None
     model_arg = model if model else None
+    system_prompt_arg = system_prompt if system_prompt else None
 
     if parallel:
         # 同一任务并行执行多次
@@ -423,6 +426,7 @@ def audit_repo(
                 output_dir=output_dir,
                 model=model_arg,
                 max_turns=max_turns,
+                system_prompt=system_prompt_arg,
             )
 
         angles = [f"run_{i}" for i in range(parallel_count)]
@@ -458,6 +462,7 @@ def audit_repo(
                 output_dir=output_dir,
                 model=model_arg,
                 max_turns=max_turns,
+                system_prompt=system_prompt_arg,
             )
         )
         click.echo(f"✅ Audit: {len(result.issues)} issues, cost={result.cost}")

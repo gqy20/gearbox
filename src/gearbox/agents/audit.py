@@ -174,6 +174,7 @@ async def run_audit(
     *,
     model: str | None = None,
     max_turns: int = 20,
+    system_prompt: str | None = None,
 ) -> AuditResult:
     """
     执行仓库审计。
@@ -184,6 +185,7 @@ async def run_audit(
         output_dir: 输出目录
         model: 使用的模型
         max_turns: 最大对话轮次
+        system_prompt: 自定义 System Prompt（可选，默认使用内置）
 
     Returns:
         AuditResult 结构
@@ -200,12 +202,13 @@ async def run_audit(
     from gearbox.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
 
     resolved_model = model or get_anthropic_model()
+    resolved_prompt = system_prompt if system_prompt else SYSTEM_PROMPT
 
     options = ClaudeAgentOptions(
         model=resolved_model,
         mcp_servers=MCP_SERVERS,  # type: ignore
         allowed_tools=ALLOWED_TOOLS,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=resolved_prompt,
         max_turns=max_turns,
     )
 

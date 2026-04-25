@@ -27,6 +27,11 @@ inputs:
     required: false
     default: '20'
 
+  system_prompt:
+    description: '自定义 System Prompt（可选）'
+    required: false
+    default: ''
+
   parallel:
     description: '启用并行执行（同一任务多次）'
     required: false
@@ -88,11 +93,17 @@ runs:
           PARALLEL_ARG="--parallel --parallel-count ${{ inputs.parallel_count }}"
         fi
 
+        SYSTEM_PROMPT_ARG=""
+        if [ -n "${{ inputs.system_prompt }}" ]; then
+          SYSTEM_PROMPT_ARG="--system-prompt '${{ inputs.system_prompt }}'"
+        fi
+
         python3 -m gearbox.cli agent audit-repo \
           --repo "${{ inputs.repo }}" \
           --output-dir "${{ inputs.output_dir }}" \
           --benchmarks "${{ inputs.benchmarks }}" \
           --max-turns "${{ inputs.max_turns }}" \
+          $SYSTEM_PROMPT_ARG \
           $PARALLEL_ARG \
           --output "$GITHUB_OUTPUT"
 

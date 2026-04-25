@@ -260,3 +260,46 @@ def write_outputs(
     with open(path, "w") as f:
         for key, value in outputs.items():
             f.write(f"{key}={value}\n")
+
+
+VALID_ISSUE_LABELS = {
+    "bug",
+    "documentation",
+    "duplicate",
+    "enhancement",
+    "good first issue",
+    "help wanted",
+    "invalid",
+    "question",
+    "wontfix",
+}
+
+
+def create_issue(
+    repo: str,
+    title: str,
+    body: str,
+    labels: list[str] | None = None,
+) -> CreatePrResult:
+    """
+    创建 GitHub Issue。
+
+    Returns:
+        CreatePrResult
+    """
+    cmd = [
+        "gh", "issue", "create",
+        "--repo", repo,
+        "--title", title,
+        "--body", body,
+    ]
+    if labels:
+        filtered = [label for label in labels if label in VALID_ISSUE_LABELS]
+        for label in filtered:
+            cmd.extend(["--label", label])
+
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return CreatePrResult(success=True, pr_url=result.stdout.strip())
+    except subprocess.CalledProcessError as e:
+        return CreatePrResult(success=False, error=e.stderr.strip())

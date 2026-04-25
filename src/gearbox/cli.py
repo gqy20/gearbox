@@ -1,6 +1,8 @@
 """CLI 命令定义"""
 
+import json
 import traceback
+from pathlib import Path
 
 import click
 
@@ -14,7 +16,7 @@ from .config import (
     set_anthropic_model,
     set_github_token,
 )
-from .publish import publish_issues_from_file
+from .gh import create_issue
 
 
 @click.group()
@@ -101,27 +103,60 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
 )
 def publish_issues(input_path: str, dry_run: bool) -> None:
     """根据 issues.json 创建 GitHub Issues。"""
-    try:
-        result = publish_issues_from_file(input_path=input_path, dry_run=dry_run)
-    except Exception as e:
-        click.echo(f"❌ 发布失败: {e}", err=True)
+    path = Path(input_path)
+    if not path.exists():
+        click.echo(f"❌ 文件不存在: {input_path}", err=True)
         raise click.Abort()
 
-    click.echo(f"处理 Issue 数量: {result['total']}")
-    click.echo(f"已创建: {len(result['created'])}")
-    click.echo(f"已跳过: {len(result['skipped'])}")
-    click.echo(f"失败: {len(result['failed'])}")
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    for item in result["created"]:
+    issues = data.get("issues", [])
+    if not isinstance(issues, list):
+        click.echo("❌ issues.json 格式错误: 'issues' 必须是数组", err=True)
+        raise click.Abort()
+
+    created: list[str] = []
+    skipped: list[str] = []
+    failed: list[str] = []
+
+    for index, issue in enumerate(issues, start=1):
+        repo = issue.get("repo")
+        title = issue.get("title")
+        body = issue.get("body")
+        labels = issue.get("labels", "")
+
+        if not all([repo, title, body]):
+            skipped.append(f"{index}: {title or '(missing title)'}")
+            continue
+
+        if dry_run:
+            created.append(f"DRY-RUN {repo}#{index}: {title}")
+            continue
+
+        label_list = [item.strip() for item in labels.split(",") if item.strip()] if labels else None
+        result = create_issue(repo, title, body, label_list)
+
+        if result.success:
+            created.append(result.pr_url or f"{repo}#{index}")
+        else:
+            failed.append(f"{title}: {result.error}")
+
+    click.echo(f"处理 Issue 数量: {len(issues)}")
+    click.echo(f"已创建: {len(created)}")
+    click.echo(f"已跳过: {len(skipped)}")
+    click.echo(f"失败: {len(failed)}")
+
+    for item in created:
         click.echo(f"✅ {item}")
 
-    for item in result["skipped"]:
+    for item in skipped:
         click.echo(f"⚠️  跳过: {item}")
 
-    for item in result["failed"]:
+    for item in failed:
         click.echo(f"❌ {item}", err=True)
 
-    if result["failed"]:
+    if failed:
         raise click.Abort()
 
 

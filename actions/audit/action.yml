@@ -1,0 +1,94 @@
+name: 'Gearbox - Audit'
+description: 'AI 驱动的仓库审计 - 发现改进建议'
+author: 'gqy20'
+
+inputs:
+  repo:
+    description: '仓库标识 (owner/name)'
+    required: true
+
+  benchmarks:
+    description: '逗号分隔的对标仓库列表（可选）'
+    required: false
+    default: ''
+
+  output_dir:
+    description: '输出目录'
+    required: false
+    default: './output'
+
+  model:
+    description: '使用的模型'
+    required: false
+    default: ''
+
+  max_turns:
+    description: '最大对话轮次'
+    required: false
+    default: '20'
+
+  anthropic_api_key:
+    description: 'Anthropic API Key'
+    required: false
+    default: ''
+
+outputs:
+  issues_count:
+    description: '生成的 Issue 数量'
+    value: ${{ steps.run.outputs.issues_count }}
+  status:
+    description: '执行状态'
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check environment
+      shell: bash
+      run: |
+        echo "🔍 Gearbox Audit Agent"
+        echo "Repo: ${{ inputs.repo }}"
+        echo "Output: ${{ inputs.output_dir }}"
+
+    - name: Check API key
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      run: |
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+          echo "::error::API key required"
+          exit 1
+        fi
+
+    - name: Run Audit Agent
+      id: run
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_OUTPUT: ${{ runner.temp }}/github_output
+      run: |
+        set -e
+
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+        fi
+
+        python3 -m gearbox.cli agent audit-repo \
+          --repo "${{ inputs.repo }}" \
+          --output-dir "${{ inputs.output_dir }}" \
+          --benchmarks "${{ inputs.benchmarks }}" \
+          --max-turns "${{ inputs.max_turns }}" \
+          --output "$GITHUB_OUTPUT"
+
+    - name: Parse results
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.output_dir }}/issues.json" ]; then
+          ISSUES_COUNT=$(python3 -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
+          echo "issues_count=$ISSUES_COUNT" >> $GITHUB_OUTPUT
+          echo "✅ Audit completed: $ISSUES_COUNT issues generated"
+        else
+          echo "issues_count=0" >> $GITHUB_OUTPUT
+          echo "⚠️ No issues.json found"
+        fi
+        echo "status=success" >> $GITHUB_OUTPUT

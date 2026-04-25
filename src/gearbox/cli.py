@@ -7,11 +7,11 @@ from pathlib import Path
 
 import click
 
+from .agents.audit import run_audit
 from .agents.ci_fix import run_ci_fix
 from .agents.implement import run_implement
 from .agents.review import run_review
 from .agents.triage import run_triage
-from .audit import run_audit_sync
 from .config import (
     get_config_path,
     get_github_token,
@@ -85,11 +85,12 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
         click.echo(f"📊 指定对标: {', '.join(benchmark_list)}")
 
     try:
-        result = run_audit_sync(repo, benchmark_list, output)
+        result = asyncio.run(run_audit(repo, benchmark_list, output))
 
         click.echo(f"\n✅ 审计完成! 结果保存到: {output}")
-        if "cost" in result:
-            click.echo(f"💰 API 成本: ${result['cost']:.4f}")
+        if result.cost:
+            click.echo(f"💰 API 成本: ${result.cost:.4f}")
+        click.echo(f"📝 生成 {len(result.issues)} 条改进建议")
 
     except Exception as e:
         click.echo(f"❌ 审计失败: {e}", err=True)
@@ -276,6 +277,31 @@ def ci_fix(repo: str, run_id: int, model: str, base_branch: str, max_turns: int,
     )
     _result_to_github_output(result, output)
     click.echo(f"✅ CI Fix: branch={result.branch_name}, fixed={result.fixed}")
+
+
+@agent.command(name="audit-repo")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--benchmarks", default="", help="逗号分隔的对标仓库列表（可选）")
+@click.option("--output-dir", default="./output", help="输出目录")
+@click.option("--model", default="", help="使用的模型")
+@click.option("--max-turns", default=20, type=int, help="最大对话轮次")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def audit_repo(repo: str, benchmarks: str, output_dir: str, model: str, max_turns: int, output: str) -> None:
+    """运行 Audit Agent - 审计仓库生成改进建议"""
+    benchmark_list = benchmarks.split(",") if benchmarks else None
+    model_arg = model if model else None
+
+    result = asyncio.run(
+        run_audit(
+            repo,
+            benchmarks=benchmark_list,
+            output_dir=output_dir,
+            model=model_arg,
+            max_turns=max_turns,
+        )
+    )
+    _result_to_github_output(result, output)
+    click.echo(f"✅ Audit: {len(result.issues)} issues, cost={result.cost}")
 
 
 # =============================================================================

@@ -127,46 +127,6 @@ def _get_failing_job(repo: str, run_id: int) -> dict[str, Any]:
     return {}
 
 
-def _create_branch(branch_name: str) -> None:
-    """创建新分支"""
-    subprocess.run(["git", "checkout", "-b", branch_name], check=True)
-
-
-def _commit_and_push(files: list[str], message: str) -> None:
-    """提交并推送"""
-    for f in files:
-        subprocess.run(["git", "add", f], check=True)
-    subprocess.run(["git", "commit", "-m", message], check=True)
-    subprocess.run(["git", "push", "-u", "origin", "HEAD"], check=True)
-
-
-def _create_pr(
-    repo: str,
-    title: str,
-    body: str,
-    head: str,
-    base: str = "main",
-) -> str:
-    """创建 PR"""
-    cmd = [
-        "gh",
-        "pr",
-        "create",
-        "--repo",
-        repo,
-        "--title",
-        title,
-        "--body",
-        body,
-        "--head",
-        head,
-        "--base",
-        base,
-    ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    return result.stdout.strip()
-
-
 # =============================================================================
 # 结果解析
 # =============================================================================
@@ -239,7 +199,6 @@ async def run_ci_fix(
     *,
     model: str = "claude-opus-4-7",
     base_branch: str = "main",
-    dry_run: bool = False,
     max_turns: int = 15,
 ) -> CiFixResult:
     """
@@ -250,7 +209,6 @@ async def run_ci_fix(
         run_id: workflow run ID
         model: 使用的模型（建议用 Opus 强推理）
         base_branch: PR 目标分支
-        dry_run: 只输出计划，不执行写操作
         max_turns: 最大对话轮次
 
     Returns:
@@ -310,18 +268,5 @@ async def run_ci_fix(
             pr_url=None,
             fixed=False,
         )
-
-    if not dry_run and structured.fixed:
-        try:
-            pr_url = _create_pr(
-                repo,
-                title=f"ci-fix: {run_info.get('name', 'CI')} (#{run_id})",
-                body=f"## Root Cause\n\n{structured.root_cause}\n\n## Fix\n\n{structured.fix_description}\n\nCloses #{run_id}",
-                head=structured.branch_name,
-                base=base_branch,
-            )
-            structured.pr_url = pr_url
-        except subprocess.CalledProcessError:
-            pass
 
     return structured

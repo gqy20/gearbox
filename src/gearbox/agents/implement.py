@@ -85,46 +85,6 @@ def _gh_pr_view(repo: str, pr_number: int) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def _create_branch(branch_name: str) -> None:
-    """从当前 HEAD 创建新分支"""
-    subprocess.run(["git", "checkout", "-b", branch_name], check=True)
-
-
-def _commit_and_push(files: list[str], message: str) -> None:
-    """提交文件并推送"""
-    for f in files:
-        subprocess.run(["git", "add", f], check=True)
-    subprocess.run(["git", "commit", "-m", message], check=True)
-    subprocess.run(["git", "push", "-u", "origin", "HEAD"], check=True)
-
-
-def _create_pr(
-    repo: str,
-    title: str,
-    body: str,
-    head: str,
-    base: str = "main",
-) -> str:
-    """创建 PR 并返回 URL"""
-    cmd = [
-        "gh",
-        "pr",
-        "create",
-        "--repo",
-        repo,
-        "--title",
-        title,
-        "--body",
-        body,
-        "--head",
-        head,
-        "--base",
-        base,
-    ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    return result.stdout.strip()
-
-
 # =============================================================================
 # 结果解析
 # =============================================================================
@@ -198,7 +158,6 @@ async def run_implement(
     *,
     model: str = "claude-sonnet-4-6",
     base_branch: str = "main",
-    dry_run: bool = False,
     max_turns: int = 20,
 ) -> ImplementResult:
     """
@@ -209,7 +168,6 @@ async def run_implement(
         issue_number: Issue 编号
         model: 使用的模型
         base_branch: PR 目标分支
-        dry_run: 只输出计划，不执行写操作
         max_turns: 最大对话轮次
 
     Returns:
@@ -266,19 +224,5 @@ async def run_implement(
             pr_url=None,
             ready_for_review=False,
         )
-
-    # 执行写操作（dry_run 跳过）
-    if not dry_run and structured.ready_for_review:
-        try:
-            pr_url = _create_pr(
-                repo,
-                title=f"Fix: {issue_title}",
-                body=f"## 实现\n\n{structured.summary}\n\nCloses #{issue_number}",
-                head=structured.branch_name,
-                base=base_branch,
-            )
-            structured.pr_url = pr_url
-        except subprocess.CalledProcessError:
-            pass  # PR 创建失败不影响返回结果
 
     return structured

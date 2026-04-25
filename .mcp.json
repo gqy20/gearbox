@@ -43,7 +43,7 @@
       "env": {
         "OPENAI_API_KEY": "${ANTHROPIC_AUTH_TOKEN}",
         "OPENAI_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-        "LLM_MODEL": "glm-4.7"
+        "LLM_MODEL": "glm-5v-turbo"
       }
     }
   }

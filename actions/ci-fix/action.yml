@@ -68,6 +68,16 @@ runs:
           exit 1
         fi
 
+    - name: Prepare working branch
+      shell: bash
+      env:
+        GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
+      run: |
+        TEMP_BRANCH="gearbox/ci-fix-temp-$(date +%s)"
+        git fetch origin $GEARBOX_BASE_BRANCH
+        git checkout -b "$TEMP_BRANCH" "origin/$GEARBOX_BASE_BRANCH"
+        echo "TEMP_BRANCH=$TEMP_BRANCH" >> $GITHUB_ENV
+
     - name: Run CI Fix Agent
       id: run
       shell: bash
@@ -76,7 +86,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         GEARBOX_MODEL: ${{ inputs.model }}
         GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
-        GEARBOX_DRY_RUN: ${{ inputs.dry_run }}
         GEARBOX_REPO: ${{ github.repository }}
         GEARBOX_RUN_ID: ${{ github.event.workflow_run.id }}
         GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
@@ -88,7 +97,7 @@ runs:
         fi
 
         python3 << 'PYEOF'
-        import asyncio, os, sys
+        import asyncio, json, os, sys
         sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
         from gearbox.agents.ci_fix import run_ci_fix
 
@@ -98,19 +107,89 @@ runs:
                 int(os.environ['GEARBOX_RUN_ID']),
                 model=os.environ.get('GEARBOX_MODEL', 'claude-opus-4-7'),
                 base_branch=os.environ.get('GEARBOX_BASE_BRANCH', 'main'),
-                dry_run=os.environ.get('GEARBOX_DRY_RUN', 'false').lower() == 'true',
                 max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '15')),
             )
             output = {
                 'branch_name': result.branch_name or '',
                 'root_cause': result.root_cause or '',
+                'fix_description': result.fix_description or '',
+                'files_changed': json.dumps(result.files_changed),
                 'pr_url': result.pr_url or '',
-                'status': 'success' if result.fixed else 'partial',
+                'fixed': str(result.fixed).lower(),
             }
             with open(os.environ.get('GITHUB_OUTPUT', '/tmp/github_output'), 'w') as f:
                 for k, v in output.items():
                     f.write(f"{k}={v}\n")
-            print(f"✅ CI Fix: branch={result.branch_name}, pr={result.pr_url}, root_cause={result.root_cause[:50]}")
+            print(f"✅ CI Fix: branch={result.branch_name}, fixed={result.fixed}")
 
         asyncio.run(main())
         PYEOF
+
+    - name: Finalize branch and PR
+      shell: bash
+      if: ${{ inputs.dry_run == 'false' }}
+      env:
+        GEARBOX_REPO: ${{ github.repository }}
+        GEARBOX_RUN_ID: ${{ github.event.workflow_run.id }}
+      run: |
+        set -e
+        source $GITHUB_OUTPUT
+
+        if [ "$fixed" != "true" ] || [ -z "$branch_name" ]; then
+          echo "⚠️ Agent did not complete fix, skipping PR creation"
+          echo "status=partial" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Rename temp branch to final branch name
+        TEMP_BRANCH="${TEMP_BRANCH:-gearbox/ci-fix-temp}"
+        git branch -m "$TEMP_BRANCH" "$branch_name"
+
+        # Add all changed files
+        git add -A
+
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "⚠️ No changes to commit"
+          echo "status=partial" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Commit
+        git commit -m "fix: $fix_description
+
+        Root cause: $root_cause
+
+        Closes #$GEARBOX_RUN_ID"
+
+        # Push to remote
+        git push -u origin "$branch_name"
+
+        # Create PR
+        PR_URL=$(gh pr create \
+          --repo "$GEARBOX_REPO" \
+          --title "ci-fix: $fix_description" \
+          --body "## Root Cause
+
+$root_cause
+
+## Fix
+
+$fix_description
+
+Closes #$GEARBOX_RUN_ID" \
+          --head "$branch_name" \
+          --base "$GEARBOX_BASE_BRANCH")
+
+        echo "✅ PR created: $PR_URL"
+        echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Cleanup on dry run
+      shell: bash
+      if: ${{ inputs.dry_run == 'true' }}
+      run: |
+        TEMP_BRANCH="${TEMP_BRANCH:-gearbox/ci-fix-temp-$(date +%s)}"
+        git checkout "$GEARBOX_BASE_BRANCH"
+        git branch -D "$TEMP_BRANCH" 2>/dev/null || true
+        echo "status=dry_run" >> $GITHUB_OUTPUT

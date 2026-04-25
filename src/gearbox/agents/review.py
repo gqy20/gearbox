@@ -99,20 +99,6 @@ def _gh_pr_diff(repo: str, pr_number: int) -> str:
     return result.stdout
 
 
-def _post_review_comment(
-    repo: str,
-    pr_number: int,
-    body: str,
-    event: str = "COMMENT",
-) -> None:
-    """发布 Review 评论"""
-    # event: APPROVE / REQUEST_CHANGES / COMMENT
-    subprocess.run(
-        ["gh", "pr", "review", "--repo", repo, str(pr_number), "--body", body, "--event", event],
-        check=True,
-    )
-
-
 # =============================================================================
 # 结果解析
 # =============================================================================
@@ -142,27 +128,6 @@ def _parse_result(text: str) -> ReviewResult | None:
         )
     except (json.JSONDecodeError, KeyError, ValueError):
         return None
-
-
-def _build_review_body(result: ReviewResult) -> str:
-    """将 ReviewResult 格式化为 Markdown 评论"""
-    lines = [
-        "## Code Review\n",
-        f"**评分**: {result.score}/10",
-        f"**结论**: {result.verdict}\n",
-        f"### {result.summary}\n",
-    ]
-
-    if result.comments:
-        lines.append("### 详细意见\n")
-        for c in result.comments:
-            icon = {"blocker": "🔴", "warning": "🟡", "info": "🔵"}.get(c.severity, "•")
-            if c.line:
-                lines.append(f"{icon} `{c.file}:{c.line}` — {c.body}")
-            else:
-                lines.append(f"{icon} `{c.file}` — {c.body}")
-
-    return "\n".join(lines)
 
 
 # =============================================================================
@@ -223,7 +188,6 @@ async def run_review(
     pr_number: int,
     *,
     model: str = "claude-sonnet-4-6",
-    dry_run: bool = False,
     max_turns: int = 10,
 ) -> ReviewResult:
     """
@@ -233,7 +197,6 @@ async def run_review(
         repo: 仓库标识
         pr_number: PR 编号
         model: 使用的模型
-        dry_run: 只输出，不发布 Review
         max_turns: 最大对话轮次
 
     Returns:
@@ -279,27 +242,5 @@ async def run_review(
 
     if structured is None:
         structured = _parse_result(result_text)
-
-    if structured is None:
-        structured = ReviewResult(
-            verdict="Comment Only",
-            score=5,
-            summary="Review 失败或超时",
-            comments=[],
-        )
-
-    # 发布 Review
-    if not dry_run:
-        body = _build_review_body(structured)
-        event_map = {
-            "LGTM": "APPROVE",
-            "Request Changes": "REQUEST_CHANGES",
-            "Comment Only": "COMMENT",
-        }
-        event = event_map.get(structured.verdict, "COMMENT")
-        try:
-            _post_review_comment(repo, pr_number, body, event)
-        except subprocess.CalledProcessError:
-            pass
 
     return structured

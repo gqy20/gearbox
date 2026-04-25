@@ -4,36 +4,12 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import (
-    AssistantMessage,
-    ClaudeAgentOptions,
-    ResultMessage,
-    TextBlock,
-    create_sdk_mcp_server,
-    query,
-)
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
 
 from gearbox.config import get_anthropic_model
 from gearbox.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
-from gearbox.tools.benchmark import discover_benchmarks
-from gearbox.tools.compare import create_comparison
-from gearbox.tools.issue import generate_issue_content
-from gearbox.tools.profile import generate_profile
 
-# 创建自定义 MCP 服务器
-AUDITOR_SERVER = create_sdk_mcp_server(
-    name="gearbox",
-    version="1.0.0",
-    tools=[
-        generate_profile,
-        discover_benchmarks,
-        create_comparison,
-        generate_issue_content,
-    ],
-)
-
-
-# System prompt - 让 Claude 自主决策分析流程
+# System prompt - AI-native 审计专家
 SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 
 ## 目标
@@ -47,52 +23,31 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 - **Bash**: 执行命令（包括 `gh` CLI 工具）
 - **Write**: 保存分析结果到文件
 
-**自定义工具**:
-- **generate_profile**: 生成结构化仓库 Profile（项目类型、构建配置、质量工具等）
-- **discover_benchmarks**: 基于目标画像发现并粗排对标项目候选
-- **create_comparison**: 基于 target profile 和 benchmark profiles 生成 15 个能力维度的对比矩阵
-- **generate_issue_content**: 生成 Issue 内容模板（标题、问题、证据、解决方案、标签）
+**MCP 工具**（可用于外部知识查询）:
+- **mcp__web_search_prime__search_text**: 网络搜索，发现对标项目
+- **mcp__context7__query_docs**: 查询库/框架官方文档
 
 **GitHub 仓库操作**:
-使用 `gh` 命令（GitHub CLI）而不是 MCP 工具：
+使用 `gh` 命令:
 - `gh repo view owner/repo` - 查看仓库信息
 - `gh search repos --language python --stars >1000 topic:cli` - 搜索仓库
-- `gh api /repos/owner/repo/topics` - 获取 topics
-- `gh api /repos/owner/repo/languages` - 获取语言统计
+- `gh api /repos/owner/repo/contents/pyproject.toml` - 获取项目配置
 
-## 推荐工作方式
+## 工作方式
 
-优先把自定义工具当作结构化能力来使用，而不是完全依赖临时阅读和自由总结。
-
-推荐顺序：
-1. 先使用 `generate_profile` 获取目标仓库的结构化画像
-2. 如果用户未指定 benchmark，优先使用 `discover_benchmarks` 获取候选对标项目
-3. 对最终选择的 benchmark，也尽量先建立结构化画像，再使用 `create_comparison`
-4. 基于 comparison 结果和仓库证据，再生成改进建议与 issue 草稿
-
-你不需要机械执行固定步骤；如果工具结果不足，可以补充使用 Read/Glob/Grep/Bash 深入检查。
-
-## 分析要求
-
-- 优先使用结构化结果作为结论依据
-- 不要跳过 comparison 直接给泛泛建议
-- 如果 benchmark 候选不合适，可以自行调整最终采用的项目
-- 允许结合 `gh` 命令补充仓库元数据或远程文件证据
+1. 用 Read 分析本地仓库结构，或用 gh 查看远程仓库
+2. 用 web_search_prime 搜索对标项目
+3. 用 context7 查询相关库的官方文档
+4. 自主分析并生成报告
 
 ## 输出格式
 
-**必须生成以下文件**（保存到指定目录）:
-- `profile.json` - 仓库 Profile
+**必须生成以下文件**（使用 Write 工具保存到指定目录）:
+- `profile.json` - 仓库 Profile（类型、语言、构建配置、质量工具等）
 - `comparison.md` - 对比矩阵（Markdown 表格）
 - `issues.json` - 改进建议列表（**重要！必须创建**）
 
-**issues.json 格式限制**（严格遵守）:
-- 最多 3 个 Issues（选择最重要的）
-- 每个 Issue body 不超过 1000 字符
-- 每个 Issue 最多 3 个要点（问题描述、解决方案、预期收益）
-- 简洁明了，去除冗余内容
-
-**issues.json 示例**:
+**issues.json 格式**:
 ```json
 {
   "issues": [
@@ -106,21 +61,14 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 }
 ```
 
-**注意事项**:
-- 使用 Write 工具创建 issues.json
-- 精选最重要的改进项（≤3个）
+## 质量要求
+
+- 最多 3 个 Issues
 - 每个 Issue ≤1000 字符，≤3 个要点
 - 标签包含优先级（critical/high/medium/low）
-- 不要尝试直接创建 GitHub Issue，只生成 JSON 文件
-- Issue 内容应尽量引用 comparison 结论和实际仓库证据
-
-## 改进建议质量要求
-
-每个 Issue 必须包含：
-- ✓ **证据**: 对标项目的实际做法（附链接）
-- ✓ **路线**: 具体的实施步骤
-- ✓ **收益**: 预期改进效果
-"""
+- 精选最重要的改进项
+- 不要尝试创建 GitHub Issue，只生成 JSON 文件
+- 尽量引用实际仓库证据和对标项目参考"""
 
 
 async def run_audit(
@@ -139,25 +87,16 @@ async def run_audit(
     Returns:
         审计结果字典
     """
-    # 创建输出目录
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # 配置 Agent 选项
     options = ClaudeAgentOptions(
         model=get_anthropic_model(),
-        mcp_servers={
-            **MCP_SERVERS,
-            "auditor": AUDITOR_SERVER,
-        },
-        allowed_tools=[
-            *ALLOWED_TOOLS,
-            "mcp__auditor__*",
-        ],
+        mcp_servers=MCP_SERVERS,
+        allowed_tools=ALLOWED_TOOLS,
         system_prompt=SYSTEM_PROMPT,
     )
 
-    # 构建提示词
     if benchmarks:
         benchmark_str = ", ".join(benchmarks)
         prompt = f"""请审计仓库: {repo}
@@ -166,18 +105,17 @@ async def run_audit(
 
 输出目录: {output_dir}
 
-请优先为目标仓库和这些 benchmark 生成结构化 profile，再完成 comparison 和报告文件。"""
+请生成 profile.json、comparison.md 和 issues.json。"""
     else:
         prompt = f"""请审计仓库: {repo}
 
 请自主发现对标项目（约 5 个），然后进行对比分析。
 
-提示：优先使用 `generate_profile` -> `discover_benchmarks` -> `create_comparison` 这条结构化链路；必要时再使用 `gh search repos` 补充搜索。
+输出目录: {output_dir}
 
-输出目录: {output_dir}"""
+请生成 profile.json、comparison.md 和 issues.json。"""
 
-    # 执行查询
-    results = {
+    results: dict[str, Any] = {
         "repo": repo,
         "benchmarks": benchmarks,
         "output_dir": output_dir,

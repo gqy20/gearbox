@@ -9,14 +9,19 @@ inputs:
     default: ${{ github.token }}
 
   model:
-    description: 'Claude 模型'
+    description: '使用的模型（默认从 provider 配置读取）'
     required: false
-    default: 'claude-sonnet-4-6'
+    default: ''
 
   max_turns:
     description: '最大对话轮次'
     required: false
     default: '10'
+
+  parallel_count:
+    description: '并行执行次数（1=不并行）'
+    required: false
+    default: '3'
 
   dry_run:
     description: '试运行模式（不发布 Review）'
@@ -77,6 +82,7 @@ runs:
           --pr "${{ github.event.pull_request.number }}" \
           --model "${{ inputs.model }}" \
           --max-turns "${{ inputs.max_turns }}" \
+          --parallel-count "${{ inputs.parallel_count }}" \
           --output "$GITHUB_OUTPUT"
 
     - name: Verify completion

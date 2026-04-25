@@ -9,9 +9,9 @@ inputs:
     default: ${{ github.token }}
 
   model:
-    description: 'Claude 模型'
+    description: '使用的模型（默认从 provider 配置读取）'
     required: false
-    default: 'claude-sonnet-4-6'
+    default: ''
 
   max_turns:
     description: '最大对话轮次'

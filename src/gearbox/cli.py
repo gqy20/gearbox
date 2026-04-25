@@ -12,6 +12,7 @@ from .agents.implement import run_implement
 from .agents.review import run_review
 from .agents.triage import run_triage
 from .config import (
+    AGENT_DEFAULTS,
     get_config_path,
     get_github_token,
     load_config,
@@ -19,6 +20,7 @@ from .config import (
     set_anthropic_base_url,
     set_anthropic_model,
     set_github_token,
+    set_provider,
 )
 from .core import run_parallel
 from .core.gh import (
@@ -211,30 +213,31 @@ def agent() -> None:
 @agent.command()
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--issue", required=True, type=int, help="Issue 编号")
-@click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
-@click.option("--max-turns", default=5, type=int, help="最大对话轮次")
-@click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
-@click.option("--parallel-count", default=3, type=int, help="并行执行次数")
+@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
+@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次")
+@click.option("--parallel-count", default=AGENT_DEFAULTS["parallel_count"], type=int, help="并行执行次数（1=不并行）")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def triage(
     repo: str,
     issue: int,
     model: str,
     max_turns: int,
-    parallel: bool,
     parallel_count: int,
     output: str,
 ) -> None:
     """运行 Triage Agent - 分析 Issue 并打标签/定优先级"""
     from gearbox.agents.evaluator import run_evaluator
+    from gearbox.config import get_anthropic_model
 
-    if parallel:
+    resolved_model = model or get_anthropic_model()
+
+    if parallel_count > 1:
         # 同一任务并行执行多次
         async def agent_factory(_: str):
-            return await run_triage(repo, issue, model=model, max_turns=max_turns)
+            return await run_triage(repo, issue, model=resolved_model, max_turns=max_turns)
 
         angles = [f"run_{i}" for i in range(parallel_count)]
-        all_results = asyncio.run(run_parallel(agent_factory, angles, model=model))
+        all_results = asyncio.run(run_parallel(agent_factory, angles, model=resolved_model))
 
         if not all_results:
             click.echo("❌ No results from parallel execution")
@@ -245,7 +248,7 @@ def triage(
                 results=all_results,
                 result_type="Triage 分类结果",
                 result_names=angles[: len(all_results)],
-                model=model,
+                model=resolved_model,
             )
         )
 
@@ -260,7 +263,7 @@ def triage(
             run_triage(
                 repo,
                 issue,
-                model=model,
+                model=resolved_model,
                 max_turns=max_turns,
             )
         )
@@ -279,24 +282,26 @@ def triage(
 @agent.command()
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--pr", required=True, type=int, help="PR 编号")
-@click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
-@click.option("--max-turns", default=10, type=int, help="最大对话轮次")
-@click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
-@click.option("--parallel-count", default=3, type=int, help="并行执行次数")
+@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
+@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["review"], type=int, help="最大对话轮次")
+@click.option("--parallel-count", default=AGENT_DEFAULTS["parallel_count"], type=int, help="并行执行次数（1=不并行）")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def review(
-    repo: str, pr: int, model: str, max_turns: int, parallel: bool, parallel_count: int, output: str
+    repo: str, pr: int, model: str, max_turns: int, parallel_count: int, output: str
 ) -> None:
     """运行 Review Agent - 审查 PR 代码"""
     from gearbox.agents.evaluator import run_evaluator
+    from gearbox.config import get_anthropic_model
 
-    if parallel:
+    resolved_model = model or get_anthropic_model()
+
+    if parallel_count > 1:
         # 同一任务并行执行多次
         async def agent_factory(_: str):
-            return await run_review(repo, pr, model=model, max_turns=max_turns)
+            return await run_review(repo, pr, model=resolved_model, max_turns=max_turns)
 
         angles = [f"run_{i}" for i in range(parallel_count)]
-        all_results = asyncio.run(run_parallel(agent_factory, angles, model=model))
+        all_results = asyncio.run(run_parallel(agent_factory, angles, model=resolved_model))
 
         if not all_results:
             click.echo("❌ No results from parallel execution")
@@ -307,7 +312,7 @@ def review(
                 results=all_results,
                 result_type="Review 审查结果",
                 result_names=angles[: len(all_results)],
-                model=model,
+                model=resolved_model,
             )
         )
 
@@ -322,7 +327,7 @@ def review(
             run_review(
                 repo,
                 pr,
-                model=model,
+                model=resolved_model,
                 max_turns=max_turns,
             )
         )
@@ -344,14 +349,18 @@ def review(
 @agent.command()
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--issue", required=True, type=int, help="Issue 编号")
-@click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
+@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
 @click.option("--base-branch", default="main", help="PR 目标分支")
-@click.option("--max-turns", default=20, type=int, help="最大对话轮次")
+@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["implement"], type=int, help="最大对话轮次")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement(
     repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str
 ) -> None:
     """运行 Implement Agent - 实现 Issue 并创建 PR"""
+    from gearbox.config import get_anthropic_model
+
+    resolved_model = model or get_anthropic_model()
+
     temp_branch = prepare_working_branch(base_branch)
 
     try:
@@ -359,7 +368,7 @@ def implement(
             run_implement(
                 repo,
                 issue,
-                model=model,
+                model=resolved_model,
                 base_branch=base_branch,
                 max_turns=max_turns,
             )
@@ -394,10 +403,9 @@ def implement(
 @click.option("--benchmarks", default="", help="逗号分隔的对标仓库列表（可选）")
 @click.option("--output-dir", default="./output", help="输出目录")
 @click.option("--model", default="", help="使用的模型")
-@click.option("--max-turns", default=20, type=int, help="最大对话轮次")
+@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["audit"], type=int, help="最大对话轮次")
 @click.option("--system-prompt", default="", help="自定义 System Prompt（可选）")
-@click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
-@click.option("--parallel-count", default=3, type=int, help="并行执行次数")
+@click.option("--parallel-count", default=AGENT_DEFAULTS["parallel_count"], type=int, help="并行执行次数（1=不并行）")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def audit_repo(
     repo: str,
@@ -406,7 +414,6 @@ def audit_repo(
     model: str,
     max_turns: int,
     system_prompt: str,
-    parallel: bool,
     parallel_count: int,
     output: str,
 ) -> None:
@@ -417,7 +424,7 @@ def audit_repo(
     model_arg = model if model else None
     system_prompt_arg = system_prompt if system_prompt else None
 
-    if parallel:
+    if parallel_count > 1:
         # 同一任务并行执行多次
         async def agent_factory(_: str):
             return await run_audit(
@@ -514,29 +521,28 @@ def config_set(key: str, value: str) -> None:
     \b
     可用的 KEY:
       github-token           GitHub Token (用于 gh 命令)
-      anthropic-api-key      Anthropic API Key (必需)
-      anthropic-base-url     Anthropic Base URL (可选，用于代理)
-      anthropic-model        Agent 模型名 (默认: glm-5.1)
+      anthropic-api-key      API Key (必需)
+      provider               预设 Provider (minimax/glm/anthropic)
+      anthropic-base-url     Base URL (provider 预设时会自动设置)
+      anthropic-model        模型名 (默认: glm-5.1)
 
     \b
-    环境变量（优先级更高）:
-      ANTHROPIC_AUTH_TOKEN   API Key (官方推荐)
-      ANTHROPIC_BASE_URL     Base URL
-      ANTHROPIC_MODEL        Model
-      GITHUB_TOKEN           GitHub Token
+    Provider 预设 (一键配置 base_url + model):
+      minimax                MiniMax API (base_url + MiniMax-M2.7-highspeed)
+      glm                    智谱 GLM API (base_url + glm-5v-turbo)
+      anthropic              Anthropic API (base_url + claude-sonnet-4-6)
 
     \b
     示例:
-        gearbox config set github-token ghp_xxxxx
-        gearbox config set anthropic-api-key sk-ant-xxxxx
-        gearbox config set anthropic-base-url https://api.anthropic.com
-        gearbox config set anthropic-model glm-5.1
+        gearbox config set provider minimax
+        gearbox config set anthropic-api-key sk-xxxxx
     """
     key_map = {
         "github-token": set_github_token,
         "anthropic-api-key": set_anthropic_api_key,
         "anthropic-base-url": set_anthropic_base_url,
         "anthropic-model": set_anthropic_model,
+        "provider": set_provider,
     }
 
     if key not in key_map:

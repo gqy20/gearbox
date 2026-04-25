@@ -18,7 +18,7 @@ inputs:
     default: './output'
 
   model:
-    description: '使用的模型'
+    description: '使用的模型（默认从 provider 配置读取）'
     required: false
     default: ''
 
@@ -32,13 +32,8 @@ inputs:
     required: false
     default: ''
 
-  parallel:
-    description: '启用并行执行（同一任务多次）'
-    required: false
-    default: 'false'
-
   parallel_count:
-    description: '并行执行次数'
+    description: '并行执行次数（1=不并行，2+=并行执行）'
     required: false
     default: '3'
 
@@ -89,7 +84,7 @@ runs:
         fi
 
         PARALLEL_ARG=""
-        if [ "${{ inputs.parallel }}" = "true" ]; then
+        if [ "${{ inputs.parallel_count }}" -gt 1 ]; then
           PARALLEL_ARG="--parallel --parallel-count ${{ inputs.parallel_count }}"
         fi
 

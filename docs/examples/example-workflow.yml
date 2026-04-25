@@ -1,0 +1,68 @@
+name: 'Gearbox AI Workflows'
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行模式'
+        required: true
+        default: 'audit'
+        type: choice
+        options:
+          - audit
+          - triage
+          - review
+          - implement
+
+jobs:
+  gearbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # =============================================================
+      # 模式一：仓库审计 (推荐首次使用)
+      # =============================================================
+      - name: Audit Repository
+        if: github.event.inputs.mode == 'audit'
+        uses: ./.github/actions/gearbox/audit
+        with:
+          repo: ${{ github.repository }}
+          benchmarks: ''                          # 可选：逗号分隔的对标仓库
+          parallel_count: 3                       # 可选：并行次数（1=不并行，3=推荐）
+          system_prompt: ''                       # 可选：自定义 System Prompt
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # =============================================================
+      # 模式二：Issue 分类
+      # =============================================================
+      - name: Triage Issue
+        if: github.event.inputs.mode == 'triage'
+        uses: ./.github/actions/gearbox/triage
+        with:
+          max_turns: 5
+          parallel_count: 3                       # 可选：并行次数
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # =============================================================
+      # 模式三：PR Code Review
+      # =============================================================
+      - name: Review PR
+        if: github.event.inputs.mode == 'review'
+        uses: ./.github/actions/gearbox/review
+        with:
+          max_turns: 10
+          parallel_count: 3                       # 可选：并行次数
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # =============================================================
+      # 模式四：Issue 实现
+      # =============================================================
+      - name: Implement Issue
+        if: github.event.inputs.mode == 'implement'
+        uses: ./.github/actions/gearbox/implement
+        with:
+          issue: ${{ github.event.issue.number }}
+          base_branch: main
+          max_turns: 20
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

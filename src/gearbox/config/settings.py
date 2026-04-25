@@ -10,6 +10,17 @@ import tomli_w
 CONFIG_DIR = Path.home() / ".config" / "gearbox"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
+# Agent 默认参数（CLI 和 Action 均引用此处的值）
+AGENT_DEFAULTS: dict[str, Any] = {
+    "parallel_count": 3,
+    "max_turns": {
+        "triage": 5,
+        "review": 10,
+        "implement": 20,
+        "audit": 20,
+    },
+}
+
 
 def ensure_config_dir() -> None:
     """确保配置目录存在"""
@@ -71,23 +82,52 @@ def get_anthropic_api_key() -> str | None:
 def get_anthropic_base_url() -> str | None:
     """获取 Anthropic Base URL（用于代理等）
 
-    支持的环境变量: ANTHROPIC_BASE_URL
+    优先级：配置文件 > 环境变量 > Provider 默认值。
     """
     config = load_config()
     if "anthropic_base_url" in config:
         return config["anthropic_base_url"]
 
+    # 如果配置了 provider，使用其默认值
+    if "provider" in config:
+        provider = PROVIDERS.get(config["provider"])
+        if provider:
+            return provider["base_url"]
+
     return os.environ.get("ANTHROPIC_BASE_URL")
+
+
+# Provider 预设配置
+PROVIDERS: dict[str, dict[str, str]] = {
+    "minimax": {
+        "base_url": "https://api.minimaxi.com/anthropic",
+        "model": "MiniMax-M2.7-highspeed",
+    },
+    "glm": {
+        "base_url": "https://open.bigmodel.cn/api/anthropic",
+        "model": "glm-5v-turbo",
+    },
+    "anthropic": {
+        "base_url": "https://api.anthropic.com",
+        "model": "claude-sonnet-4-6",
+    },
+}
 
 
 def get_anthropic_model() -> str:
     """获取 Anthropic/Agent 模型名。
 
-    优先级：配置文件 > 环境变量 > 默认值。
+    优先级：配置文件 > 环境变量 > Provider 默认值。
     """
     config = load_config()
     if "anthropic_model" in config:
         return config["anthropic_model"]
+
+    # 如果配置了 provider，使用其默认值
+    if "provider" in config:
+        provider = PROVIDERS.get(config["provider"])
+        if provider:
+            return provider["model"]
 
     return os.environ.get("ANTHROPIC_MODEL", "glm-5.1")
 
@@ -117,4 +157,16 @@ def set_anthropic_model(model: str) -> None:
     """设置 Agent 模型名"""
     config = load_config()
     config["anthropic_model"] = model
+    save_config(config)
+
+
+def set_provider(provider: str) -> None:
+    """设置 Provider 预设（会同时设置 base_url 和 model）"""
+    if provider not in PROVIDERS:
+        raise ValueError(f"未知的 Provider: {provider}，可用: {', '.join(PROVIDERS.keys())}")
+
+    config = load_config()
+    config["provider"] = provider
+    config["anthropic_base_url"] = PROVIDERS[provider]["base_url"]
+    config["anthropic_model"] = PROVIDERS[provider]["model"]
     save_config(config)

@@ -210,7 +210,7 @@ async def run_audit(
 
     options = ClaudeAgentOptions(
         model=model,
-        mcp_servers=MCP_SERVERS,
+        mcp_servers=MCP_SERVERS,  # type: ignore
         allowed_tools=ALLOWED_TOOLS,
         system_prompt=SYSTEM_PROMPT,
         max_turns=max_turns,
@@ -231,6 +231,155 @@ async def run_audit(
 请自主发现对标项目（约 5 个），然后进行对比分析。
 
 输出目录: {output_path}
+
+请生成 profile.json、comparison.md 和 issues.json。"""
+
+    result_text = ""
+    structured: AuditResult | None = None
+
+    async for message in query(prompt=prompt, options=options):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    result_text += block.text
+                    print(block.text)
+        elif isinstance(message, ResultMessage):
+            if message.total_cost_usd:
+                print(f"\n💰 成本: ${message.total_cost_usd:.4f}")
+                if structured:
+                    structured.cost = message.total_cost_usd
+
+        parsed = _parse_result(result_text)
+        if parsed and not structured:
+            structured = parsed
+
+    if structured is None:
+        structured = _parse_result(result_text)
+
+    if structured is None:
+        structured = AuditResult(
+            repo=repo,
+            issues=[],
+        )
+
+    return structured
+
+
+# =============================================================================
+# 并行执行与评估
+# =============================================================================
+
+# 定义审计角度
+AUDIT_ANGLES = [
+    "代码质量与最佳实践",
+    "安全漏洞与性能问题",
+    "开发者体验与可维护性",
+]
+
+
+async def run_audit_parallel(
+    repo: str,
+    benchmarks: list[str] | None = None,
+    output_dir: str = "./output",
+    *,
+    model: str | None = None,
+    max_turns: int = 20,
+    parallel_count: int = 3,
+) -> dict[str, Any]:
+    """
+    并行执行多个角度的仓库审计，使用 Evaluator Agent 选择最佳结果。
+
+    Args:
+        repo: 仓库标识
+        benchmarks: 指定的对标仓库
+        output_dir: 输出目录
+        model: 使用的模型
+        max_turns: 每个实例的最大对话轮次
+        parallel_count: 并行实例数量（默认 3）
+
+    Returns:
+        {
+            "result": AuditResult,  # 选中的最佳结果
+            "all_results": list[AuditResult],  # 所有结果
+            "evaluation": EvaluationResult,  # 评估结果
+        }
+    """
+    from gearbox.agents.evaluator import run_parallel
+    from gearbox.config import get_anthropic_model
+
+    resolved_model = model or get_anthropic_model()
+    angles = AUDIT_ANGLES[:parallel_count]
+
+    # 为每个角度创建输出目录
+    async def agent_factory(angle: str) -> AuditResult:
+        instance_output = f"{output_dir}/instance_{angles.index(angle)}"
+        return await _run_audit_with_angle(
+            repo=repo,
+            benchmarks=benchmarks,
+            output_dir=instance_output,
+            angle=angle,
+            model=resolved_model,
+            max_turns=max_turns,
+        )
+
+    return await run_parallel(
+        agent_factory=agent_factory,
+        angles=angles,
+        result_type="Audit 审计结果",
+        model=resolved_model,
+        max_turns=5,
+    )
+
+
+async def _run_audit_with_angle(
+    repo: str,
+    benchmarks: list[str] | None,
+    output_dir: str,
+    angle: str,
+    model: str,
+    max_turns: int,
+) -> AuditResult:
+    """运行单个审计实例，带特定角度提示"""
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        TextBlock,
+        query,
+    )
+
+    from gearbox.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
+
+    # 根据角度调整 system prompt
+    angle_prompt = f"""【审计角度: {angle}】
+
+请特别关注以下方面：
+- {angle}相关的改进点
+- 发现的问题应该与此角度高度相关"""
+
+    options = ClaudeAgentOptions(
+        model=model,
+        mcp_servers=MCP_SERVERS,  # type: ignore
+        allowed_tools=ALLOWED_TOOLS,
+        system_prompt=SYSTEM_PROMPT + "\n\n" + angle_prompt,
+        max_turns=max_turns,
+    )
+
+    if benchmarks:
+        benchmark_str = ", ".join(benchmarks)
+        prompt = f"""请审计仓库: {repo}
+
+对标项目: {benchmark_str}
+
+输出目录: {output_dir}
+
+请生成 profile.json、comparison.md 和 issues.json。"""
+    else:
+        prompt = f"""请审计仓库: {repo}
+
+请自主发现对标项目（约 5 个），然后进行对比分析。
+
+输出目录: {output_dir}
 
 请生成 profile.json、comparison.md 和 issues.json。"""
 

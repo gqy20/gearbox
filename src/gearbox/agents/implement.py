@@ -59,7 +59,7 @@ class ImplementResult:
 # =============================================================================
 
 
-def _gh_issue_view(repo: str, issue_number: int) -> dict[str, Any]:
+def _gh_issue_view(repo: str, issue_number: int) -> Any:
     """获取 issue 信息"""
     cmd = [
         "gh",
@@ -72,7 +72,7 @@ def _gh_issue_view(repo: str, issue_number: int) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def _gh_pr_view(repo: str, pr_number: int) -> dict[str, Any]:
+def _gh_pr_view(repo: str, pr_number: int) -> Any:
     """获取 PR 信息"""
     cmd = [
         "gh",

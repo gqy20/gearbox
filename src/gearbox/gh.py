@@ -39,11 +39,16 @@ def post_review_comment(
     try:
         subprocess.run(
             [
-                "gh", "pr", "review",
-                "--repo", repo,
+                "gh",
+                "pr",
+                "review",
+                "--repo",
+                repo,
                 str(pr_number),
-                "--body", body,
-                "--event", event,
+                "--body",
+                body,
+                "--event",
+                event,
             ],
             check=True,
             capture_output=True,
@@ -63,10 +68,14 @@ def post_issue_comment(
     try:
         subprocess.run(
             [
-                "gh", "issue", "comment",
-                "--repo", repo,
+                "gh",
+                "issue",
+                "comment",
+                "--repo",
+                repo,
                 str(issue_number),
-                "--body", body,
+                "--body",
+                body,
             ],
             check=True,
             capture_output=True,
@@ -89,10 +98,14 @@ def add_issue_labels(
     try:
         subprocess.run(
             [
-                "gh", "issue", "edit",
-                "--repo", repo,
+                "gh",
+                "issue",
+                "edit",
+                "--repo",
+                repo,
                 str(issue_number),
-                "--add-label", ",".join(labels),
+                "--add-label",
+                ",".join(labels),
             ],
             check=True,
             capture_output=True,
@@ -126,6 +139,7 @@ def prepare_working_branch(base_branch: str) -> str:
         临时分支名
     """
     import uuid
+
     temp_branch = f"gearbox/temp-{uuid.uuid4().hex[:8]}"
     subprocess.run(["git", "fetch", "origin", base_branch], check=True)
     subprocess.run(
@@ -241,12 +255,19 @@ def create_pr(
     try:
         result = subprocess.run(
             [
-                "gh", "pr", "create",
-                "--repo", repo,
-                "--title", title,
-                "--body", body,
-                "--head", head,
-                "--base", base,
+                "gh",
+                "pr",
+                "create",
+                "--repo",
+                repo,
+                "--title",
+                title,
+                "--body",
+                body,
+                "--head",
+                head,
+                "--base",
+                base,
             ],
             check=True,
             capture_output=True,
@@ -353,10 +374,15 @@ def create_issue(
         CreatePrResult
     """
     cmd = [
-        "gh", "issue", "create",
-        "--repo", repo,
-        "--title", title,
-        "--body", body,
+        "gh",
+        "issue",
+        "create",
+        "--repo",
+        repo,
+        "--title",
+        title,
+        "--body",
+        body,
     ]
     if labels:
         filtered = [label for label in labels if label in VALID_ISSUE_LABELS]

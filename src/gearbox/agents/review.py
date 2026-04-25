@@ -79,7 +79,7 @@ class ReviewResult:
 # =============================================================================
 
 
-def _gh_pr_view(repo: str, pr_number: int) -> dict[str, Any]:
+def _gh_pr_view(repo: str, pr_number: int) -> Any:
     """获取 PR 信息"""
     cmd = [
         "gh",
@@ -243,4 +243,17 @@ async def run_review(
     if structured is None:
         structured = _parse_result(result_text)
 
+    if structured is None:
+        structured = ReviewResult(
+            verdict="Comment Only",
+            score=5,
+            summary="Review completed with parsing issues",
+            comments=[],
+        )
+
     return structured
+
+
+# =============================================================================
+# 并行执行与评估
+# =============================================================================

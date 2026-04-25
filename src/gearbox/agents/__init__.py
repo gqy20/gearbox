@@ -1,7 +1,8 @@
 """Agent 模块 — 各业务 Agent 定义"""
 
 from .audit import OUTPUT_SCHEMA as AUDIT_SCHEMA
-from .audit import AuditResult, Issue, run_audit
+from .audit import AuditResult, Issue, run_audit, run_audit_parallel
+from .evaluator import EVALUATOR_SCHEMA, EvaluationResult, run_evaluator, run_parallel
 from .implement import OUTPUT_SCHEMA as IMPLEMENT_SCHEMA
 from .implement import ImplementResult, run_implement
 from .review import OUTPUT_SCHEMA as REVIEW_SCHEMA
@@ -15,6 +16,12 @@ __all__ = [
     "Issue",
     "AUDIT_SCHEMA",
     "run_audit",
+    "run_audit_parallel",
+    # Evaluator
+    "EvaluationResult",
+    "EVALUATOR_SCHEMA",
+    "run_evaluator",
+    "run_parallel",
     # Triage
     "TriageResult",
     "TRIAGE_SCHEMA",

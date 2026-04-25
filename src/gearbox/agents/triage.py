@@ -67,7 +67,7 @@ class TriageResult:
 # =============================================================================
 
 
-def _gh_issue_view(repo: str, issue_number: int) -> dict[str, Any]:
+def _gh_issue_view(repo: str, issue_number: int) -> Any:
     """通过 gh api 获取 issue 完整信息"""
     cmd = [
         "gh",
@@ -241,3 +241,8 @@ async def run_triage(
         )
 
     return structured
+
+
+# =============================================================================
+# 并行执行与评估
+# =============================================================================

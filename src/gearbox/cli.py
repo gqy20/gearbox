@@ -43,6 +43,7 @@ def cli() -> None:
 # Audit 命令
 # =============================================================================
 
+
 @cli.command()
 @click.option(
     "--repo",
@@ -151,7 +152,9 @@ def publish_issues(input_path: str, dry_run: bool) -> None:
             created.append(f"DRY-RUN {repo}#{index}: {title}")
             continue
 
-        label_list = [item.strip() for item in labels.split(",") if item.strip()] if labels else None
+        label_list = (
+            [item.strip() for item in labels.split(",") if item.strip()] if labels else None
+        )
         result = create_issue(repo, title, body, label_list)
 
         if result.success:
@@ -180,6 +183,7 @@ def publish_issues(input_path: str, dry_run: bool) -> None:
 # =============================================================================
 # Agent 命令
 # =============================================================================
+
 
 def _result_to_github_output(result, output_file: str = "/tmp/github_output") -> None:
     """通用结果转 GitHub Output 文件"""
@@ -270,7 +274,9 @@ def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
 @click.option("--base-branch", default="main", help="PR 目标分支")
 @click.option("--max-turns", default=20, type=int, help="最大对话轮次")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def implement(repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str) -> None:
+def implement(
+    repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str
+) -> None:
     """运行 Implement Agent - 实现 Issue 并创建 PR"""
     temp_branch = prepare_working_branch(base_branch)
 
@@ -316,7 +322,9 @@ def implement(repo: str, issue: int, model: str, base_branch: str, max_turns: in
 @click.option("--model", default="", help="使用的模型")
 @click.option("--max-turns", default=20, type=int, help="最大对话轮次")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def audit_repo(repo: str, benchmarks: str, output_dir: str, model: str, max_turns: int, output: str) -> None:
+def audit_repo(
+    repo: str, benchmarks: str, output_dir: str, model: str, max_turns: int, output: str
+) -> None:
     """运行 Audit Agent - 审计仓库生成改进建议"""
     benchmark_list = benchmarks.split(",") if benchmarks else None
     model_arg = model if model else None
@@ -337,6 +345,7 @@ def audit_repo(repo: str, benchmarks: str, output_dir: str, model: str, max_turn
 # =============================================================================
 # Config 命令
 # =============================================================================
+
 
 @cli.group()
 def config() -> None:

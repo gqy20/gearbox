@@ -42,13 +42,13 @@ actions/
 |------|------|------|------|
 | `implement.py` | issue body | diff patch | 基于 issue 描述生成代码变更 |
 | `review.py` | PR diff | review comment | 自动 code review |
-| `ci_fix.py` | CI log | fix commit | 解析 CI 失败并自动修复 |
+| `audit.py` | repo | issues.json | 仓库审计生成改进建议 |
 
 每个工具遵循相同模式：`@tool()` 装饰器 → 返回 `{content, structured_output}`。
 
 **交付物**：
 - [ ] 3 个新 tool 文件 + 单元测试
-- [ ] 对应的 composite action（`actions/implement/`, `actions/review/`, `actions/ci_fix/`）
+- [ ] 对应的 composite action（`actions/implement/`, `actions/review/`, `actions/audit/`）
 
 ## Phase 3: 配置系统
 
@@ -62,7 +62,7 @@ project:
 
 triage: { enabled: true, auto_label: true }
 review: { enabled: true, focus_areas: [security, testing] }
-ci_fix: { enabled: true, max_retries: 3 }
+audit: { enabled: true, schedule: "weekly" }
 report: { enabled: true, schedule: "weekly" }
 ```
 

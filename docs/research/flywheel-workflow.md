@@ -4,8 +4,8 @@
 
 ```
                     ┌─────────────────────┐
-                    │   定时巡检 / 报告     │
-                    │   发现新改进点        │
+                    │   Audit            │
+                    │   仓库审计/生成Issue│
                     └──────────┬──────────┘
                                │ 创建 Issue
                                ▼
@@ -16,19 +16,44 @@
         ▲                                                    │
         │                                                    ▼
         │                                          ┌─────────────────────┐
-        │                                          │   CI 检查            │
+        │                                          │   Merge             │
         │                                          └──────────┬──────────┘
-        │                                                     │ 失败
+        │                                                     │
         │                                                     ▼
         │                                          ┌─────────────────────┐
-        └──────────────────────────────────────────│   CI Fix             │
-           Merge 后触发新巡检                         │   自动修复            │
+        └──────────────────────────────────────────│   Report            │
+           定时触发新巡检                             │   巡检报告          │
                                                    └─────────────────────┘
 ```
 
-## 六大 Workflow 详细设计
+## 五大 Workflow 详细设计
 
-### 1. Triage — Issue 自动分类
+### 1. Audit — 仓库审计
+
+**触发条件：** 定时（每周）或手动
+
+**流程：```
+定时触发 (cron)    ↓
+分析仓库状态:
+  - 代码结构、配置、依赖
+  - 发现对标项目
+  - 生成能力对比矩阵
+    ↓
+生成改进建议 (issues.json)
+    ↓
+发布为 Issue (标签: enhancement/bug/refactor)
+```**配置示例：**
+```yaml
+audit:
+  enabled: true
+  schedule: "0 9 * * 1"       # 每周一 9 点 UTC
+  benchmarks: []              # 空则自动发现
+  max_issues: 3
+```**推荐模型：** Sonnet 4.6
+
+---
+
+### 2. Triage — Issue 自动分类
 
 **触发条件：** Issue opened / edited
 
@@ -64,7 +89,7 @@ triage:
 
 ---
 
-### 2. Implement — Issue → PR
+### 3. Implement — Issue → PR
 
 **触发条件：** Issue labeled `ready-to-implement`
 
@@ -106,7 +131,7 @@ implement:
 
 ---
 
-### 3. Review — PR Code Review
+### 4. Review — PR Code Review
 
 **触发条件：** PR opened / synchronize
 
@@ -145,50 +170,7 @@ review:
 
 ---
 
-### 4. CI Fix — CI 失败自动修复
-
-**触发条件：** CI workflow failed
-
-**流程：**
-```
-CI Workflow Failed
-    ↓
-获取失败日志 (GitHub API)
-    ↓
-解析错误信息 + 定位相关代码
-    ↓
-创建分支: gearbox/ci-fix-{run_id}
-    ↓
-尝试修复（安全模式：不改配置、不删文件）
-    ↓
-Commit + Push + 创建 Fix PR
-    ↓
-报告修复结果
-```
-
-**关键防护（防死循环）：**
-```yaml
-if: |
-  !startsWith(github.event.workflow_run.head_branch, 'gearbox-*') &&
-  !startsWith(github.event.workflow_run.head_branch, 'claude-*')
-```
-
-**配置示例：**
-```yaml
-ci_fix:
-  enabled: true
-  watch_workflows: ["CI", "test", "build"]
-  model: claude-opus-4-7     # 排查需要强推理
-  max_turns: 15
-  safe_operations_only: true
-  max_repair_attempts: 3
-```
-
-**推荐模型：** Opus 4.7（排查需要强推理能力）
-
----
-
-### 5. Auto-Merge — 条件合并
+### 4. Auto-Merge — 条件合并
 
 **触发条件：** PR ready_for_review + checks passed
 
@@ -211,7 +193,7 @@ auto_merge:
 
 ---
 
-### 6. Report — 定时巡检
+### 5. Report — 定时巡检
 
 **触发条件：** Cron（每日/每周）
 
@@ -274,7 +256,7 @@ review:
   enabled: true
   focus_areas: [security, testing]
 
-ci_fix:
+audit:
   enabled: true
 
 auto_merge:
@@ -409,7 +391,7 @@ version: "1.0"
 triage: { enabled: true, auto_label: true }
 implement: { enabled: false }
 review: { enabled: false }
-ci_fix: { enabled: false }
+audit: { enabled: false }
 auto_merge: { enabled: false }
 report: { enabled: true, schedule: "0 9 * * 1" }  # 每周一
 guardrails:
@@ -429,7 +411,7 @@ review:
     - "Validate all input schemas"
     - "Check SQL injection vectors"
     - "Proper error responses (no stack traces)"
-ci_fix: { enabled: true, safe_operations_only: true }
+audit: { enabled: true }
 auto_merge: { enabled: true, require_approval: true }
 report: { enabled: true, schedule: "0 9 * * *" }
 guardrails:
@@ -450,7 +432,7 @@ review:
     - "Components must be properly typed"
     - "No console.log in production code"
     - "Follow existing component patterns"
-ci_fix: { enabled: true, safe_operations_only: true }
+audit: { enabled: true }
 auto_merge: { enabled: false }
 report: { enabled: true, schedule: "0 9 * * 1" }
 ```

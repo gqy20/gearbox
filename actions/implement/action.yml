@@ -65,16 +65,6 @@ runs:
           exit 1
         fi
 
-    - name: Prepare working branch
-      shell: bash
-      env:
-        GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
-      run: |
-        TEMP_BRANCH="gearbox/implement-temp-$(date +%s)"
-        git fetch origin $GEARBOX_BASE_BRANCH
-        git checkout -b "$TEMP_BRANCH" "origin/$GEARBOX_BASE_BRANCH"
-        echo "TEMP_BRANCH=$TEMP_BRANCH" >> $GITHUB_ENV
-
     - name: Run Implement Agent
       id: run
       shell: bash
@@ -96,69 +86,8 @@ runs:
           --max-turns "${{ inputs.max_turns }}" \
           --output "$GITHUB_OUTPUT"
 
-    - name: Finalize branch and PR
-      if: ${{ inputs.dry_run == 'false' }}
+    - name: Verify completion
       shell: bash
-      env:
-        GEARBOX_REPO: ${{ github.repository }}
-        GEARBOX_ISSUE: ${{ github.event.issue.number }}
       run: |
-        set -e
         source $GITHUB_OUTPUT
-
-        if [ "$ready_for_review" != "true" ] || [ -z "$branch_name" ]; then
-          echo "⚠️ Agent did not complete implementation, skipping PR creation"
-          echo "status=partial" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-
-        # Rename temp branch and push
-        TEMP_BRANCH="${TEMP_BRANCH:-gearbox/implement-temp}"
-        git branch -m "$TEMP_BRANCH" "$branch_name"
-
-        # Parse files_changed from JSON
-        FILES=$(echo '$files_changed' | python3 -c "import sys,json; print(' '.join(json.load(sys.stdin)))" 2>/dev/null || echo "")
-
-        # Add and commit
-        if [ -n "$FILES" ]; then
-          for f in $FILES; do git add "$f"; done
-        else
-          git add -A
-        fi
-
-        if git diff --staged --quiet; then
-          echo "⚠️ No changes to commit"
-          echo "status=partial" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-
-        COMMIT_MSG="feat: $summary
-
-        Closes #$GEARBOX_ISSUE"
-        git commit -m "$COMMIT_MSG"
-        git push -u origin "$branch_name"
-
-        # Create PR
-        PR_URL=$(gh pr create \
-          --repo "$GEARBOX_REPO" \
-          --title "feat($GEARBOX_ISSUE): $summary" \
-          --body "## Summary
-
-$summary
-
-Closes #$GEARBOX_ISSUE" \
-          --head "$branch_name" \
-          --base "$GEARBOX_BASE_BRANCH")
-
-        echo "✅ PR created: $PR_URL"
-        echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Cleanup on dry run
-      if: ${{ inputs.dry_run == 'true' }}
-      shell: bash
-      run: |
-        TEMP_BRANCH="${TEMP_BRANCH:-gearbox/implement-temp-$(date +%s)}"
-        git checkout "$GEARBOX_BASE_BRANCH"
-        git branch -D "$TEMP_BRANCH" 2>/dev/null || true
-        echo "status=dry_run" >> $GITHUB_OUTPUT
+        echo "✅ Implement completed: branch=$branch_name, pr_url=$pr_url"

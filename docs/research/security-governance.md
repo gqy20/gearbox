@@ -29,22 +29,8 @@
 | Triage | 无需排除（只读+打标签） | 不创建分支 |
 | Implement | 排除 `gearbox-*` 分支上的 Issue | 防止递归实现 |
 | Review | 排除 `gearbox-*` 分支的 PR | 避免自我 review |
-| CI Fix | 排除 `gearbox-*` 和 `claude-*` 分支 | **最关键**，防止修复→失败→再修复的死循环 |
 | Auto-Merge | 排除 `gearbox-*` 分支的 PR | 人工审核 AI 产出 |
 | Report | 无需排除（只读+创建 Issue） | 不修改代码 |
-
-### CI Fix 死循环防护（完整示例）
-
-```yaml
-jobs:
-  ci-fix:
-    if: |
-      github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.pull_requests[0] &&
-      !startsWith(github.event.workflow_run.head_branch, 'gearbox-') &&
-      !startsWith(github.event.workflow_run.head_branch, 'claude-') &&
-      !startsWith(github.event.workflow_run.head_branch, 'auto-fix-')
-```
 
 ## 2. 成本控制
 
@@ -109,12 +95,12 @@ inputs:
 
 | 操作 | 推荐模型 | 预估成本/次 | 月频次(50PR团队) | 月成本 |
 |------|---------|------------|---------------|-------|
+| Audit | Sonnet 4.6 | $0.05-0.20 | ~4 | $0.2-0.8 |
 | Triage | Sonnet 4.6 | $0.01-0.03 | ~100 | $1-3 |
 | Review | Sonnet 4.6 | $0.02-0.05 | ~50 | $1-2.5 |
 | Implement | Sonnet 4.6 | $0.05-0.20 | ~10 | $0.5-2 |
-| CI Fix | Opus 4.7 | $0.10-0.30 | ~5 | $0.5-1.5 |
 | Report | Sonnet 4.6 | $0.02-0.04 | ~30 | $0.6-1.2 |
-| **合计** | | | | **~$4-10/月** |
+| **合计** | | | | **~$3-10/月** |
 
 ## 3. 权限模型：最小权限原则
 
@@ -138,12 +124,6 @@ permissions:
   contents: write        # branch + commit + push
   pull-quests: write     # create PR
   issues: write          # update Issue status
-
-# CI Fix: 写入 + 执行
-permissions:
-  contents: write
-  pull-requests: write
-  actions: read          # 读 CI 日志
 
 # Report: 只读 + 创建 Issue
 permissions:

@@ -1,7 +1,7 @@
 """Agent 模块 — 各业务 Agent 定义"""
 
-from .ci_fix import OUTPUT_SCHEMA as CI_FIX_SCHEMA
-from .ci_fix import CiFixResult, run_ci_fix
+from .audit import OUTPUT_SCHEMA as AUDIT_SCHEMA
+from .audit import AuditResult, Issue, run_audit
 from .implement import OUTPUT_SCHEMA as IMPLEMENT_SCHEMA
 from .implement import ImplementResult, run_implement
 from .review import OUTPUT_SCHEMA as REVIEW_SCHEMA
@@ -10,6 +10,11 @@ from .triage import OUTPUT_SCHEMA as TRIAGE_SCHEMA
 from .triage import TriageResult, run_triage
 
 __all__ = [
+    # Audit
+    "AuditResult",
+    "Issue",
+    "AUDIT_SCHEMA",
+    "run_audit",
     # Triage
     "TriageResult",
     "TRIAGE_SCHEMA",
@@ -23,8 +28,4 @@ __all__ = [
     "ReviewComment",
     "REVIEW_SCHEMA",
     "run_review",
-    # CI Fix
-    "CiFixResult",
-    "CI_FIX_SCHEMA",
-    "run_ci_fix",
 ]

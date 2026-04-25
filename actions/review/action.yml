@@ -79,48 +79,9 @@ runs:
           --max-turns "${{ inputs.max_turns }}" \
           --output "$GITHUB_OUTPUT"
 
-    - name: Post review comment
+    - name: Verify completion
       if: ${{ inputs.dry_run == 'false' }}
       shell: bash
-      env:
-        GEARBOX_REPO: ${{ github.repository }}
-        GEARBOX_PR: ${{ github.event.pull_request.number }}
       run: |
         source $GITHUB_OUTPUT
-
-        # Build review body
-        BODY="## Code Review\n\n**评分**: $score/10\n\n**结论**: $verdict\n\n### $summary"
-
-        # Parse comments from JSON
-        if [ -n "$comments" ] && [ "$comments" != "[]" ]; then
-          BODY+="\n\n### 详细意见"
-          echo "$comments" | python3 << 'PYEOF'
-        import sys, json
-        comments = json.load(sys.stdin)
-        for c in comments:
-            icon = {"blocker": "🔴", "warning": "🟡", "info": "🔵"}.get(c.get("severity", "info"), "•")
-            file = c.get("file", "")
-            line = c.get("line")
-            body = c.get("body", "")
-            if line:
-                print(f"\n{icon} `{file}:{line}` — {body}")
-            else:
-                print(f"\n{icon} `{file}` — {body}")
-        PYEOF
-        fi
-
-        # Map verdict to event
-        case "$verdict" in
-          "LGTM") EVENT="APPROVE" ;;
-          "Request Changes") EVENT="REQUEST_CHANGES" ;;
-          *) EVENT="COMMENT" ;;
-        esac
-
-        # Post review
-        echo "$BODY" | gh pr review \
-          --repo "$GEARBOX_REPO" \
-          --body-file - \
-          --event "$EVENT" \
-          "$GEARBOX_PR"
-
-        echo "✅ Review posted with event: $EVENT"
+        echo "✅ Review completed: verdict=$verdict, score=$score"

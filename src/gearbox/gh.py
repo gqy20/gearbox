@@ -118,6 +118,23 @@ def prepare_branch(base_branch: str, temp_branch: str) -> None:
     )
 
 
+def prepare_working_branch(base_branch: str) -> str:
+    """
+    准备工作分支（自动生成临时分支名）。
+
+    Returns:
+        临时分支名
+    """
+    import uuid
+    temp_branch = f"gearbox/temp-{uuid.uuid4().hex[:8]}"
+    subprocess.run(["git", "fetch", "origin", base_branch], check=True)
+    subprocess.run(
+        ["git", "checkout", "-b", temp_branch, f"origin/{base_branch}"],
+        check=True,
+    )
+    return temp_branch
+
+
 def finalize_and_push(
     temp_branch: str,
     final_branch: str,
@@ -158,6 +175,54 @@ def finalize_and_push(
         return False
     except subprocess.CalledProcessError:
         return False
+
+
+def finalize_and_create_pr(
+    repo: str,
+    temp_branch: str,
+    final_branch: str,
+    commit_message: str,
+    pr_title: str,
+    pr_body: str,
+    base: str = "main",
+) -> CreatePrResult:
+    """
+    重命名分支、提交、推送并创建 PR。
+
+    Returns:
+        CreatePrResult
+    """
+    try:
+        # 重命名分支
+        subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
+
+        # 添加文件
+        subprocess.run(["git", "add", "-A"], check=True)
+
+        # 检查是否有变更
+        result = subprocess.run(
+            ["git", "diff", "--staged", "--quiet"],
+            capture_output=True,
+        )
+        if result.returncode == 1:
+            subprocess.run(["git", "commit", "-m", commit_message], check=True)
+            subprocess.run(
+                ["git", "push", "-u", "origin", final_branch],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        # 创建 PR
+        return create_pr(
+            repo=repo,
+            title=pr_title,
+            body=pr_body,
+            head=final_branch,
+            base=base,
+        )
+    except subprocess.CalledProcessError as e:
+        return CreatePrResult(success=False, error=e.stderr.strip())
 
 
 def create_pr(

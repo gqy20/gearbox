@@ -29,7 +29,7 @@ gearbox/
 │   ├── triage/action.yml             # Issue 分类排序
 │   ├── implement/action.yml          # Issue → 实现 → PR
 │   ├── review/action.yml             # PR Code Review
-│   ├── ci-fix/action.yml             # CI 失败修复
+│   ├── audit/action.yml              # 仓库审计
 │   ├── auto-merge/action.yml         # 条件自动合并
 │   ├── report/action.yml             # 定时健康报告
 │   ├── setup/action.yml              # 一键初始化
@@ -274,11 +274,8 @@ runs:
           pull_request)
             echo "mode=review" >> $GITHUB_OUTPUT
             ;;
-          workflow_run)
-            echo "mode=ci-fix" >> $GITHUB_OUTPUT
-            ;;
           schedule)
-            echo "mode=report" >> $GITHUB_OUTPUT
+            echo "mode=audit" >> $GITHUB_OUTPUT
             ;;
           check_run)
             echo "mode=auto-merge" >> $GITHUB_OUTPUT

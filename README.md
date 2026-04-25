@@ -5,7 +5,7 @@
 可复用的 GitHub Action 套件。消费者仓库一行 `uses: gqy20/gearbox@v1` 接入完整闭环：
 
 ```
-Issue → Triage → Implement → Review → CI Fix → Merge → Report
+Audit → Issue → Triage → Implement → Review → Merge → Report
 ```
 
 ## 安装
@@ -42,10 +42,9 @@ uv run mypy src
 ```text
 src/gearbox/
   cli.py       # CLI 入口
-  audit.py     # Agent 审计主流程
-  publish.py   # Issue 发布逻辑
+  gh.py        # GitHub 操作封装
+  agents/      # Agent 定义 (audit/triage/implement/review)
   config/      # 配置与 MCP 设置
-  tools/       # 自定义 MCP 工具
 tests/
 ```
 

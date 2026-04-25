@@ -8,7 +8,6 @@ from pathlib import Path
 import click
 
 from .agents.audit import run_audit
-from .agents.ci_fix import run_ci_fix
 from .agents.implement import run_implement
 from .agents.review import run_review
 from .agents.triage import run_triage
@@ -21,7 +20,16 @@ from .config import (
     set_anthropic_model,
     set_github_token,
 )
-from .gh import create_issue, write_outputs
+from .gh import (
+    add_issue_labels,
+    build_review_body,
+    create_issue,
+    finalize_and_create_pr,
+    post_issue_comment,
+    post_review_comment,
+    prepare_working_branch,
+    write_outputs,
+)
 
 
 @click.group()
@@ -191,7 +199,7 @@ def _result_to_github_output(result, output_file: str = "/tmp/github_output") ->
 
 @cli.group()
 def agent() -> None:
-    """运行 Agent (Triage/Review/Implement/CI-Fix)"""
+    """运行 Agent (Audit/Triage/Review/Implement)"""
     pass
 
 
@@ -211,6 +219,14 @@ def triage(repo: str, issue: int, model: str, max_turns: int, output: str) -> No
             max_turns=max_turns,
         )
     )
+
+    # GitHub 操作
+    add_issue_labels(repo, issue, result.labels)
+    if result.needs_clarification and result.clarification_question:
+        post_issue_comment(repo, issue, f"👋 {result.clarification_question}")
+    if result.ready_to_implement:
+        post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
+
     _result_to_github_output(result, output)
     click.echo(f"✅ Triage: labels={result.labels}, priority={result.priority}")
 
@@ -231,6 +247,18 @@ def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
             max_turns=max_turns,
         )
     )
+
+    # GitHub 操作
+    comments = [
+        {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
+        for c in result.comments
+    ]
+    body = build_review_body(result.verdict, result.score, result.summary, comments)
+    event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(result.verdict, "COMMENT")
+    post_review_comment(repo, pr, body, event)
+
+    _result_to_github_output(result, output)
+    click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
     _result_to_github_output(result, output)
     click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
 
@@ -244,39 +272,41 @@ def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement(repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str) -> None:
     """运行 Implement Agent - 实现 Issue 并创建 PR"""
-    result = asyncio.run(
-        run_implement(
-            repo,
-            issue,
-            model=model,
-            base_branch=base_branch,
-            max_turns=max_turns,
-        )
-    )
-    _result_to_github_output(result, output)
-    click.echo(f"✅ Implement: branch={result.branch_name}, ready={result.ready_for_review}")
+    temp_branch = prepare_working_branch(base_branch)
 
-
-@agent.command(name="ci-fix")
-@click.option("--repo", required=True, help="仓库标识 (owner/name)")
-@click.option("--run-id", "run_id", required=True, type=int, help="Workflow Run ID")
-@click.option("--model", default="claude-opus-4-7", help="使用的模型")
-@click.option("--base-branch", default="main", help="PR 目标分支")
-@click.option("--max-turns", default=15, type=int, help="最大对话轮次")
-@click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def ci_fix(repo: str, run_id: int, model: str, base_branch: str, max_turns: int, output: str) -> None:
-    """运行 CI Fix Agent - 修复失败的 CI"""
-    result = asyncio.run(
-        run_ci_fix(
-            repo,
-            run_id,
-            model=model,
-            base_branch=base_branch,
-            max_turns=max_turns,
+    try:
+        result = asyncio.run(
+            run_implement(
+                repo,
+                issue,
+                model=model,
+                base_branch=base_branch,
+                max_turns=max_turns,
+            )
         )
-    )
-    _result_to_github_output(result, output)
-    click.echo(f"✅ CI Fix: branch={result.branch_name}, fixed={result.fixed}")
+
+        if result.ready_for_review and result.branch_name:
+            commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
+            pr_body = f"## Summary\n\n{result.summary}\n\nCloses #{issue}"
+            pr_result = finalize_and_create_pr(
+                repo=repo,
+                temp_branch=temp_branch,
+                final_branch=result.branch_name,
+                commit_message=commit_msg,
+                pr_title=f"feat(#{issue}): {result.summary}",
+                pr_body=pr_body,
+                base=base_branch,
+            )
+            if pr_result.success:
+                result.pr_url = pr_result.pr_url
+                click.echo(f"✅ PR created: {pr_result.pr_url}")
+            else:
+                click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
+
+        _result_to_github_output(result, output)
+        click.echo(f"✅ Implement: branch={result.branch_name}, ready={result.ready_for_review}")
+    finally:
+        pass  # 分支已在 finalize_and_create_pr 中处理
 
 
 @agent.command(name="audit-repo")

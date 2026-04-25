@@ -12,8 +12,8 @@
 
 ```
                         ┌─────────────────────┐
-                        │   定时巡检 / 报告     │
-                        │   (发现新问题)        │
+                        │   Audit             │
+                        │   仓库审计/生成Issue │
                         └──────────┬──────────┘
                                    │ 创建 Issue
                                    ▼
@@ -24,13 +24,13 @@
         ▲                                                    │
         │                                                    ▼
         │                                          ┌─────────────────────┐
-        │                                          │   CI 检查            │
+        │                                          │   Merge             │
         │                                          └──────────┬──────────┘
-        │                                                     │ 失败
+        │                                                     │
         │                                                     ▼
         │                                          ┌─────────────────────┐
-        └──────────────────────────────────────────│   CI Fix             │
-           Merge 后触发新巡检                         │   (自动修复)          │
+        └──────────────────────────────────────────│   Report            │
+           定时触发新巡检                              │   巡检报告          │
                                                    └─────────────────────┘
 ```
 
@@ -104,14 +104,14 @@ gearbox/
 │   │   ├── triage.md
 │   │   ├── implement.md
 │   │   ├── review.md
-│   │   ├── ci_fix.md
+│   │   ├── audit.md
 │   │   └── report.md
 │   ├── tools/                      # 工具集
 │   │   ├── __init__.py
 │   │   ├── triage.py               # 分类工具
 │   │   ├── implement.py            # 实现工具
 │   │   ├── review.py               # Review 工具
-│   │   ├── ci_fix.py               # CI 修复工具
+│   │   ├── audit.py                # 审计工具
 │   │   ├── profile.py              # 仓库画像（已有）
 │   │   ├── compare.py              # 对比分析（已有）
 │   │   ├── issue.py                # Issue 生成（已有）
@@ -127,8 +127,8 @@ gearbox/
 │   │   └── action.yml             # Issue → 实现 → PR
 │   ├── review/
 │   │   └── action.yml             # PR Code Review
-│   ├── ci-fix/
-│   │   └── action.yml             # CI 失败修复
+│   ├── audit/
+│   │   └── action.yml             # 仓库审计
 │   ├── auto-merge/
 │   │   └── action.yml             # 条件自动合并
 │   ├── report/
@@ -165,9 +165,16 @@ gearbox/
     └── CODEOWNERS
 ```
 
-## 六大核心 Action
+## 五大核心 Action
 
-### 1. Triage — 自动分类
+### 1. Audit — 仓库审计
+
+- **触发**: 定时（每周）或手动
+- **输入**: 仓库全量状态
+- **输出**: 改进建议 Issue
+- **模型**: Sonnet
+
+### 2. Triage — 自动分类
 
 - **触发**: Issue opened / edited
 - **输入**: Issue 内容 (title, body, labels)
@@ -190,22 +197,14 @@ gearbox/
 - **模型**: Sonnet
 - **并发控制**: cancel-in-progress
 
-### 4. CI Fix — 自动修复
-
-- **触发**: CI workflow failed
-- **输入**: 失败日志 + 相关代码
-- **输出**: 修复分支 + Fix PR
-- **模型**: Opus (排查需要强推理)
-- **关键防护**: 排除 claude-* 分支防止死循环
-
-### 5. Auto-Merge — 条件合并
+### 4. Auto-Merge — 条件合并
 
 - **触发**: PR ready_for_review + checks passed
 - **条件**: 非 draft + approval ≥ 1 + checks pass + 无 wip 标签
 - **技术**: 纯 GitHub Actions (无需 AI)
 - **安全**: 永远不自动 merge AI 生成的 PR 到 main
 
-### 6. Report — 定时巡检
+### 5. Report — 定时巡检
 
 - **触发**: Cron (每日/每周)
 - **输入**: 仓库全量状态

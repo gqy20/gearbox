@@ -31,19 +31,19 @@ inputs:
 outputs:
   labels_added:
     description: '添加的标签列表（逗号分隔）'
-    value: ${{ steps.triage.outputs.labels_added }}
+    value: ${{ steps.run.outputs.labels_added }}
   priority:
     description: '判定优先级 P0-P3'
-    value: ${{ steps.triage.outputs.priority }}
+    value: ${{ steps.run.outputs.priority }}
   complexity:
     description: '判定复杂度 S/M/L'
-    value: ${{ steps.triage.outputs.complexity }}
+    value: ${{ steps.run.outputs.complexity }}
   ready_to_implement:
     description: '是否标记为可实现'
-    value: ${{ steps.triage.outputs.ready_to_implement }}
+    value: ${{ steps.run.outputs.ready_to_implement }}
   status:
     description: '执行状态'
-    value: ${{ steps.triage.outputs.status }}
+    value: ${{ steps.run.outputs.status }}
 
 runs:
   using: 'composite'
@@ -81,7 +81,7 @@ runs:
         echo "✅ API key available"
 
     - name: Run Triage Agent
-      id: triage
+      id: run
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
@@ -90,7 +90,6 @@ runs:
       run: |
         set -e
 
-        # 导出 API key
         if [ -n "$ANTHROPIC_API_KEY" ]; then
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
@@ -101,22 +100,3 @@ runs:
           --model "${{ inputs.model }}" \
           --max-turns "${{ inputs.max_turns }}" \
           --output "$GITHUB_OUTPUT"
-
-    - name: Apply labels and comments
-      if: ${{ inputs.dry_run == 'false' }}
-      shell: bash
-      env:
-        GEARBOX_REPO: ${{ github.repository }}
-        GEARBOX_ISSUE: ${{ github.event.issue.number }}
-      run: |
-        source $GITHUB_OUTPUT
-
-        # 添加标签
-        if [ -n "$labels_added" ]; then
-          gh issue edit "$GEARBOX_REPO#$GEARBOX_ISSUE" --add-label "$labels_added"
-        fi
-
-        # 添加评论
-        if [ "$ready_to_implement" == "true" ]; then
-          gh issue comment "$GEARBOX_REPO#$GEARBOX_ISSUE" --body "✅ 此 Issue 分类完成，标记为 ready-to-implement"
-        fi

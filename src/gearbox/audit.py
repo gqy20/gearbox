@@ -34,7 +34,7 @@ AUDITOR_SERVER = create_sdk_mcp_server(
 
 
 # System prompt - 让 Claude 自主决策分析流程
-SYSTEM_PROMPT = """你是 Repo Auditor，一个专业的代码库审计专家。
+SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 
 ## 目标
 

@@ -20,7 +20,7 @@ def test_cli_help() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "Repo Auditor" in result.output
+    assert "Gearbox" in result.output
     assert "audit" in result.output
     assert "config" in result.output
     assert "publish-issues" in result.output

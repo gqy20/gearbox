@@ -20,10 +20,7 @@ from .publish import publish_issues_from_file
 @click.group()
 @click.version_option(version="0.1.0", prog_name="gearbox")
 def cli() -> None:
-    """Repo Auditor - AI 驱动的仓库审计工具
-
-    通过对标分析，自动发现差距并生成改进建议。
-    """
+    """Gearbox - AI 驱动的仓库自动化飞轮系统"""
     pass
 
 
@@ -73,7 +70,7 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
         click.echo("或设置环境变量: export ANTHROPIC_AUTH_TOKEN=YOUR_KEY")
         raise click.Abort()
 
-    click.echo(f"🔍 Repo Auditor - 分析仓库: {repo}")
+    click.echo(f"🔍 Gearbox - 分析仓库: {repo}")
     if benchmark_list:
         click.echo(f"📊 指定对标: {', '.join(benchmark_list)}")
 

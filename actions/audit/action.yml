@@ -27,6 +27,16 @@ inputs:
     required: false
     default: '20'
 
+  parallel:
+    description: '启用多角度并行审计'
+    required: false
+    default: 'false'
+
+  parallel_count:
+    description: '并行实例数量'
+    required: false
+    default: '3'
+
   anthropic_api_key:
     description: 'Anthropic API Key'
     required: false
@@ -73,11 +83,17 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
+        PARALLEL_ARG=""
+        if [ "${{ inputs.parallel }}" = "true" ]; then
+          PARALLEL_ARG="--parallel --parallel-count ${{ inputs.parallel_count }}"
+        fi
+
         python3 -m gearbox.cli agent audit-repo \
           --repo "${{ inputs.repo }}" \
           --output-dir "${{ inputs.output_dir }}" \
           --benchmarks "${{ inputs.benchmarks }}" \
           --max-turns "${{ inputs.max_turns }}" \
+          $PARALLEL_ARG \
           --output "$GITHUB_OUTPUT"
 
     - name: Parse results

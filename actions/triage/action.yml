@@ -1,0 +1,144 @@
+name: 'Gearbox - Triage'
+description: 'AI 驱动的 Issue 自动分类、优先级判断和标签管理'
+author: 'gqy20'
+
+inputs:
+  github_token:
+    description: 'GitHub Token (默认使用 GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
+
+  model:
+    description: '使用的 Claude 模型'
+    required: false
+    default: 'claude-sonnet-4-6'
+
+  max_turns:
+    description: '最大对话轮次（成本护栏）'
+    required: false
+    default: '5'
+
+  dry_run:
+    description: '试运行模式（只输出，不执行写操作）'
+    required: false
+    default: 'false'
+
+  anthropic_api_key:
+    description: 'Anthropic API Key (默认从环境变量读取)'
+    required: false
+    default: ''
+
+outputs:
+  labels_added:
+    description: '添加的标签列表（逗号分隔）'
+    value: ${{ steps.triage.outputs.labels_added }}
+  priority:
+    description: '判定优先级 P0-P3'
+    value: ${{ steps.triage.outputs.priority }}
+  complexity:
+    description: '判定复杂度 S/M/L'
+    value: ${{ steps.triage.outputs.complexity }}
+  ready_to_implement:
+    description: '是否标记为可实现'
+    value: ${{ steps.triage.outputs.ready_to_implement }}
+  status:
+    description: '执行状态'
+    value: ${{ steps.triage.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify environment
+      shell: bash
+      run: |
+        echo "🔍 Gearbox Triage Agent"
+        echo "Repo: ${{ github.repository }}"
+        echo "Issue: ${{ github.event.issue.number }}"
+        echo "Dry run: ${{ inputs.dry_run }}"
+
+    - name: Check required tools
+      shell: bash
+      run: |
+        if ! command -v gh &> /dev/null; then
+          echo "::error::gh CLI is required"
+          exit 1
+        fi
+        if ! command -v python3 &> /dev/null; then
+          echo "::error::python3 is required"
+          exit 1
+        fi
+        echo "✅ Environment ready"
+
+    - name: Check API key
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      run: |
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+          echo "::error::Anthropic API key required. Set inputs.anthropic_api_key or ANTHROPIC_AUTH_TOKEN env var"
+          exit 1
+        fi
+        echo "✅ API key available"
+
+    - name: Run Triage Agent
+      id: triage
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GEARBOX_MODEL: ${{ inputs.model }}
+        GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
+        GEARBOX_DRY_RUN: ${{ inputs.dry_run }}
+        GEARBOX_REPO: ${{ github.repository }}
+        GEARBOX_ISSUE: ${{ github.event.issue.number }}
+        GITHUB_OUTPUT: ${{ runner.temp }}/github_output
+      run: |
+        set -e
+
+        # 导出 API key
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+        fi
+
+        OUTPUT_FILE="$GITHUB_OUTPUT"
+
+        python3 << 'PYEOF'
+        import asyncio
+        import os
+        import sys
+
+        sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
+
+        from gearbox.agents.triage import run_triage
+
+        async def main():
+            repo = os.environ['GEARBOX_REPO']
+            issue = int(os.environ['GEARBOX_ISSUE'])
+            model = os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6')
+            max_turns = int(os.environ.get('GEARBOX_MAX_TURNS', '5'))
+            dry_run = os.environ.get('GEARBOX_DRY_RUN', 'false').lower() == 'true'
+            output_file = os.environ.get('GITHUB_OUTPUT', '/tmp/github_output')
+
+            result = await run_triage(
+                repo,
+                issue,
+                model=model,
+                dry_run=dry_run,
+                max_turns=max_turns,
+            )
+
+            lines = [
+                f"labels_added={','.join(result.labels)}",
+                f"priority={result.priority}",
+                f"complexity={result.complexity}",
+                f"ready_to_implement={str(result.ready_to_implement).lower()}",
+                f"status=success",
+            ]
+
+            with open(output_file, 'w') as f:
+                f.write('\n'.join(lines) + '\n')
+
+            print(f'✅ Triage: labels={result.labels}, priority={result.priority}, ready={result.ready_to_implement}')
+
+        asyncio.run(main())
+        PYEOF

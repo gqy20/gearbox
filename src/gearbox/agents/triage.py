@@ -164,7 +164,6 @@ async def run_triage(
     *,
     model: str = "claude-sonnet-4-6",
     max_turns: int = 5,
-    angle: str = "通用",
 ) -> TriageResult:
     """
     执行 Issue 分类。
@@ -174,7 +173,6 @@ async def run_triage(
         issue_number: Issue 编号
         model: 使用的模型
         max_turns: 最大对话轮次
-        angle: 分类角度（默认"通用"，可设为"bug视角"、"功能视角"等）
 
     Returns:
         TriageResult 结构
@@ -182,12 +180,6 @@ async def run_triage(
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     issue = _gh_issue_view(repo, issue_number)
-
-    if angle != "通用":
-        angle_prompt = f"\n\n【分类角度: {angle}】\n请特别关注{angle}相关的标签和优先级判断。"
-        system_prompt = SYSTEM_PROMPT + angle_prompt
-    else:
-        system_prompt = SYSTEM_PROMPT
 
     prompt = f"""## Issue 信息
 
@@ -201,7 +193,7 @@ async def run_triage(
 **现有标签**: {", ".join(issue["labels"]) if issue["labels"] else "(无)"}
 
 ---
-{system_prompt}"""
+{SYSTEM_PROMPT}"""
 
     options = ClaudeAgentOptions(
         model=model,
@@ -246,14 +238,3 @@ async def run_triage(
         )
 
     return structured
-
-
-# =============================================================================
-# 并行执行角度定义
-# =============================================================================
-
-TRIAGE_ANGLES = [
-    "bug/缺陷视角",
-    "功能/增强视角",
-    "用户体验/文档视角",
-]

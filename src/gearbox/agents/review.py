@@ -189,7 +189,6 @@ async def run_review(
     *,
     model: str = "claude-sonnet-4-6",
     max_turns: int = 10,
-    angle: str = "通用",
 ) -> ReviewResult:
     """
     执行 PR Code Review。
@@ -199,7 +198,6 @@ async def run_review(
         pr_number: PR 编号
         model: 使用的模型
         max_turns: 最大对话轮次
-        angle: 审查角度（默认"通用"，可设为"逻辑正确性"、"安全漏洞"等）
 
     Returns:
         ReviewResult 结构
@@ -208,12 +206,6 @@ async def run_review(
 
     pr_info = _gh_pr_view(repo, pr_number)
     diff_text = _gh_pr_diff(repo, pr_number)
-
-    if angle != "通用":
-        angle_prompt = f"\n\n【审查角度: {angle}】\n请特别关注{angle}相关的代码问题。"
-        system_prompt = SYSTEM_PROMPT + angle_prompt
-    else:
-        system_prompt = SYSTEM_PROMPT
 
     prompt = f"""## PR 信息
 
@@ -227,7 +219,7 @@ async def run_review(
 {diff_text[:8000]}
 
 ---
-{system_prompt}"""
+{SYSTEM_PROMPT}"""
 
     options = ClaudeAgentOptions(
         model=model,
@@ -260,14 +252,3 @@ async def run_review(
         )
 
     return structured
-
-
-# =============================================================================
-# 并行执行角度定义
-# =============================================================================
-
-REVIEW_ANGLES = [
-    "逻辑正确性与边界情况",
-    "安全漏洞与最佳实践",
-    "性能与可维护性",
-]

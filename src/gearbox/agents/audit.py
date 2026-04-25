@@ -174,7 +174,6 @@ async def run_audit(
     *,
     model: str | None = None,
     max_turns: int = 20,
-    angle: str = "通用",
 ) -> AuditResult:
     """
     执行仓库审计。
@@ -185,7 +184,6 @@ async def run_audit(
         output_dir: 输出目录
         model: 使用的模型
         max_turns: 最大对话轮次
-        angle: 审计角度（默认"通用"，可设为"代码质量"、"安全漏洞"等）
 
     Returns:
         AuditResult 结构
@@ -203,18 +201,11 @@ async def run_audit(
 
     resolved_model = model or get_anthropic_model()
 
-    # 根据角度调整 system prompt
-    if angle != "通用":
-        angle_prompt = f"\n\n【审计角度: {angle}】\n请特别关注{angle}相关的改进点。"
-        system_prompt = SYSTEM_PROMPT + angle_prompt
-    else:
-        system_prompt = SYSTEM_PROMPT
-
     options = ClaudeAgentOptions(
         model=resolved_model,
         mcp_servers=MCP_SERVERS,  # type: ignore
         allowed_tools=ALLOWED_TOOLS,
-        system_prompt=system_prompt,
+        system_prompt=SYSTEM_PROMPT,
         max_turns=max_turns,
     )
 
@@ -265,14 +256,3 @@ async def run_audit(
         )
 
     return structured
-
-
-# =============================================================================
-# 并行执行角度定义
-# =============================================================================
-
-AUDIT_ANGLES = [
-    "代码质量与最佳实践",
-    "安全漏洞与性能问题",
-    "开发者体验与可维护性",
-]

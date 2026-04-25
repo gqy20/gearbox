@@ -28,12 +28,12 @@ inputs:
     default: '20'
 
   parallel:
-    description: '启用多角度并行审计'
+    description: '启用并行执行（同一任务多次）'
     required: false
     default: 'false'
 
   parallel_count:
-    description: '并行实例数量'
+    description: '并行执行次数'
     required: false
     default: '3'
 

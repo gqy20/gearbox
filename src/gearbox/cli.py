@@ -7,7 +7,6 @@ from pathlib import Path
 
 import click
 
-from .agents import AUDIT_ANGLES, REVIEW_ANGLES, TRIAGE_ANGLES
 from .agents.audit import run_audit
 from .agents.implement import run_implement
 from .agents.review import run_review
@@ -214,18 +213,27 @@ def agent() -> None:
 @click.option("--issue", required=True, type=int, help="Issue 编号")
 @click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
 @click.option("--max-turns", default=5, type=int, help="最大对话轮次")
-@click.option("--parallel", is_flag=True, default=False, help="启用多角度并行分类")
+@click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
+@click.option("--parallel-count", default=3, type=int, help="并行执行次数")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def triage(repo: str, issue: int, model: str, max_turns: int, parallel: bool, output: str) -> None:
+def triage(
+    repo: str,
+    issue: int,
+    model: str,
+    max_turns: int,
+    parallel: bool,
+    parallel_count: int,
+    output: str,
+) -> None:
     """运行 Triage Agent - 分析 Issue 并打标签/定优先级"""
     from gearbox.agents.evaluator import run_evaluator
 
     if parallel:
-        angles = TRIAGE_ANGLES
+        # 同一任务并行执行多次
+        async def agent_factory(_: str):
+            return await run_triage(repo, issue, model=model, max_turns=max_turns)
 
-        async def agent_factory(angle: str):
-            return await run_triage(repo, issue, model=model, max_turns=max_turns, angle=angle)
-
+        angles = [f"run_{i}" for i in range(parallel_count)]
         all_results = asyncio.run(run_parallel(agent_factory, angles, model=model))
 
         if not all_results:
@@ -246,7 +254,7 @@ def triage(repo: str, issue: int, model: str, max_turns: int, parallel: bool, ou
             if evaluation.winner < len(all_results)
             else all_results[0]
         )
-        click.echo(f"✅ Triage (parallel): winner={evaluation.winner}")
+        click.echo(f"✅ Triage (parallel): winner={evaluation.winner}, scores={evaluation.scores}")
     else:
         result = asyncio.run(
             run_triage(
@@ -273,18 +281,21 @@ def triage(repo: str, issue: int, model: str, max_turns: int, parallel: bool, ou
 @click.option("--pr", required=True, type=int, help="PR 编号")
 @click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
 @click.option("--max-turns", default=10, type=int, help="最大对话轮次")
-@click.option("--parallel", is_flag=True, default=False, help="启用多角度并行审查")
+@click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
+@click.option("--parallel-count", default=3, type=int, help="并行执行次数")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def review(repo: str, pr: int, model: str, max_turns: int, parallel: bool, output: str) -> None:
+def review(
+    repo: str, pr: int, model: str, max_turns: int, parallel: bool, parallel_count: int, output: str
+) -> None:
     """运行 Review Agent - 审查 PR 代码"""
     from gearbox.agents.evaluator import run_evaluator
 
     if parallel:
-        angles = REVIEW_ANGLES
+        # 同一任务并行执行多次
+        async def agent_factory(_: str):
+            return await run_review(repo, pr, model=model, max_turns=max_turns)
 
-        async def agent_factory(angle: str):
-            return await run_review(repo, pr, model=model, max_turns=max_turns, angle=angle)
-
+        angles = [f"run_{i}" for i in range(parallel_count)]
         all_results = asyncio.run(run_parallel(agent_factory, angles, model=model))
 
         if not all_results:
@@ -305,7 +316,7 @@ def review(repo: str, pr: int, model: str, max_turns: int, parallel: bool, outpu
             if evaluation.winner < len(all_results)
             else all_results[0]
         )
-        click.echo(f"✅ Review (parallel): winner={evaluation.winner}")
+        click.echo(f"✅ Review (parallel): winner={evaluation.winner}, scores={evaluation.scores}")
     else:
         result = asyncio.run(
             run_review(
@@ -384,8 +395,8 @@ def implement(
 @click.option("--output-dir", default="./output", help="输出目录")
 @click.option("--model", default="", help="使用的模型")
 @click.option("--max-turns", default=20, type=int, help="最大对话轮次")
-@click.option("--parallel", is_flag=True, default=False, help="启用多角度并行审计")
-@click.option("--parallel-count", default=3, type=int, help="并行实例数量")
+@click.option("--parallel", is_flag=True, default=False, help="启用并行执行（同一任务多次）")
+@click.option("--parallel-count", default=3, type=int, help="并行执行次数")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def audit_repo(
     repo: str,
@@ -404,18 +415,17 @@ def audit_repo(
     model_arg = model if model else None
 
     if parallel:
-        angles = AUDIT_ANGLES[:parallel_count]
-
-        async def agent_factory(angle: str):
+        # 同一任务并行执行多次
+        async def agent_factory(_: str):
             return await run_audit(
                 repo,
                 benchmarks=benchmark_list,
-                output_dir=f"{output_dir}/instance_{angles.index(angle)}",
+                output_dir=output_dir,
                 model=model_arg,
                 max_turns=max_turns,
-                angle=angle,
             )
 
+        angles = [f"run_{i}" for i in range(parallel_count)]
         all_results = asyncio.run(run_parallel(agent_factory, angles, model=model_arg))
 
         if not all_results:
@@ -436,8 +446,9 @@ def audit_repo(
             if evaluation.winner < len(all_results)
             else all_results[0]
         )
-        click.echo(f"✅ Audit (parallel): {len(best_result.issues)} issues")
-        click.echo(f"   Winner: {evaluation.winner}, Scores: {evaluation.scores}")
+        click.echo(
+            f"✅ Audit (parallel): {len(best_result.issues)} issues, winner={evaluation.winner}"
+        )
         result = best_result
     else:
         result = asyncio.run(

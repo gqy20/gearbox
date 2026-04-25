@@ -2,7 +2,7 @@
 
 from .audit import OUTPUT_SCHEMA as AUDIT_SCHEMA
 from .audit import AuditResult, Issue, run_audit, run_audit_parallel
-from .evaluator import EVALUATOR_SCHEMA, EvaluationResult, run_evaluator, run_parallel
+from .evaluator import EVALUATOR_SCHEMA, EvaluationResult, run_evaluator
 from .implement import OUTPUT_SCHEMA as IMPLEMENT_SCHEMA
 from .implement import ImplementResult, run_implement
 from .review import OUTPUT_SCHEMA as REVIEW_SCHEMA

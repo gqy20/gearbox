@@ -20,7 +20,7 @@ from .config import (
     set_anthropic_model,
     set_github_token,
 )
-from .gh import (
+from .core.gh import (
     add_issue_labels,
     build_review_body,
     create_issue,

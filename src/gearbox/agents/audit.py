@@ -304,8 +304,8 @@ async def run_audit_parallel(
             "evaluation": EvaluationResult,  # 评估结果
         }
     """
-    from gearbox.agents.evaluator import run_parallel
     from gearbox.config import get_anthropic_model
+    from gearbox.core import run_parallel
 
     resolved_model = model or get_anthropic_model()
     angles = AUDIT_ANGLES[:parallel_count]

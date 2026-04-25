@@ -13,16 +13,16 @@ from claude_agent_sdk import (
     query,
 )
 
-from repo_auditor.config import get_anthropic_model
-from repo_auditor.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
-from repo_auditor.tools.benchmark import discover_benchmarks
-from repo_auditor.tools.compare import create_comparison
-from repo_auditor.tools.issue import generate_issue_content
-from repo_auditor.tools.profile import generate_profile
+from gearbox.config import get_anthropic_model
+from gearbox.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
+from gearbox.tools.benchmark import discover_benchmarks
+from gearbox.tools.compare import create_comparison
+from gearbox.tools.issue import generate_issue_content
+from gearbox.tools.profile import generate_profile
 
 # 创建自定义 MCP 服务器
 AUDITOR_SERVER = create_sdk_mcp_server(
-    name="repo-auditor",
+    name="gearbox",
     version="1.0.0",
     tools=[
         generate_profile,

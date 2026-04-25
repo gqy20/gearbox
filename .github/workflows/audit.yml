@@ -36,9 +36,9 @@ jobs:
   audit:
     if: |
       (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@repo-auditor')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@repo-auditor')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@repo-auditor'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@gearbox')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@gearbox'))
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -60,9 +60,9 @@ jobs:
           BENCHMARKS: ${{ inputs.benchmarks || github.event.inputs.benchmarks || '' }}
         run: |
           if [ -n "$BENCHMARKS" ]; then
-            uv run repo-auditor audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
+            uv run gearbox audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
           else
-            uv run repo-auditor audit --repo "$TARGET_REPO" --output ./audit-output
+            uv run gearbox audit --repo "$TARGET_REPO" --output ./audit-output
           fi
 
       - name: Upload results
@@ -96,7 +96,7 @@ jobs:
           path: ./audit-output
 
       - name: Create GitHub Issues
-        run: uv run repo-auditor publish-issues --input ./audit-output/issues.json
+        run: uv run gearbox publish-issues --input ./audit-output/issues.json
 
       - name: Comment results (if triggered by issue/PR)
         if: |

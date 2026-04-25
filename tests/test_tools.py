@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from repo_auditor.tools import benchmark as benchmark_tool
-from repo_auditor.tools.benchmark import discover_benchmarks
-from repo_auditor.tools.compare import CAPABILITY_DIMENSIONS, create_comparison
-from repo_auditor.tools.issue import create_issue
-from repo_auditor.tools import profile as profile_tool
-from repo_auditor.tools.profile import generate_profile
+from gearbox.tools import benchmark as benchmark_tool
+from gearbox.tools.benchmark import discover_benchmarks
+from gearbox.tools.compare import CAPABILITY_DIMENSIONS, create_comparison
+from gearbox.tools.issue import create_issue
+from gearbox.tools import profile as profile_tool
+from gearbox.tools.profile import generate_profile
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_generate_profile() -> None:
     assert "structured_output" in result
     assert profile["project"]["type"] == "cli"
     assert profile["project"]["language"] == "python"
-    assert "repo-auditor" in profile["project"]["entry_points"]
+    assert "gearbox" in profile["project"]["entry_points"]
     assert profile["build"]["ci_file"] == ".github/workflows/audit.yml"
     assert profile["build"]["install_command"] == "uv sync"
     assert profile["build"]["test_command"] == "uv run pytest -v"
@@ -175,7 +175,7 @@ async def test_discover_benchmarks(monkeypatch: pytest.MonkeyPatch) -> None:
         "project": {
             "type": "cli",
             "language": "python",
-            "entry_points": ["repo-auditor"],
+            "entry_points": ["gearbox"],
         },
         "quality": {
             "linters": ["ruff"],
@@ -209,7 +209,7 @@ async def test_discover_benchmarks(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_create_comparison() -> None:
     """测试对比矩阵工具"""
     target_profile = {
-        "project": {"type": "cli", "language": "python", "entry_points": ["repo-auditor"]},
+        "project": {"type": "cli", "language": "python", "entry_points": ["gearbox"]},
         "build": {"ci_file": ".github/workflows/audit.yml"},
         "quality": {
             "linters": ["ruff"],

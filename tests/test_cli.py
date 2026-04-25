@@ -4,7 +4,7 @@ import json
 
 from click.testing import CliRunner
 
-from repo_auditor.cli import cli
+from gearbox.cli import cli
 
 
 def test_cli_version() -> None:

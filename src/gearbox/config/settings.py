@@ -7,7 +7,7 @@ from typing import Any
 import tomli_w
 
 # 配置文件路径
-CONFIG_DIR = Path.home() / ".config" / "repo-auditor"
+CONFIG_DIR = Path.home() / ".config" / "gearbox"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 

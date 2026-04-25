@@ -18,7 +18,7 @@ from .publish import publish_issues_from_file
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="repo-auditor")
+@click.version_option(version="0.1.0", prog_name="gearbox")
 def cli() -> None:
     """Repo Auditor - AI 驱动的仓库审计工具
 
@@ -55,21 +55,21 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
 
     \b
     示例:
-        repo-auditor audit --repo owner/repo
-        repo-auditor audit --repo owner/repo --benchmarks click/click,typer.typer
-        repo-auditor audit --repo . --output ./audit-output
+        gearbox audit --repo owner/repo
+        gearbox audit --repo owner/repo --benchmarks click/click,typer.typer
+        gearbox audit --repo . --output ./audit-output
     """
     benchmark_list = benchmarks.split(",") if benchmarks else None
 
     # 检查 API Key
-    from repo_auditor.config import get_anthropic_api_key
+    from gearbox.config import get_anthropic_api_key
 
     if not get_anthropic_api_key():
         click.echo(
             "⚠️  未检测到 ANTHROPIC_AUTH_TOKEN",
             err=True,
         )
-        click.echo("请运行: repo-auditor config set anthropic-api-key YOUR_KEY")
+        click.echo("请运行: gearbox config set anthropic-api-key YOUR_KEY")
         click.echo("或设置环境变量: export ANTHROPIC_AUTH_TOKEN=YOUR_KEY")
         raise click.Abort()
 
@@ -182,10 +182,10 @@ def config_set(key: str, value: str) -> None:
 
     \b
     示例:
-        repo-auditor config set github-token ghp_xxxxx
-        repo-auditor config set anthropic-api-key sk-ant-xxxxx
-        repo-auditor config set anthropic-base-url https://api.anthropic.com
-        repo-auditor config set anthropic-model glm-5.1
+        gearbox config set github-token ghp_xxxxx
+        gearbox config set anthropic-api-key sk-ant-xxxxx
+        gearbox config set anthropic-base-url https://api.anthropic.com
+        gearbox config set anthropic-model glm-5.1
     """
     key_map = {
         "github-token": set_github_token,

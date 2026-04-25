@@ -77,32 +77,40 @@ runs:
         fi
 
         python3 << 'PYEOF'
-        import asyncio, json, os, sys
+        import asyncio
+        import json
+        import os
+        import sys
+
         sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
+
         from gearbox.agents.review import run_review
+        from gearbox.gh import write_outputs
 
         async def main():
+            repo = os.environ['GEARBOX_REPO']
+            pr = int(os.environ['GEARBOX_PR'])
+
             result = await run_review(
-                os.environ['GEARBOX_REPO'],
-                int(os.environ['GEARBOX_PR']),
+                repo,
+                pr,
                 model=os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6'),
                 max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '10')),
             )
-            # Serialize comments to JSON for shell consumption
+
             comments = [
                 {'file': c.file, 'line': c.line, 'body': c.body, 'severity': c.severity}
                 for c in result.comments
             ]
-            output = {
+
+            write_outputs({
                 'verdict': result.verdict,
                 'score': str(result.score),
                 'summary': result.summary,
                 'comments': json.dumps(comments),
                 'status': 'success',
-            }
-            with open(os.environ.get('GITHUB_OUTPUT', '/tmp/github_output'), 'w') as f:
-                for k, v in output.items():
-                    f.write(f"{k}={v}\n")
+            })
+
             print(f"✅ Review: verdict={result.verdict}, score={result.score}/10")
 
         asyncio.run(main())
@@ -117,18 +125,13 @@ runs:
       run: |
         source $GITHUB_OUTPUT
 
-        # Build review body markdown
-        BODY="## Code Review"
-        BODY+="\n\n**评分**: $score/10"
-        BODY+="\n\n**结论**: $verdict"
-        BODY+="\n\n### $summary"
+        # Build review body
+        BODY="## Code Review\n\n**评分**: $score/10\n\n**结论**: $verdict\n\n### $summary"
 
         # Parse comments from JSON
-        COMMENTS=$(echo '$comments' | python3 -c "import sys, json; comments = json.load(sys.stdin); print(comments)" 2>/dev/null || echo "[]")
-
-        if [ "$COMMENTS" != "[]" ] && [ -n "$COMMENTS" ]; then
+        if [ -n "$comments" ] && [ "$comments" != "[]" ]; then
           BODY+="\n\n### 详细意见"
-          echo "$COMMENTS" | python3 << 'PYEOF'
+          echo "$comments" | python3 << 'PYEOF'
         import sys, json
         comments = json.load(sys.stdin)
         for c in comments:
@@ -143,14 +146,14 @@ runs:
         PYEOF
         fi
 
-        # Map verdict to GitHub review event
+        # Map verdict to event
         case "$verdict" in
           "LGTM") EVENT="APPROVE" ;;
           "Request Changes") EVENT="REQUEST_CHANGES" ;;
           *) EVENT="COMMENT" ;;
         esac
 
-        # Post the review
+        # Post review
         echo "$BODY" | gh pr review \
           --repo "$GEARBOX_REPO" \
           --body-file - \

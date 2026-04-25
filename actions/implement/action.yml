@@ -70,7 +70,6 @@ runs:
       env:
         GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
       run: |
-        # Create a temp branch for the agent to work in
         TEMP_BRANCH="gearbox/implement-temp-$(date +%s)"
         git fetch origin $GEARBOX_BASE_BRANCH
         git checkout -b "$TEMP_BRANCH" "origin/$GEARBOX_BASE_BRANCH"
@@ -87,7 +86,6 @@ runs:
         GEARBOX_REPO: ${{ github.repository }}
         GEARBOX_ISSUE: ${{ github.event.issue.number }}
         GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
-        GEARBOX_DRY_RUN: ${{ inputs.dry_run }}
         GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
@@ -96,36 +94,44 @@ runs:
         fi
 
         python3 << 'PYEOF'
-        import asyncio, json, os, sys
+        import asyncio
+        import json
+        import os
+        import sys
+
         sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
+
         from gearbox.agents.implement import run_implement
+        from gearbox.gh import write_outputs
 
         async def main():
+            repo = os.environ['GEARBOX_REPO']
+            issue = int(os.environ['GEARBOX_ISSUE'])
+
             result = await run_implement(
-                os.environ['GEARBOX_REPO'],
-                int(os.environ['GEARBOX_ISSUE']),
+                repo,
+                issue,
                 model=os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6'),
                 base_branch=os.environ.get('GEARBOX_BASE_BRANCH', 'main'),
                 max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '20')),
             )
-            output = {
+
+            write_outputs({
                 'branch_name': result.branch_name or '',
                 'summary': result.summary or '',
                 'files_changed': json.dumps(result.files_changed),
                 'pr_url': result.pr_url or '',
                 'ready_for_review': str(result.ready_for_review).lower(),
-            }
-            with open(os.environ.get('GITHUB_OUTPUT', '/tmp/github_output'), 'w') as f:
-                for k, v in output.items():
-                    f.write(f"{k}={v}\n")
+            })
+
             print(f"✅ Implement: branch={result.branch_name}, ready={result.ready_for_review}")
 
         asyncio.run(main())
         PYEOF
 
     - name: Finalize branch and PR
-      shell: bash
       if: ${{ inputs.dry_run == 'false' }}
+      shell: bash
       env:
         GEARBOX_REPO: ${{ github.repository }}
         GEARBOX_ISSUE: ${{ github.event.issue.number }}
@@ -139,26 +145,30 @@ runs:
           exit 0
         fi
 
-        # Rename temp branch to final branch name
+        # Rename temp branch and push
         TEMP_BRANCH="${TEMP_BRANCH:-gearbox/implement-temp}"
         git branch -m "$TEMP_BRANCH" "$branch_name"
 
-        # Add all changed files
-        git add -A
+        # Parse files_changed from JSON
+        FILES=$(echo '$files_changed' | python3 -c "import sys,json; print(' '.join(json.load(sys.stdin)))" 2>/dev/null || echo "")
 
-        # Check if there are changes to commit
+        # Add and commit
+        if [ -n "$FILES" ]; then
+          for f in $FILES; do git add "$f"; done
+        else
+          git add -A
+        fi
+
         if git diff --staged --quiet; then
           echo "⚠️ No changes to commit"
           echo "status=partial" >> $GITHUB_OUTPUT
           exit 0
         fi
 
-        # Commit with issue reference
-        git commit -m "feat: $summary
+        COMMIT_MSG="feat: $summary
 
         Closes #$GEARBOX_ISSUE"
-
-        # Push to remote
+        git commit -m "$COMMIT_MSG"
         git push -u origin "$branch_name"
 
         # Create PR
@@ -178,8 +188,8 @@ Closes #$GEARBOX_ISSUE" \
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Cleanup on dry run
-      shell: bash
       if: ${{ inputs.dry_run == 'true' }}
+      shell: bash
       run: |
         TEMP_BRANCH="${TEMP_BRANCH:-gearbox/implement-temp-$(date +%s)}"
         git checkout "$GEARBOX_BASE_BRANCH"

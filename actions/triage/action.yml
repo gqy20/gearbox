@@ -88,7 +88,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         GEARBOX_MODEL: ${{ inputs.model }}
         GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
-        GEARBOX_DRY_RUN: ${{ inputs.dry_run }}
         GEARBOX_REPO: ${{ github.repository }}
         GEARBOX_ISSUE: ${{ github.event.issue.number }}
         GITHUB_OUTPUT: ${{ runner.temp }}/github_output
@@ -100,8 +99,6 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
-        OUTPUT_FILE="$GITHUB_OUTPUT"
-
         python3 << 'PYEOF'
         import asyncio
         import os
@@ -110,35 +107,49 @@ runs:
         sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
 
         from gearbox.agents.triage import run_triage
+        from gearbox.gh import write_outputs
 
         async def main():
             repo = os.environ['GEARBOX_REPO']
             issue = int(os.environ['GEARBOX_ISSUE'])
             model = os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6')
             max_turns = int(os.environ.get('GEARBOX_MAX_TURNS', '5'))
-            dry_run = os.environ.get('GEARBOX_DRY_RUN', 'false').lower() == 'true'
-            output_file = os.environ.get('GITHUB_OUTPUT', '/tmp/github_output')
 
             result = await run_triage(
                 repo,
                 issue,
                 model=model,
-                dry_run=dry_run,
                 max_turns=max_turns,
             )
 
-            lines = [
-                f"labels_added={','.join(result.labels)}",
-                f"priority={result.priority}",
-                f"complexity={result.complexity}",
-                f"ready_to_implement={str(result.ready_to_implement).lower()}",
-                f"status=success",
-            ]
-
-            with open(output_file, 'w') as f:
-                f.write('\n'.join(lines) + '\n')
+            write_outputs({
+                'labels_added': ','.join(result.labels),
+                'priority': result.priority,
+                'complexity': result.complexity,
+                'ready_to_implement': str(result.ready_to_implement).lower(),
+                'status': 'success',
+            })
 
             print(f'✅ Triage: labels={result.labels}, priority={result.priority}, ready={result.ready_to_implement}')
 
         asyncio.run(main())
         PYEOF
+
+    - name: Apply labels and comments
+      if: ${{ inputs.dry_run == 'false' }}
+      shell: bash
+      env:
+        GEARBOX_REPO: ${{ github.repository }}
+        GEARBOX_ISSUE: ${{ github.event.issue.number }}
+      run: |
+        source $GITHUB_OUTPUT
+
+        # 添加标签
+        if [ -n "$labels_added" ]; then
+          gh issue edit "$GEARBOX_REPO#$GEARBOX_ISSUE" --add-label "$labels_added"
+        fi
+
+        # 添加评论
+        if [ "$ready_to_implement" == "true" ]; then
+          gh issue comment "$GEARBOX_REPO#$GEARBOX_ISSUE" --body "✅ 此 Issue 分类完成，标记为 ready-to-implement"
+        fi

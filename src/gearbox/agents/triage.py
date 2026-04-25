@@ -80,27 +80,6 @@ def _gh_issue_view(repo: str, issue_number: int) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def _gh_add_labels(repo: str, issue_number: int, labels: list[str], dry_run: bool) -> None:
-    """添加标签到 issue"""
-    if not labels or dry_run:
-        return
-    label_str = ",".join(labels)
-    subprocess.run(
-        ["gh", "issue", "edit", f"{repo}#{issue_number}", "--add-label", label_str],
-        check=True,
-    )
-
-
-def _gh_add_comment(repo: str, issue_number: int, body: str, dry_run: bool) -> None:
-    """添加评论到 issue"""
-    if not body or dry_run:
-        return
-    subprocess.run(
-        ["gh", "issue", "comment", f"{repo}#{issue_number}", "--body", body],
-        check=True,
-    )
-
-
 # =============================================================================
 # 结果解析
 # =============================================================================
@@ -184,7 +163,6 @@ async def run_triage(
     issue_number: int,
     *,
     model: str = "claude-sonnet-4-6",
-    dry_run: bool = False,
     max_turns: int = 5,
 ) -> TriageResult:
     """
@@ -194,7 +172,6 @@ async def run_triage(
         repo: 仓库标识 (owner/name)
         issue_number: Issue 编号
         model: 使用的模型
-        dry_run: True 时只输出，不执行写操作
         max_turns: 最大对话轮次
 
     Returns:
@@ -261,25 +238,6 @@ async def run_triage(
             needs_clarification=True,
             clarification_question="无法自动分类，请手动检查此 Issue",
             ready_to_implement=False,
-        )
-
-    # 应用结果
-    _gh_add_labels(repo, issue_number, structured.labels, dry_run)
-
-    if structured.needs_clarification and structured.clarification_question:
-        _gh_add_comment(
-            repo,
-            issue_number,
-            f"👋 {structured.clarification_question}",
-            dry_run,
-        )
-
-    if structured.ready_to_implement:
-        _gh_add_comment(
-            repo,
-            issue_number,
-            "✅ 此 Issue 分类完成，标记为 ready-to-implement",
-            dry_run,
         )
 
     return structured

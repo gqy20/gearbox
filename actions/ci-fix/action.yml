@@ -91,7 +91,7 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
-        python3 -m gearbox.cli_agent ci-fix \
+        python3 -m gearbox.cli agent ci-fix \
           --repo "${{ github.repository }}" \
           --run-id "${{ github.event.workflow_run.id }}" \
           --model "${{ inputs.model }}" \

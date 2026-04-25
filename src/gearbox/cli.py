@@ -1,11 +1,16 @@
 """CLI 命令定义"""
 
+import asyncio
 import json
 import traceback
 from pathlib import Path
 
 import click
 
+from .agents.ci_fix import run_ci_fix
+from .agents.implement import run_implement
+from .agents.review import run_review
+from .agents.triage import run_triage
 from .audit import run_audit_sync
 from .config import (
     get_config_path,
@@ -16,7 +21,7 @@ from .config import (
     set_anthropic_model,
     set_github_token,
 )
-from .gh import create_issue
+from .gh import create_issue, write_outputs
 
 
 @click.group()
@@ -25,6 +30,10 @@ def cli() -> None:
     """Gearbox - AI 驱动的仓库自动化飞轮系统"""
     pass
 
+
+# =============================================================================
+# Audit 命令
+# =============================================================================
 
 @cli.command()
 @click.option(
@@ -60,7 +69,6 @@ def audit(repo: str, benchmarks: str | None, output: str) -> None:
     """
     benchmark_list = benchmarks.split(",") if benchmarks else None
 
-    # 检查 API Key
     from gearbox.config import get_anthropic_api_key
 
     if not get_anthropic_api_key():
@@ -160,6 +168,120 @@ def publish_issues(input_path: str, dry_run: bool) -> None:
         raise click.Abort()
 
 
+# =============================================================================
+# Agent 命令
+# =============================================================================
+
+def _result_to_github_output(result, output_file: str = "/tmp/github_output") -> None:
+    """通用结果转 GitHub Output 文件"""
+    data = {}
+    for key, value in vars(result).items():
+        if isinstance(value, list):
+            data[key] = json.dumps(value)
+        elif isinstance(value, bool):
+            data[key] = str(value).lower()
+        elif value is None:
+            data[key] = ""
+        else:
+            data[key] = str(value)
+    data["status"] = "success"
+    write_outputs(data, output_file)
+
+
+@cli.group()
+def agent() -> None:
+    """运行 Agent (Triage/Review/Implement/CI-Fix)"""
+    pass
+
+
+@agent.command()
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", required=True, type=int, help="Issue 编号")
+@click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
+@click.option("--max-turns", default=5, type=int, help="最大对话轮次")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def triage(repo: str, issue: int, model: str, max_turns: int, output: str) -> None:
+    """运行 Triage Agent - 分析 Issue 并打标签/定优先级"""
+    result = asyncio.run(
+        run_triage(
+            repo,
+            issue,
+            model=model,
+            max_turns=max_turns,
+        )
+    )
+    _result_to_github_output(result, output)
+    click.echo(f"✅ Triage: labels={result.labels}, priority={result.priority}")
+
+
+@agent.command()
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--pr", required=True, type=int, help="PR 编号")
+@click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
+@click.option("--max-turns", default=10, type=int, help="最大对话轮次")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
+    """运行 Review Agent - 审查 PR 代码"""
+    result = asyncio.run(
+        run_review(
+            repo,
+            pr,
+            model=model,
+            max_turns=max_turns,
+        )
+    )
+    _result_to_github_output(result, output)
+    click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
+
+
+@agent.command()
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", required=True, type=int, help="Issue 编号")
+@click.option("--model", default="claude-sonnet-4-6", help="使用的模型")
+@click.option("--base-branch", default="main", help="PR 目标分支")
+@click.option("--max-turns", default=20, type=int, help="最大对话轮次")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def implement(repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str) -> None:
+    """运行 Implement Agent - 实现 Issue 并创建 PR"""
+    result = asyncio.run(
+        run_implement(
+            repo,
+            issue,
+            model=model,
+            base_branch=base_branch,
+            max_turns=max_turns,
+        )
+    )
+    _result_to_github_output(result, output)
+    click.echo(f"✅ Implement: branch={result.branch_name}, ready={result.ready_for_review}")
+
+
+@agent.command(name="ci-fix")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--run-id", "run_id", required=True, type=int, help="Workflow Run ID")
+@click.option("--model", default="claude-opus-4-7", help="使用的模型")
+@click.option("--base-branch", default="main", help="PR 目标分支")
+@click.option("--max-turns", default=15, type=int, help="最大对话轮次")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def ci_fix(repo: str, run_id: int, model: str, base_branch: str, max_turns: int, output: str) -> None:
+    """运行 CI Fix Agent - 修复失败的 CI"""
+    result = asyncio.run(
+        run_ci_fix(
+            repo,
+            run_id,
+            model=model,
+            base_branch=base_branch,
+            max_turns=max_turns,
+        )
+    )
+    _result_to_github_output(result, output)
+    click.echo(f"✅ CI Fix: branch={result.branch_name}, fixed={result.fixed}")
+
+
+# =============================================================================
+# Config 命令
+# =============================================================================
+
 @cli.group()
 def config() -> None:
     """配置管理 - 设置密钥和选项"""
@@ -178,7 +300,6 @@ def config_list() -> None:
         click.echo("（空配置）")
         return
 
-    # 隐藏敏感信息
     for key, value in cfg.items():
         if "token" in key.lower() or "key" in key.lower():
             masked = value[:8] + "..." if len(value) > 8 else "***"
@@ -186,7 +307,6 @@ def config_list() -> None:
         else:
             click.echo(f"{key}: {value}")
 
-    # 显示环境变量
     click.echo()
     click.echo("环境变量:")
     click.echo(f"  GITHUB_TOKEN: {'***已设置***' if get_github_token() else '(未设置)'}")
@@ -236,7 +356,6 @@ def config_set(key: str, value: str) -> None:
     key_map[key](value)
     click.echo(f"✅ 已设置 {key}")
 
-    # 验证
     click.echo("\n当前配置:")
     config_list()
 

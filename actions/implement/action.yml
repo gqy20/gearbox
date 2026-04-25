@@ -1,0 +1,112 @@
+name: 'Gearbox - Implement'
+description: 'AI 驱动的 Issue → 分支/PR 自动实现'
+author: 'gqy20'
+
+inputs:
+  github_token:
+    description: 'GitHub Token'
+    required: false
+    default: ${{ github.token }}
+
+  model:
+    description: 'Claude 模型'
+    required: false
+    default: 'claude-sonnet-4-6'
+
+  max_turns:
+    description: '最大对话轮次'
+    required: false
+    default: '20'
+
+  base_branch:
+    description: 'PR 目标分支'
+    required: false
+    default: 'main'
+
+  dry_run:
+    description: '试运行模式'
+    required: false
+    default: 'false'
+
+  anthropic_api_key:
+    description: 'Anthropic API Key'
+    required: false
+    default: ''
+
+outputs:
+  branch_name:
+    description: '创建的分支名'
+    value: ${{ steps.run.outputs.branch_name }}
+  pr_url:
+    description: '创建的 PR URL'
+    value: ${{ steps.run.outputs.pr_url }}
+  status:
+    description: '执行状态'
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check environment
+      shell: bash
+      run: |
+        echo "🔧 Gearbox Implement Agent"
+        echo "Repo: ${{ github.repository }}"
+        echo "Issue: ${{ github.event.issue.number }}"
+        echo "Base: ${{ inputs.base_branch }}"
+
+    - name: Check API key
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      run: |
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+          echo "::error::API key required"
+          exit 1
+        fi
+
+    - name: Run Implement Agent
+      id: run
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GEARBOX_MODEL: ${{ inputs.model }}
+        GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
+        GEARBOX_DRY_RUN: ${{ inputs.dry_run }}
+        GEARBOX_REPO: ${{ github.repository }}
+        GEARBOX_ISSUE: ${{ github.event.issue.number }}
+        GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
+        GITHUB_OUTPUT: ${{ runner.temp }}/github_output
+      run: |
+        set -e
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+        fi
+
+        python3 << 'PYEOF'
+        import asyncio, os, sys
+        sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
+        from gearbox.agents.implement import run_implement
+
+        async def main():
+            result = await run_implement(
+                os.environ['GEARBOX_REPO'],
+                int(os.environ['GEARBOX_ISSUE']),
+                model=os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6'),
+                base_branch=os.environ.get('GEARBOX_BASE_BRANCH', 'main'),
+                dry_run=os.environ.get('GEARBOX_DRY_RUN', 'false').lower() == 'true',
+                max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '20')),
+            )
+            output = {
+                'branch_name': result.branch_name or '',
+                'pr_url': result.pr_url or '',
+                'status': 'success' if result.ready_for_review else 'partial',
+            }
+            with open(os.environ.get('GITHUB_OUTPUT', '/tmp/github_output'), 'w') as f:
+                for k, v in output.items():
+                    f.write(f"{k}={v}\n")
+            print(f"✅ Implement: branch={result.branch_name}, pr={result.pr_url}")
+
+        asyncio.run(main())
+        PYEOF

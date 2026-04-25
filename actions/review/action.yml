@@ -1,0 +1,104 @@
+name: 'Gearbox - Review'
+description: 'AI 驱动的 PR Code Review'
+author: 'gqy20'
+
+inputs:
+  github_token:
+    description: 'GitHub Token'
+    required: false
+    default: ${{ github.token }}
+
+  model:
+    description: 'Claude 模型'
+    required: false
+    default: 'claude-sonnet-4-6'
+
+  max_turns:
+    description: '最大对话轮次'
+    required: false
+    default: '10'
+
+  dry_run:
+    description: '试运行模式（不发布 Review）'
+    required: false
+    default: 'false'
+
+  anthropic_api_key:
+    description: 'Anthropic API Key'
+    required: false
+    default: ''
+
+outputs:
+  verdict:
+    description: '审查结论 LGTM/Request Changes/Comment Only'
+    value: ${{ steps.run.outputs.verdict }}
+  score:
+    description: '质量评分 0-10'
+    value: ${{ steps.run.outputs.score }}
+  status:
+    description: '执行状态'
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check environment
+      shell: bash
+      run: |
+        echo "🔍 Gearbox Review Agent"
+        echo "Repo: ${{ github.repository }}"
+        echo "PR: ${{ github.event.pull_request.number }}"
+
+    - name: Check API key
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      run: |
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+          echo "::error::API key required"
+          exit 1
+        fi
+
+    - name: Run Review Agent
+      id: run
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GEARBOX_MODEL: ${{ inputs.model }}
+        GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
+        GEARBOX_DRY_RUN: ${{ inputs.dry_run }}
+        GEARBOX_REPO: ${{ github.repository }}
+        GEARBOX_PR: ${{ github.event.pull_request.number }}
+        GITHUB_OUTPUT: ${{ runner.temp }}/github_output
+      run: |
+        set -e
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+        fi
+
+        python3 << 'PYEOF'
+        import asyncio, os, sys
+        sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
+        from gearbox.agents.review import run_review
+
+        async def main():
+            result = await run_review(
+                os.environ['GEARBOX_REPO'],
+                int(os.environ['GEARBOX_PR']),
+                model=os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6'),
+                dry_run=os.environ.get('GEARBOX_DRY_RUN', 'false').lower() == 'true',
+                max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '10')),
+            )
+            output = {
+                'verdict': result.verdict,
+                'score': str(result.score),
+                'status': 'success',
+            }
+            with open(os.environ.get('GITHUB_OUTPUT', '/tmp/github_output'), 'w') as f:
+                for k, v in output.items():
+                    f.write(f"{k}={v}\n")
+            print(f"✅ Review: verdict={result.verdict}, score={result.score}/10")
+
+        asyncio.run(main())
+        PYEOF

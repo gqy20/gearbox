@@ -65,10 +65,6 @@ runs:
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
-        GEARBOX_MODEL: ${{ inputs.model }}
-        GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
-        GEARBOX_REPO: ${{ github.repository }}
-        GEARBOX_PR: ${{ github.event.pull_request.number }}
         GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
@@ -76,45 +72,12 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
-        python3 << 'PYEOF'
-        import asyncio
-        import json
-        import os
-        import sys
-
-        sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
-
-        from gearbox.agents.review import run_review
-        from gearbox.gh import write_outputs
-
-        async def main():
-            repo = os.environ['GEARBOX_REPO']
-            pr = int(os.environ['GEARBOX_PR'])
-
-            result = await run_review(
-                repo,
-                pr,
-                model=os.environ.get('GEARBOX_MODEL', 'claude-sonnet-4-6'),
-                max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '10')),
-            )
-
-            comments = [
-                {'file': c.file, 'line': c.line, 'body': c.body, 'severity': c.severity}
-                for c in result.comments
-            ]
-
-            write_outputs({
-                'verdict': result.verdict,
-                'score': str(result.score),
-                'summary': result.summary,
-                'comments': json.dumps(comments),
-                'status': 'success',
-            })
-
-            print(f"✅ Review: verdict={result.verdict}, score={result.score}/10")
-
-        asyncio.run(main())
-        PYEOF
+        python3 -m gearbox.cli_agent review \
+          --repo "${{ github.repository }}" \
+          --pr "${{ github.event.pull_request.number }}" \
+          --model "${{ inputs.model }}" \
+          --max-turns "${{ inputs.max_turns }}" \
+          --output "$GITHUB_OUTPUT"
 
     - name: Post review comment
       if: ${{ inputs.dry_run == 'false' }}

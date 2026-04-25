@@ -84,11 +84,6 @@ runs:
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
-        GEARBOX_MODEL: ${{ inputs.model }}
-        GEARBOX_MAX_TURNS: ${{ inputs.max_turns }}
-        GEARBOX_REPO: ${{ github.repository }}
-        GEARBOX_RUN_ID: ${{ github.event.workflow_run.id }}
-        GEARBOX_BASE_BRANCH: ${{ inputs.base_branch }}
         GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
@@ -96,42 +91,13 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
-        python3 << 'PYEOF'
-        import asyncio
-        import json
-        import os
-        import sys
-
-        sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
-
-        from gearbox.agents.ci_fix import run_ci_fix
-        from gearbox.gh import write_outputs
-
-        async def main():
-            repo = os.environ['GEARBOX_REPO']
-            run_id = int(os.environ['GEARBOX_RUN_ID'])
-
-            result = await run_ci_fix(
-                repo,
-                run_id,
-                model=os.environ.get('GEARBOX_MODEL', 'claude-opus-4-7'),
-                base_branch=os.environ.get('GEARBOX_BASE_BRANCH', 'main'),
-                max_turns=int(os.environ.get('GEARBOX_MAX_TURNS', '15')),
-            )
-
-            write_outputs({
-                'branch_name': result.branch_name or '',
-                'root_cause': result.root_cause or '',
-                'fix_description': result.fix_description or '',
-                'files_changed': json.dumps(result.files_changed),
-                'pr_url': result.pr_url or '',
-                'fixed': str(result.fixed).lower(),
-            })
-
-            print(f"✅ CI Fix: branch={result.branch_name}, fixed={result.fixed}")
-
-        asyncio.run(main())
-        PYEOF
+        python3 -m gearbox.cli_agent ci-fix \
+          --repo "${{ github.repository }}" \
+          --run-id "${{ github.event.workflow_run.id }}" \
+          --model "${{ inputs.model }}" \
+          --base-branch "${{ inputs.base_branch }}" \
+          --max-turns "${{ inputs.max_turns }}" \
+          --output "$GITHUB_OUTPUT"
 
     - name: Finalize branch and PR
       if: ${{ inputs.dry_run == 'false' }}

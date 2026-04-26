@@ -17,7 +17,12 @@ from .agents.implement import (
 from .agents.review import load_review_result, run_review, write_review_result
 from .agents.shared.github_output import format_currency, result_to_github_output
 from .agents.shared.selection import select_best_result
-from .agents.triage import load_triage_result, run_triage, write_triage_result
+from .agents.triage import (
+    github_labels_for_triage_result,
+    load_triage_result,
+    run_triage,
+    write_triage_result,
+)
 from .config import (
     AGENT_DEFAULTS,
     get_config_path,
@@ -288,7 +293,7 @@ def triage(
         write_triage_result(result, Path(artifact_path))
 
     if apply_side_effects:
-        label_result = add_issue_labels(repo, issue, result.labels)
+        label_result = add_issue_labels(repo, issue, github_labels_for_triage_result(result))
         if not label_result.success:
             click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
         if result.needs_clarification and result.clarification_question:
@@ -585,7 +590,7 @@ def triage_select(
     if artifact_path:
         write_triage_result(winner_result, Path(artifact_path))
 
-    label_result = add_issue_labels(repo, issue, winner_result.labels)
+    label_result = add_issue_labels(repo, issue, github_labels_for_triage_result(winner_result))
     if not label_result.success:
         click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
     if winner_result.needs_clarification and winner_result.clarification_question:

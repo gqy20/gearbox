@@ -62,6 +62,22 @@ class TriageResult:
     ready_to_implement: bool
 
 
+def github_labels_for_triage_result(result: TriageResult) -> list[str]:
+    """Return GitHub labels that represent the full triage decision."""
+    labels = [
+        *result.labels,
+        result.priority,
+        f"complexity:{result.complexity}",
+    ]
+
+    if result.needs_clarification:
+        labels.append("needs-clarification")
+    if result.ready_to_implement:
+        labels.append("ready-to-implement")
+
+    return list(dict.fromkeys(label for label in labels if label))
+
+
 def write_triage_result(result: TriageResult, output_path: Path) -> None:
     from gearbox.agents.shared.artifacts import write_json_artifact
 

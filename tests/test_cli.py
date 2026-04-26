@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from gearbox.agents.triage import TriageResult
 from gearbox.cli import _candidate_result_files, cli
+from gearbox.core.gh import PostReviewResult
 
 
 @pytest.fixture
@@ -255,6 +257,111 @@ class TestAgentCommand:
     def test_agent_triage_requires_args(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "triage"])
         assert result.exit_code != 0
+
+    def test_agent_triage_side_effects_apply_mapped_labels(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_run_triage(*args, **kwargs) -> TriageResult:
+            del args, kwargs
+            return TriageResult(
+                labels=["documentation", "enhancement"],
+                priority="P3",
+                complexity="M",
+                needs_clarification=False,
+                clarification_question=None,
+                ready_to_implement=True,
+            )
+
+        captured_labels: list[str] = []
+
+        def fake_add_issue_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+            del repo, issue
+            captured_labels.extend(labels)
+            return PostReviewResult(success=True)
+
+        monkeypatch.setattr("gearbox.cli.run_triage", fake_run_triage)
+        monkeypatch.setattr("gearbox.cli.add_issue_labels", fake_add_issue_labels)
+        monkeypatch.setattr(
+            "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "triage",
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "6",
+                "--apply-side-effects",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured_labels == [
+            "documentation",
+            "enhancement",
+            "P3",
+            "complexity:M",
+            "ready-to-implement",
+        ]
+
+    def test_agent_triage_select_applies_mapped_labels_once(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        input_root = tmp_path / "triage-runs"
+        input_root.mkdir()
+        (input_root / "result.json").write_text(
+            json.dumps(
+                {
+                    "labels": ["documentation", "enhancement"],
+                    "priority": "P3",
+                    "complexity": "M",
+                    "needs_clarification": False,
+                    "clarification_question": None,
+                    "ready_to_implement": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        captured_labels: list[str] = []
+
+        def fake_add_issue_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+            del repo, issue
+            captured_labels.extend(labels)
+            return PostReviewResult(success=True)
+
+        monkeypatch.setattr("gearbox.cli.add_issue_labels", fake_add_issue_labels)
+        monkeypatch.setattr(
+            "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "triage-select",
+                "--input-root",
+                str(input_root),
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "6",
+                "--output",
+                str(tmp_path / "github_output"),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured_labels == [
+            "documentation",
+            "enhancement",
+            "P3",
+            "complexity:M",
+            "ready-to-implement",
+        ]
 
     def test_agent_review_requires_args(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "review"])

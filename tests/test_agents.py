@@ -10,7 +10,7 @@ from gearbox.agents.evaluator import EvaluationResult, build_evaluation_prompt
 from gearbox.agents.implement import ImplementResult
 from gearbox.agents.review import ReviewComment, ReviewResult
 from gearbox.agents.shared.structured import parse_structured_output
-from gearbox.agents.triage import TriageResult
+from gearbox.agents.triage import TriageResult, github_labels_for_triage_result
 
 
 def _result_message(data: dict) -> ResultMessage:
@@ -73,6 +73,41 @@ class TestStructuredOutputParsing:
         assert result is not None
         assert result.labels == ["bug", "high-priority"]
         assert result.ready_to_implement is True
+
+    def test_triage_result_maps_metadata_to_github_labels(self) -> None:
+        result = TriageResult(
+            labels=["documentation", "enhancement", "P1"],
+            priority="P1",
+            complexity="M",
+            needs_clarification=False,
+            clarification_question=None,
+            ready_to_implement=True,
+        )
+
+        assert github_labels_for_triage_result(result) == [
+            "documentation",
+            "enhancement",
+            "P1",
+            "complexity:M",
+            "ready-to-implement",
+        ]
+
+    def test_triage_result_maps_clarification_status_to_github_label(self) -> None:
+        result = TriageResult(
+            labels=["question"],
+            priority="P2",
+            complexity="S",
+            needs_clarification=True,
+            clarification_question="请补充复现步骤",
+            ready_to_implement=False,
+        )
+
+        assert github_labels_for_triage_result(result) == [
+            "question",
+            "P2",
+            "complexity:S",
+            "needs-clarification",
+        ]
 
     def test_triage_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
         captured_cmd: list[str] = []

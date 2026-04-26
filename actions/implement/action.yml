@@ -30,6 +30,10 @@ inputs:
     description: Anthropic API Key
     required: false
     default: ''
+  apply_side_effects:
+    description: 是否创建分支/PR（并行时建议关闭）
+    required: false
+    default: 'false'
 
 outputs:
   status:
@@ -65,10 +69,17 @@ runs:
         --issue "${{ inputs.issue_number }}"
         --base-branch "${{ inputs.base_branch }}"
         --max-turns "${{ inputs.max_turns }}"
+        --artifact-path ./implement-output/result.json
       )
 
       if [ -n "${{ inputs.model }}" ]; then
         CMD+=(--model "${{ inputs.model }}")
+      fi
+
+      if [ "${{ inputs.apply_side_effects }}" = "true" ]; then
+        CMD+=(--apply-side-effects)
+      else
+        CMD+=(--no-apply-side-effects)
       fi
 
       "${CMD[@]}"

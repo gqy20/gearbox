@@ -95,6 +95,18 @@ def add_issue_labels(
     if not labels:
         return PostReviewResult(success=True)
 
+    # 验证标签是否存在
+    existing_labels = get_repo_labels(repo)
+    unknown_labels = [label for label in labels if label not in existing_labels]
+    if unknown_labels:
+        # GitHub 会自动创建不存在的标签，这里只记录警告
+        import sys
+
+        print(
+            f"⚠️ 警告: 以下标签在仓库中不存在，将被自动创建: {', '.join(unknown_labels)}",
+            file=sys.stderr,
+        )
+
     try:
         subprocess.run(
             [
@@ -114,6 +126,31 @@ def add_issue_labels(
         return PostReviewResult(success=True)
     except subprocess.CalledProcessError as e:
         return PostReviewResult(success=False, url=e.stderr.strip())
+
+
+def get_repo_labels(repo: str) -> list[str]:
+    """
+    获取仓库现有的标签列表。
+
+    Args:
+        repo: 仓库标识
+
+    Returns:
+        标签名称列表
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "label", "list", "--repo", repo, "--json", "name"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        import json
+
+        labels = json.loads(result.stdout)
+        return [label["name"] for label in labels]
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return []
 
 
 def prepare_branch(base_branch: str, temp_branch: str) -> None:

@@ -23,9 +23,9 @@ inputs:
     required: false
     default: ''
   apply_side_effects:
-    description: 是否应用 GitHub 标签/评论副作用
+    description: 是否应用 GitHub 标签/评论副作用（并行时建议关闭）
     required: false
-    default: 'true'
+    default: 'false'
   anthropic_base_url:
     description: Anthropic 兼容接口 Base URL（可选）
     required: false

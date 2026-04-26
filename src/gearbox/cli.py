@@ -2,13 +2,18 @@
 
 import asyncio
 import json
+import subprocess
 import traceback
 from pathlib import Path
 
 import click
 
 from .agents.audit import load_audit_result, promote_audit_outputs, run_audit
-from .agents.implement import run_implement
+from .agents.implement import (
+    load_implement_result,
+    run_implement,
+    write_implement_result,
+)
 from .agents.review import load_review_result, run_review, write_review_result
 from .agents.shared.github_output import format_currency, result_to_github_output
 from .agents.shared.selection import select_best_result
@@ -28,7 +33,9 @@ from .core.gh import (
     add_issue_labels,
     build_review_body,
     create_issue,
+    create_pr,
     finalize_and_create_pr,
+    finalize_and_push,
     post_issue_comment,
     post_review_comment,
     prepare_working_branch,
@@ -233,8 +240,8 @@ def agent() -> None:
 @click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
 @click.option(
     "--apply-side-effects/--no-apply-side-effects",
-    default=True,
-    help="是否应用 GitHub 标签/评论副作用",
+    default=False,
+    help="是否应用 GitHub 标签/评论副作用（并行时建议关闭）",
 )
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def triage(
@@ -265,11 +272,19 @@ def triage(
         write_triage_result(result, Path(artifact_path))
 
     if apply_side_effects:
-        add_issue_labels(repo, issue, result.labels)
+        label_result = add_issue_labels(repo, issue, result.labels)
+        if not label_result.success:
+            click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
         if result.needs_clarification and result.clarification_question:
-            post_issue_comment(repo, issue, f"👋 {result.clarification_question}")
+            comment_result = post_issue_comment(repo, issue, f"👋 {result.clarification_question}")
+            if not comment_result.success:
+                click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
         if result.ready_to_implement:
-            post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
+            comment_result = post_issue_comment(
+                repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement"
+            )
+            if not comment_result.success:
+                click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
 
     result_to_github_output(result, output)
 
@@ -284,8 +299,8 @@ def triage(
 @click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
 @click.option(
     "--apply-side-effects/--no-apply-side-effects",
-    default=True,
-    help="是否应用 GitHub Review 副作用",
+    default=False,
+    help="是否应用 GitHub Review 副作用（并行时建议关闭）",
 )
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def review(
@@ -324,7 +339,9 @@ def review(
         event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
             result.verdict, "COMMENT"
         )
-        post_review_comment(repo, pr, body, event)
+        review_result = post_review_comment(repo, pr, body, event)
+        if not review_result.success:
+            click.echo(f"⚠️ 发布 Review 失败: {review_result.url}", err=True)
 
     result_to_github_output(result, output)
     click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
@@ -338,9 +355,22 @@ def review(
 @click.option(
     "--max-turns", default=AGENT_DEFAULTS["max_turns"]["implement"], type=int, help="最大对话轮次"
 )
+@click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
+@click.option(
+    "--apply-side-effects/--no-apply-side-effects",
+    default=False,
+    help="是否创建分支/PR（并行时建议关闭）",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement(
-    repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str
+    repo: str,
+    issue: int,
+    model: str,
+    base_branch: str,
+    max_turns: int,
+    artifact_path: str,
+    apply_side_effects: bool,
+    output: str,
 ) -> None:
     """运行 Implement Agent - 实现 Issue 并创建 PR"""
     from gearbox.config import get_anthropic_model
@@ -360,7 +390,7 @@ def implement(
             )
         )
 
-        if result.ready_for_review and result.branch_name:
+        if apply_side_effects and result.ready_for_review and result.branch_name:
             commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
             pr_body = f"## Summary\n\n{result.summary}\n\nCloses #{issue}"
             pr_result = finalize_and_create_pr(
@@ -377,6 +407,22 @@ def implement(
                 click.echo(f"✅ PR created: {pr_result.pr_url}")
             else:
                 click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
+        elif result.ready_for_review and result.branch_name:
+            # Push branch without creating PR (for parallel execution)
+            commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
+            pushed = finalize_and_push(
+                temp_branch=temp_branch,
+                final_branch=result.branch_name,
+                commit_message=commit_msg,
+                files=result.files_changed,
+            )
+            if pushed:
+                click.echo(f"✅ Branch pushed: {result.branch_name}")
+            else:
+                click.echo(f"⚠️ No changes to push for branch: {result.branch_name}")
+
+        if artifact_path:
+            write_implement_result(result, Path(artifact_path))
 
         result_to_github_output(result, output)
         click.echo(f"✅ Implement: branch={result.branch_name}, ready={result.ready_for_review}")
@@ -520,11 +566,21 @@ def triage_select(
     if artifact_path:
         write_triage_result(winner_result, Path(artifact_path))
 
-    add_issue_labels(repo, issue, winner_result.labels)
+    label_result = add_issue_labels(repo, issue, winner_result.labels)
+    if not label_result.success:
+        click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
     if winner_result.needs_clarification and winner_result.clarification_question:
-        post_issue_comment(repo, issue, f"👋 {winner_result.clarification_question}")
+        comment_result = post_issue_comment(
+            repo, issue, f"👋 {winner_result.clarification_question}"
+        )
+        if not comment_result.success:
+            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
     if winner_result.ready_to_implement:
-        post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
+        comment_result = post_issue_comment(
+            repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement"
+        )
+        if not comment_result.success:
+            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
 
     result_to_github_output(winner_result, output)
     click.echo(f"✅ Selected triage result: winner={names[winner_index]}")
@@ -585,10 +641,91 @@ def review_select(
     event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
         winner_result.verdict, "COMMENT"
     )
-    post_review_comment(repo, pr, body, event)
+    review_result = post_review_comment(repo, pr, body, event)
+    if not review_result.success:
+        click.echo(f"⚠️ 发布 Review 失败: {review_result.url}", err=True)
 
     result_to_github_output(winner_result, output)
     click.echo(f"✅ Selected review result: winner={names[winner_index]}")
+
+
+@agent.command(name="implement-select")
+@click.option("--input-root", required=True, help="并行 implement artifact 根目录")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", required=True, type=int, help="Issue 编号")
+@click.option("--base-branch", default="main", help="PR 目标分支")
+@click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def implement_select(
+    input_root: str,
+    repo: str,
+    issue: int,
+    base_branch: str,
+    model: str,
+    artifact_path: str,
+    output: str,
+) -> None:
+    """聚合多个 implement 结果并创建最佳 PR。"""
+    from gearbox.config import get_anthropic_model
+
+    resolved_model = model or get_anthropic_model()
+
+    root = Path(input_root)
+    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
+    if not candidate_dirs:
+        click.echo(f"❌ 未找到任何 implement 结果目录: {input_root}", err=True)
+        raise click.Abort()
+
+    results = []
+    names = []
+    for run_dir in candidate_dirs:
+        result_path = run_dir / "result.json"
+        if result_path.exists():
+            results.append(load_implement_result(result_path))
+            names.append(run_dir.name)
+
+    if not results:
+        click.echo("❌ 没有可用于聚合的 implement 结果", err=True)
+        raise click.Abort()
+
+    winner_index, winner_result = asyncio.run(
+        select_best_result(
+            results,
+            result_type="Implement 实现结果",
+            result_names=names,
+            model=resolved_model,
+        )
+    )
+
+    click.echo(f"✅ Selected implement result: winner={names[winner_index]}")
+    click.echo(f"   branch={winner_result.branch_name}, files={len(winner_result.files_changed)}")
+
+    if artifact_path:
+        write_implement_result(winner_result, Path(artifact_path))
+
+    # Create PR for the winning result
+    if winner_result.ready_for_review and winner_result.branch_name:
+        # Fetch the branch that was pushed by the parallel run
+        subprocess.run(
+            ["git", "fetch", "origin", winner_result.branch_name],
+            check=True,
+        )
+        pr_body = f"## Summary\n\n{winner_result.summary}\n\nCloses #{issue}"
+        pr_result = create_pr(
+            repo=repo,
+            title=f"feat(#{issue}): {winner_result.summary}",
+            body=pr_body,
+            head=winner_result.branch_name,
+            base=base_branch,
+        )
+        if pr_result.success:
+            winner_result.pr_url = pr_result.pr_url
+            click.echo(f"✅ PR created: {pr_result.pr_url}")
+        else:
+            click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
+
+    result_to_github_output(winner_result, output)
 
 
 # =============================================================================

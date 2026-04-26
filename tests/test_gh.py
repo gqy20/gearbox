@@ -43,6 +43,10 @@ class TestAddIssueLabels:
     """测试 add_issue_labels"""
 
     def test_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Mock get_repo_labels to return existing labels
+        monkeypatch.setattr(
+            "gearbox.core.gh.get_repo_labels", lambda repo: ["bug", "high-priority"]
+        )
         mock_run = MagicMock()
         monkeypatch.setattr(subprocess, "run", mock_run)
 

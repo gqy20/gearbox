@@ -15,8 +15,8 @@ outputs:
 runs:
   using: composite
   steps:
-  - name: Setup tools
-    uses: ./actions/_setup
+  - name: Setup Gearbox runtime
+    uses: ./actions/_runtime
 
   - name: Publish Issues
     id: publish

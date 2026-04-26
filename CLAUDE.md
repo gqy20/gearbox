@@ -45,7 +45,8 @@ uvx pre-commit run --all-files
 ```text
 actions/
 ├── main/action.yml       # Router; exported as Marketplace root action.yml
-├── _setup/action.yml     # uv, Python, gh, and scanner setup
+├── _runtime/action.yml   # Minimal uv, Python, gh, and project dependency setup
+├── _setup/action.yml     # Runtime plus scanner tools used by audit
 ├── audit/action.yml      # Audit action
 ├── triage/action.yml     # Issue triage action
 ├── review/action.yml     # PR review action

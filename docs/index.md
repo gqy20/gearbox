@@ -23,6 +23,7 @@ Marketplace 轻量入口:
 执行层:
   actions/*/action.yml
       |
+      |-- actions/_runtime
       `-- actions/_setup
               |
               `-- uv run gearbox agent ...
@@ -45,7 +46,8 @@ Agent 共享层:
 | 内部 audit 编排 | `.github/workflows/audit.yml` | 当前验证过的 GitHub Actions 原生 matrix 编排 |
 | 高级编排模板 | `.github/workflows/reusable-*.yml` | 面向高级调用方保留的 reusable workflow 模板 |
 | Action 执行层 | `actions/*/action.yml` | 单次执行 action，负责拼装环境变量并调用 CLI |
-| 环境准备 | `actions/_setup/action.yml` | 安装 uv、依赖、gh 与扫描工具 |
+| 轻量运行时 | `actions/_runtime/action.yml` | 安装 uv、同步项目依赖、验证 Python 与 gh |
+| 扫描工具 | `actions/_setup/action.yml` | 基于 `_runtime`，额外安装 audit 需要的静态扫描工具 |
 | CLI | `src/gearbox/cli.py` | 命令行入口，解析参数 |
 | Agent | `src/gearbox/agents/*.py` | audit、triage、review、implement 等业务逻辑 |
 | Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、scanner、artifacts、selection |

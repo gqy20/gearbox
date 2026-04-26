@@ -62,7 +62,7 @@ outputs:
 runs:
   using: composite
   steps:
-  - name: Setup tools
+  - name: Setup scanner tools
     uses: ./actions/_setup
 
   - name: Check API key

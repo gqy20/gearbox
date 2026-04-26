@@ -103,8 +103,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup tools
-        uses: ./actions/_setup
+      - name: Setup Gearbox runtime
+        uses: ./actions/_runtime
 
       - name: Download all run artifacts
         uses: actions/download-artifact@v5

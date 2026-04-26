@@ -1,13 +1,13 @@
-name: Setup Tools
-description: Install required CLI tools for Gearbox agents
+name: Setup Scanner Tools
+description: Install Gearbox runtime plus optional static analysis tools used by audit
 author: gqy20
 
 runs:
   using: composite
   steps:
-    # ============================================
-    # Environment checks
-    # ============================================
+  - name: Setup Gearbox runtime
+    uses: ./actions/_runtime
+
   - name: Check Node.js
     shell: bash
     run: |
@@ -26,36 +26,6 @@ runs:
       fi
       echo "✅ npm: $(npm --version)"
 
-  - name: Check Python
-    shell: bash
-    run: |
-      if ! command -v python3 &> /dev/null; then
-        echo "::error::python3 is required"
-        exit 1
-      fi
-      echo "✅ Python: $(python3 --version)"
-
-  - name: Install uv
-    shell: bash
-    run: |
-      set -e
-      if command -v uv &> /dev/null; then
-        echo "✅ uv already installed: $(uv --version)"
-      else
-        echo "📦 Installing uv..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        export PATH="$HOME/.local/bin:$PATH"
-        echo "✅ uv installed: $(uv --version)"
-      fi
-
-  - name: Sync Gearbox environment
-    shell: bash
-    run: |
-      set -e
-      export PATH="$HOME/.local/bin:$PATH"
-      uv sync --directory "${GITHUB_ACTION_PATH}/../.."
-
   - name: Check Go
     shell: bash
     run: |
@@ -65,9 +35,6 @@ runs:
         echo "✅ Go: $(go version | awk '{print $3}')"
       fi
 
-    # ============================================
-    # Node.js tools
-    # ============================================
   - name: Install ctx7
     id: ctx7
     shell: bash
@@ -110,9 +77,6 @@ runs:
         echo "✅ ts-prune installed"
       fi
 
-    # ============================================
-    # Python tools
-    # ============================================
   - name: Install deptry
     id: deptry
     shell: bash
@@ -129,9 +93,6 @@ runs:
         echo "✅ deptry installed: $(deptry --version)"
       fi
 
-    # ============================================
-    # Go tools
-    # ============================================
   - name: Install govulncheck
     id: govulncheck
     if: ${{ runner.os == 'Linux' }}
@@ -150,9 +111,6 @@ runs:
         echo "✅ govulncheck installed"
       fi
 
-    # ============================================
-    # System tools (apt)
-    # ============================================
   - name: Install system tools
     shell: bash
     run: |
@@ -169,13 +127,10 @@ runs:
         echo "✅ System tools already installed"
       fi
 
-    # ============================================
-    # Verify all tools
-    # ============================================
-  - name: Verify tools
+  - name: Verify scanner tools
     shell: bash
     run: |
-      echo "=== Tool Status ==="
+      echo "=== Scanner Tool Status ==="
       echo "ctx7:      $(command -v ctx7 && ctx7 --version 2>/dev/null || echo 'not found')"
       echo "semgrep:   $(command -v semgrep && semgrep --version 2>/dev/null || echo 'not found')"
       echo "ts-prune:  $(command -v ts-prune || echo 'not found')"
@@ -183,7 +138,4 @@ runs:
       echo "govulncheck: $(command -v govulncheck || echo 'not found')"
       echo "cloc:      $(command -v cloc && cloc --version 2>/dev/null | head -1 || echo 'not found')"
       echo "trivy:     $(command -v trivy && trivy --version 2>/dev/null || echo 'not found')"
-      echo "gh:        $(command -v gh && gh --version 2>/dev/null | head -1 || echo 'not found')"
-      echo "python3:   $(command -v python3 && python3 --version || echo 'not found')"
-      echo "go:        $(command -v go && go version 2>/dev/null | awk '{print $3}' || echo 'not found')"
-      echo "=================="
+      echo "==========================="

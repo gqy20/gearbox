@@ -1,0 +1,55 @@
+name: Setup Gearbox Runtime
+description: Install the minimal runtime required to execute Gearbox CLI commands
+author: gqy20
+
+runs:
+  using: composite
+  steps:
+  - name: Check Python
+    shell: bash
+    run: |
+      if ! command -v python3 &> /dev/null; then
+        echo "::error::python3 is required"
+        exit 1
+      fi
+      echo "✅ Python: $(python3 --version)"
+
+  - name: Check gh
+    shell: bash
+    run: |
+      if ! command -v gh &> /dev/null; then
+        echo "::error::gh CLI is required"
+        exit 1
+      fi
+      echo "✅ gh: $(gh --version | head -1)"
+
+  - name: Install uv
+    shell: bash
+    run: |
+      set -e
+      if command -v uv &> /dev/null; then
+        echo "✅ uv already installed: $(uv --version)"
+      else
+        echo "📦 Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        export PATH="$HOME/.local/bin:$PATH"
+        echo "✅ uv installed: $(uv --version)"
+      fi
+
+  - name: Sync Gearbox environment
+    shell: bash
+    run: |
+      set -e
+      export PATH="$HOME/.local/bin:$PATH"
+      uv sync --directory "${GITHUB_ACTION_PATH}/../.."
+
+  - name: Verify runtime
+    shell: bash
+    run: |
+      export PATH="$HOME/.local/bin:$PATH"
+      echo "=== Gearbox Runtime ==="
+      echo "python3: $(command -v python3 && python3 --version)"
+      echo "uv:      $(command -v uv && uv --version)"
+      echo "gh:      $(command -v gh && gh --version 2>/dev/null | head -1)"
+      echo "======================="

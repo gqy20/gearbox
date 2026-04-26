@@ -44,7 +44,8 @@ uv run gearbox config list
 执行层:
   actions/*/action.yml
       |
-      `-- actions/_setup
+      |-- actions/_runtime（CLI 运行时）
+      `-- actions/_setup（audit 扫描工具）
               |
               `-- uv run gearbox agent ...
 ```
@@ -144,7 +145,8 @@ uv run gearbox release-notes --version v1.1.2
 ```text
 gearbox/
 ├── actions/
-│   ├── _setup/                  # 环境准备：uv、Python、gh、工具链
+│   ├── _runtime/                # 轻量运行时：uv、Python、gh、项目依赖
+│   ├── _setup/                  # audit 扫描工具：semgrep、deptry、cloc、trivy 等
 │   ├── main/                    # 内部路由层，导出时成为根 action.yml
 │   ├── audit/                   # 审计 action
 │   ├── triage/                  # 分类 action

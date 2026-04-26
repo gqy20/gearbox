@@ -34,7 +34,7 @@ OUTPUT_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "file": {"type": "string"},
-                    "line": {"type": "integer"},
+                    "line": {"type": ["integer", "null"]},
                     "body": {"type": "string"},
                     "severity": {
                         "type": "string",
@@ -158,23 +158,7 @@ SYSTEM_PROMPT = """你是资深 Code Review 专家。请对 PR 进行全面审�
 
 ## 输出格式
 
-请严格按以下 JSON 格式输出:
-
-```json
-{
-  "verdict": "Request Changes",
-  "score": 6,
-  "summary": "逻辑正确但存在安全问题和测试缺失",
-  "comments": [
-    {
-      "file": "src/auth.py",
-      "line": 42,
-      "body": "此处直接拼接 SQL，存在注入风险",
-      "severity": "blocker"
-    }
-  ]
-}
-```
+请直接返回符合 JSON Schema 的结构化结果，不要输出 Markdown 代码块。
 
 ## 约束
 
@@ -207,8 +191,13 @@ async def run_review(
     from claude_agent_sdk import ClaudeAgentOptions, query
 
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import append_assistant_text
-    project_root = Path(__file__).parent.parent.parent
+    from gearbox.agents.shared.structured import (
+        append_assistant_text,
+        json_schema_output,
+        parse_structured_output,
+    )
+
+    project_root = Path(__file__).resolve().parents[3]
     pr_info = _gh_pr_view(repo, pr_number)
     diff_text = _gh_pr_diff(repo, pr_number)
 
@@ -230,6 +219,7 @@ async def run_review(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
+            output_format=json_schema_output(OUTPUT_SCHEMA),
             allowed_tools=["Read", "Grep", "Glob"],
             skills="all",
             cwd=project_root,
@@ -250,6 +240,24 @@ async def run_review(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             result_text = append_assistant_text(result_text, message)
+            if not structured:
+                structured = parse_structured_output(
+                    message,
+                    lambda data: ReviewResult(
+                        verdict=data.get("verdict", "Comment Only"),
+                        score=int(data.get("score", 5)),
+                        summary=data.get("summary", ""),
+                        comments=[
+                            ReviewComment(
+                                file=comment.get("file", ""),
+                                line=comment.get("line"),
+                                body=comment.get("body", ""),
+                                severity=comment.get("severity", "info"),
+                            )
+                            for comment in data.get("comments", [])
+                        ],
+                    ),
+                )
 
             parsed = _parse_result(result_text)
             if parsed and not structured:

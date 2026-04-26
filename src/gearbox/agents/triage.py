@@ -137,18 +137,7 @@ SYSTEM_PROMPT = """你是 Issue 分类专家。请分析 GitHub Issue 并提供�
 
 ## 输出格式
 
-请严格按以下 JSON 格式输出（放在 ```json 代码块中）:
-
-```json
-{
-  "labels": ["bug"],
-  "priority": "P1",
-  "complexity": "M",
-  "needs_clarification": false,
-  "clarification_question": null,
-  "ready_to_implement": true
-}
-```
+请直接返回符合 JSON Schema 的结构化结果，不要输出 Markdown 代码块。
 
 **约束**:
 - labels 至少一个标签
@@ -182,8 +171,13 @@ async def run_triage(
     from claude_agent_sdk import ClaudeAgentOptions, query
 
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import append_assistant_text, parse_structured_output
-    project_root = Path(__file__).parent.parent.parent
+    from gearbox.agents.shared.structured import (
+        append_assistant_text,
+        json_schema_output,
+        parse_structured_output,
+    )
+
+    project_root = Path(__file__).resolve().parents[3]
     issue = _gh_issue_view(repo, issue_number)
 
     prompt = f"""## Issue 信息
@@ -204,6 +198,7 @@ async def run_triage(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
+            output_format=json_schema_output(OUTPUT_SCHEMA),
             allowed_tools=["Read", "Bash"],
             skills="all",
             cwd=project_root,

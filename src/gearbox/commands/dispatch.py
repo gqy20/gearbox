@@ -13,6 +13,7 @@ from gearbox.core.gh import (
     finalize_and_create_pr,
     post_issue_comment,
     prepare_working_branch,
+    remove_issue_labels,
 )
 from gearbox.flow import DispatchPlan, build_dispatch_plan
 
@@ -106,42 +107,45 @@ def dispatch_run(
         if not label_result.success:
             click.echo(f"⚠️ 标记 in-progress 失败: {label_result.url}", err=True)
 
-        temp_branch = prepare_working_branch(base_branch)
-        result = asyncio.run(
-            run_implement(
+        try:
+            temp_branch = prepare_working_branch(base_branch)
+            result = asyncio.run(
+                run_implement(
+                    repo,
+                    item.issue_number,
+                    model=resolved_model,
+                    base_branch=base_branch,
+                    max_turns=max_turns,
+                )
+            )
+            if not result.ready_for_review or not result.branch_name:
+                raise click.ClickException(f"Issue #{item.issue_number} 未生成可 review 的实现")
+
+            commit_msg = f"feat: {result.summary}\n\nCloses #{item.issue_number}"
+            pr_body = (
+                f"## Summary\n\n{result.summary}\n\n"
+                f"## Dispatch\n\n{item.reason}\n\nCloses #{item.issue_number}"
+            )
+            pr_result = finalize_and_create_pr(
+                repo=repo,
+                temp_branch=temp_branch,
+                final_branch=result.branch_name,
+                commit_message=commit_msg,
+                pr_title=f"feat(#{item.issue_number}): {result.summary}",
+                pr_body=pr_body,
+                base=base_branch,
+            )
+            if not pr_result.success:
+                raise click.ClickException(f"PR creation failed: {pr_result.error}")
+
+            add_issue_labels(repo, item.issue_number, ["has-pr"])
+            remove_issue_labels(repo, item.issue_number, ["in-progress"])
+            post_issue_comment(
                 repo,
                 item.issue_number,
-                model=resolved_model,
-                base_branch=base_branch,
-                max_turns=max_turns,
+                f"✅ Gearbox 已创建实现 PR: {pr_result.pr_url}",
             )
-        )
-        if not result.ready_for_review or not result.branch_name:
-            click.echo(f"⚠️ Issue #{item.issue_number} 未生成可 review 的实现", err=True)
-            continue
-
-        commit_msg = f"feat: {result.summary}\n\nCloses #{item.issue_number}"
-        pr_body = (
-            f"## Summary\n\n{result.summary}\n\n"
-            f"## Dispatch\n\n{item.reason}\n\nCloses #{item.issue_number}"
-        )
-        pr_result = finalize_and_create_pr(
-            repo=repo,
-            temp_branch=temp_branch,
-            final_branch=result.branch_name,
-            commit_message=commit_msg,
-            pr_title=f"feat(#{item.issue_number}): {result.summary}",
-            pr_body=pr_body,
-            base=base_branch,
-        )
-        if not pr_result.success:
-            click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
-            continue
-
-        add_issue_labels(repo, item.issue_number, ["has-pr"])
-        post_issue_comment(
-            repo,
-            item.issue_number,
-            f"✅ Gearbox 已创建实现 PR: {pr_result.pr_url}",
-        )
-        click.echo(f"✅ PR created: {pr_result.pr_url}")
+            click.echo(f"✅ PR created: {pr_result.pr_url}")
+        except Exception:
+            remove_issue_labels(repo, item.issue_number, ["in-progress"])
+            raise

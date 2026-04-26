@@ -11,6 +11,7 @@ from gearbox.core.gh import (
     build_issue_body,
     build_review_body,
     create_issue,
+    get_repo_labels,
     post_issue_comment,
 )
 
@@ -60,6 +61,24 @@ class TestAddIssueLabels:
         result = add_issue_labels("owner/repo", 42, [])
         assert result.success is True
         mock_run.assert_not_called()
+
+
+class TestGetRepoLabels:
+    """测试 get_repo_labels"""
+
+    def test_returns_label_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(return_value=MagicMock(stdout='[{"name":"bug"},{"name":"docs"}]'))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert get_repo_labels("owner/repo") == ["bug", "docs"]
+
+    def test_returns_empty_list_when_gh_label_list_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert get_repo_labels("owner/repo") == []
 
 
 class TestCreateIssue:

@@ -1,5 +1,6 @@
 """GitHub 操作模块 - 集中管理所有 gh/git 操作"""
 
+import json
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -145,8 +146,6 @@ def get_repo_labels(repo: str) -> list[str]:
             capture_output=True,
             text=True,
         )
-        import json
-
         labels = json.loads(result.stdout)
         return [label["name"] for label in labels]
     except (subprocess.CalledProcessError, json.JSONDecodeError):

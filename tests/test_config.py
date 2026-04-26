@@ -109,6 +109,18 @@ class TestAnthropicModel:
         finally:
             del os.environ["ANTHROPIC_MODEL"]
 
+    def test_env_wins_over_provider(self, temp_home: Path) -> None:
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+        os.environ["ANTHROPIC_MODEL"] = "env-model"
+        try:
+            config_dir = temp_home / ".config" / "gearbox"
+            config_dir.mkdir(parents=True)
+            save_config({"provider": "glm"})
+            model = get_anthropic_model()
+            assert model == "env-model"
+        finally:
+            del os.environ["ANTHROPIC_MODEL"]
+
 
 class TestAnthropicBaseUrl:
     """测试 get_anthropic_base_url"""

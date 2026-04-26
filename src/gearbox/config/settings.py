@@ -132,13 +132,17 @@ def get_anthropic_model() -> str:
     if "anthropic_model" in config:
         return cast(str, config["anthropic_model"])
 
+    env_model = os.environ.get("ANTHROPIC_MODEL")
+    if env_model:
+        return env_model
+
     # 如果配置了 provider，使用其默认值
     if "provider" in config:
         provider = PROVIDERS.get(config["provider"])
         if provider:
             return provider["model"]
 
-    return os.environ.get("ANTHROPIC_MODEL", "glm-5.1")
+    return "glm-5.1"
 
 
 def set_github_token(token: str) -> None:

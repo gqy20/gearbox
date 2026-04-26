@@ -19,6 +19,52 @@ class CreatePrResult:
     error: str | None = None
 
 
+TRIAGE_LABEL_METADATA: dict[str, tuple[str, str]] = {
+    "P0": ("b60205", "生产环境故障、数据丢失风险"),
+    "P1": ("d93f0b", "核心功能受损、用户体验严重下降"),
+    "P2": ("fbca04", "一般功能问题、边界情况"),
+    "P3": ("0e8a16", "优化建议、便利性改进"),
+    "complexity:S": ("c2e0c6", "低复杂度，预计 1 小时内"),
+    "complexity:M": ("fef2c0", "中等复杂度，预计 1-3 天"),
+    "complexity:L": ("f9d0c4", "高复杂度，预计超过 3 天"),
+    "needs-clarification": ("d876e3", "需要补充信息或进一步澄清"),
+    "ready-to-implement": ("0e8a16", "需求清晰，可进入实现阶段"),
+}
+
+
+def _label_metadata(label: str) -> tuple[str, str]:
+    return TRIAGE_LABEL_METADATA.get(label, ("cfd3d7", "由 Gearbox 自动分类创建"))
+
+
+def create_repo_label(repo: str, label: str) -> PostReviewResult:
+    """创建仓库标签。"""
+    color, description = _label_metadata(label)
+    try:
+        subprocess.run(
+            [
+                "gh",
+                "label",
+                "create",
+                label,
+                "--repo",
+                repo,
+                "--color",
+                color,
+                "--description",
+                description,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return PostReviewResult(success=True)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip()
+        if "already exists" in stderr.lower():
+            return PostReviewResult(success=True)
+        return PostReviewResult(success=False, url=stderr)
+
+
 def post_review_comment(
     repo: str,
     pr_number: int,
@@ -100,13 +146,16 @@ def add_issue_labels(
     existing_labels = get_repo_labels(repo)
     unknown_labels = [label for label in labels if label not in existing_labels]
     if unknown_labels:
-        # GitHub 会自动创建不存在的标签，这里只记录警告
         import sys
 
         print(
-            f"⚠️ 警告: 以下标签在仓库中不存在，将被自动创建: {', '.join(unknown_labels)}",
+            f"⚠️ 警告: 以下标签在仓库中不存在，正在创建: {', '.join(unknown_labels)}",
             file=sys.stderr,
         )
+        for label in unknown_labels:
+            create_result = create_repo_label(repo, label)
+            if not create_result.success:
+                print(f"⚠️ 创建标签失败: {label}: {create_result.url}", file=sys.stderr)
 
     try:
         subprocess.run(

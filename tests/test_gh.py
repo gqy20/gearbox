@@ -62,6 +62,50 @@ class TestAddIssueLabels:
         assert result.success is True
         mock_run.assert_not_called()
 
+    def test_creates_missing_labels_before_edit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
+        mock_run = MagicMock()
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = add_issue_labels("owner/repo", 42, ["bug", "P3", "complexity:M"])
+
+        assert result.success is True
+        commands = [call.args[0] for call in mock_run.call_args_list]
+        assert [
+            "gh",
+            "label",
+            "create",
+            "P3",
+            "--repo",
+            "owner/repo",
+            "--color",
+            "0e8a16",
+            "--description",
+            "优化建议、便利性改进",
+        ] in commands
+        assert [
+            "gh",
+            "label",
+            "create",
+            "complexity:M",
+            "--repo",
+            "owner/repo",
+            "--color",
+            "fef2c0",
+            "--description",
+            "中等复杂度，预计 1-3 天",
+        ] in commands
+        assert commands[-1] == [
+            "gh",
+            "issue",
+            "edit",
+            "--repo",
+            "owner/repo",
+            "42",
+            "--add-label",
+            "bug,P3,complexity:M",
+        ]
+
 
 class TestGetRepoLabels:
     """测试 get_repo_labels"""

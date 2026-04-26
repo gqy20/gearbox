@@ -110,34 +110,35 @@ def _gh_pr_view(repo: str, pr_number: int) -> Any:
 # Prompt
 # =============================================================================
 
-SYSTEM_PROMPT = """你是代码实现专家。请根据 Issue 描述实现代码变更，并创建 PR。
+SYSTEM_PROMPT = """你是代码实现专家。请根据 Issue 描述实现代码变更。
 
 ## 工作流程
 
 1. 阅读 Issue 了解需求
 2. 分析代码库结构，找到相关文件
 3. 实现代码变更
-4. 提交到新分支
-5. 创建 PR（关联 Issue）
+4. 运行必要的测试和 lint
+5. 返回结构化实现结果
 
 ## 安全约束
 
-- **分支命名**: 必须使用 `feat/issue-{number}` 或 `gearbox/implement-{number}` 前缀
-- **绝不直接 push 到 main/master**
-- 提交前运行测试和 lint
-- PR body 必须关联 Issue: `Closes #{issue_number}`
+- 只修改当前工作区文件，**不要**执行 `git commit`、`git push`、`gh pr create`
+- 外层 Gearbox 编排器会负责创建分支、提交、推送和 PR
+- 提交/PR 之前必须运行测试和 lint
+- branch_name 只需要给出建议分支名，必须使用 `feat/issue-{number}` 或
+  `gearbox/implement-{number}` 前缀
 
 ## 输出格式
 
 请直接返回符合 JSON Schema 的结构化结果，不要输出 Markdown 代码块。
 
-创建 PR 后，将 pr_url 填入结构化结果。
+pr_url 请返回 null，外层编排器创建 PR 后会回填。
 
 ## 约束
 
 - branch_name 必须以 feat/ 或 gearbox/ 开头
 - files_changed 列出所有修改文件
-- ready_for_review=true 表示已完成并推送"""
+- ready_for_review=true 表示工作区修改完成并已通过检查"""
 
 
 async def run_implement(
@@ -146,7 +147,7 @@ async def run_implement(
     *,
     model: str = "claude-sonnet-4-6",
     base_branch: str = "main",
-    max_turns: int = 20,
+    max_turns: int = 80,
 ) -> ImplementResult:
     """
     执行 Issue 实现。

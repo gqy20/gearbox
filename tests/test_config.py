@@ -175,3 +175,4 @@ class TestAgentDefaults:
         assert "review" in AGENT_DEFAULTS["max_turns"]
         assert "implement" in AGENT_DEFAULTS["max_turns"]
         assert "audit" in AGENT_DEFAULTS["max_turns"]
+        assert AGENT_DEFAULTS["max_turns"]["implement"] == 80

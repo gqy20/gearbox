@@ -25,7 +25,7 @@ inputs:
   max_turns:
     description: 最大对话轮次
     required: false
-    default: '20'
+    default: '80'
   model:
     description: 使用的模型（可选）
     required: false

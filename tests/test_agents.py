@@ -13,6 +13,7 @@ from gearbox.agents.backlog import (
     parse_issue_numbers,
 )
 from gearbox.agents.evaluator import EvaluationResult, build_evaluation_prompt
+from gearbox.agents.implement import SYSTEM_PROMPT as IMPLEMENT_SYSTEM_PROMPT
 from gearbox.agents.implement import ImplementResult
 from gearbox.agents.review import ReviewComment, ReviewResult
 from gearbox.agents.shared.structured import parse_structured_output
@@ -218,6 +219,13 @@ class TestStructuredOutputParsing:
         result = parse_structured_output(message, lambda data: ImplementResult(**data))
         assert result is not None
         assert result.branch_name == "feat/issue-42"
+
+    def test_implement_prompt_leaves_git_side_effects_to_orchestrator(self) -> None:
+        assert "不要" in IMPLEMENT_SYSTEM_PROMPT
+        assert "git commit" in IMPLEMENT_SYSTEM_PROMPT
+        assert "git push" in IMPLEMENT_SYSTEM_PROMPT
+        assert "gh pr create" in IMPLEMENT_SYSTEM_PROMPT
+        assert "外层 Gearbox 编排器会负责创建分支、提交、推送和 PR" in IMPLEMENT_SYSTEM_PROMPT
 
     def test_implement_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
         captured_cmd: list[str] = []

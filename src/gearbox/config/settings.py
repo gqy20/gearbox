@@ -11,7 +11,7 @@ AGENT_DEFAULTS: dict[str, Any] = {
     "max_turns": {
         "backlog": 5,
         "review": 10,
-        "implement": 20,
+        "implement": 80,
         "audit": 20,
     },
 }

@@ -20,126 +20,15 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  contents: read
-  issues: write
-
 jobs:
-  plan:
+  triage:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'issues' && contains(github.event.issue.body, '@gearbox')) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id)
-    runs-on: ubuntu-latest
-    outputs:
-      repo: ${{ steps.target.outputs.repo }}
-      issue: ${{ steps.target.outputs.issue }}
-      matrix: ${{ steps.matrix.outputs.json }}
-    steps:
-      - name: Determine target
-        id: target
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "repo=${{ inputs.target_repo || github.repository }}" >> "$GITHUB_OUTPUT"
-            echo "issue=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
-            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build matrix
-        id: matrix
-        shell: bash
-        env:
-          COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
-        run: |
-          if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then
-            echo "::error::parallel_runs must be a positive integer"
-            exit 1
-          fi
-
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import os
-
-          count = int(os.environ["COUNT"])
-          print(f"json={json.dumps({'run_id': list(range(count))})}")
-          PY
-
-  triage-run:
-    needs: plan
-    if: needs.plan.outputs.repo != '' && needs.plan.outputs.issue != ''
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Run Triage
-        uses: ./actions/triage
-        with:
-          repo: ${{ needs.plan.outputs.repo }}
-          issue_number: ${{ needs.plan.outputs.issue }}
-          max_turns: '5'
-          model: ${{ secrets.ANTHROPIC_MODEL }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          artifact_path: ./triage-output/result.json
-          apply_side_effects: 'false'
-
-      - name: Upload run results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: triage-results-run-${{ matrix.run_id }}
-          path: triage-output/
-          if-no-files-found: ignore
-
-  aggregate-triage:
-    needs: [plan, triage-run]
-    if: ${{ always() && needs.plan.outputs.repo != '' && needs.plan.outputs.issue != '' }}
-    runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup tools
-        uses: ./actions/_setup
-
-      - name: Download all run artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: triage-results-run-*
-          path: ./triage-runs
-
-      - name: Aggregate triage results
-        shell: bash
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          CMD=(
-            uv run --directory "$GITHUB_WORKSPACE" gearbox agent triage-select
-            --input-root ./triage-runs
-            --repo "${{ needs.plan.outputs.repo }}"
-            --issue "${{ needs.plan.outputs.issue }}"
-            --artifact-path ./triage-output/result.json
-          )
-
-          if [ -n "$ANTHROPIC_MODEL" ]; then
-            CMD+=(--model "$ANTHROPIC_MODEL")
-          fi
-
-          "${CMD[@]}"
-
-      - name: Upload final result
-        uses: actions/upload-artifact@v7
-        with:
-          name: triage-results
-          path: triage-output/
+    uses: ./.github/workflows/reusable-triage.yml
+    with:
+      repo: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+      issue_number: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
+      parallel_runs: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
+    secrets: inherit

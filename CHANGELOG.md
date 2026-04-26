@@ -9,7 +9,13 @@
 
 ### 变更
 
-- 这里记录尚未发布到 `gearbox-action` 的后续改动。
+- 将 Marketplace 根 action 展示名从 `Gearbox` 改为 `Gearbox AI Flywheel`，
+  避免 GitHub Marketplace 全站唯一名称校验冲突。
+
+### 修复
+
+- 修复 audit 评论结果步骤中的 shell 引号转义问题，避免 comment event 成功审计后
+  在 `uv run --directory` 阶段找不到路径。
 
 ## [v1.1.3] - 2026-04-26
 

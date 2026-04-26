@@ -35,7 +35,7 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     publish_action = (output_dir / "actions" / "publish" / "action.yml").read_text(encoding="utf-8")
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
 
-    assert "name: Gearbox" in root_action
+    assert "name: Gearbox AI Flywheel" in root_action
     assert "uses: ./actions/audit" in root_action
     assert "uses: ./actions/review" in root_action
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in runtime_action

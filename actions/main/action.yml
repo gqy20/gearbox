@@ -1,5 +1,5 @@
-name: Gearbox
-description: Unified entrypoint for Gearbox actions
+name: Gearbox AI Flywheel
+description: Unified AI automation entrypoint for repository audit, backlog, review, implementation, and publishing
 author: gqy20
 
 branding:

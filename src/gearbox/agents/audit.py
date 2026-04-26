@@ -111,28 +111,11 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 
 分析目标仓库，发现与业界标杆的差距，生成可执行的改进建议。
 
-## 你的工具
+## 工作流程
 
-**内置工具**（直接可用）:
-- **Read/Glob/Grep**: 分析代码结构
-- **Bash**: 执行命令（包括 `gh` CLI 工具）
-- **Write**: 保存分析结果到文件
-
-**MCP 工具**（可用于外部知识查询）:
-- **mcp__web_search_prime__search_text**: 网络搜索，发现对标项目
-- **mcp__context7__query_docs**: 查询库/框架官方文档
-
-**GitHub 仓库操作**:
-使用 `gh` 命令:
-- `gh repo view owner/repo` - 查看仓库信息
-- `gh search repos --language python --stars >1000` - 搜索仓库
-- `gh api /repos/owner/repo/contents/pyproject.toml` - 获取项目配置
-
-## 工作方式
-
-1. 用 Read 分析本地仓库结构，或用 gh 查看远程仓库
-2. 用 web_search_prime 搜索对标项目
-3. 用 context7 查询相关库的官方文档
+1. 用 Read 分析本地仓库结构，或用 `gh repo view` 查看远程仓库
+2. 用 `gh search repos` 发现对标项目
+3. 用 ctx7 查询相关库的官方文档（`npx ctx7 docs <library-id> <query>`）
 4. 自主分析并生成报告
 
 ## 输出格式
@@ -190,6 +173,8 @@ async def run_audit(
     Returns:
         AuditResult 结构
     """
+    from pathlib import Path
+
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
@@ -199,17 +184,19 @@ async def run_audit(
     )
 
     from gearbox.config import get_anthropic_model
-    from gearbox.config.mcp import ALLOWED_TOOLS, MCP_SERVERS
 
     resolved_model = model or get_anthropic_model()
     resolved_prompt = system_prompt if system_prompt else SYSTEM_PROMPT
 
+    # 项目根目录（用于定位 .claude/skills/）
+    project_root = Path(__file__).parent.parent.parent
+
     options = ClaudeAgentOptions(
         model=resolved_model,
-        mcp_servers=MCP_SERVERS,  # type: ignore
-        allowed_tools=ALLOWED_TOOLS,
         system_prompt=resolved_prompt,
         max_turns=max_turns,
+        skills=["ctx7", "gh"],
+        cwd=project_root,
     )
 
     if benchmarks:

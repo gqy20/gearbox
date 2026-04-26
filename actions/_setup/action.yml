@@ -1,0 +1,47 @@
+name: 'Setup Tools'
+description: 'Install required CLI tools (ctx7, gh, etc.)'
+author: 'gqy20'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check Node.js
+      shell: bash
+      run: |
+        if ! command -v node &> /dev/null; then
+          echo "::error::Node.js is required for ctx7"
+          exit 1
+        fi
+        echo "✅ Node.js: $(node --version)"
+
+    - name: Check npm
+      shell: bash
+      run: |
+        if ! command -v npm &> /dev/null; then
+          echo "::error::npm is required"
+          exit 1
+        fi
+        echo "✅ npm: $(npm --version)"
+
+    - name: Install ctx7
+      id: ctx7
+      shell: bash
+      run: |
+        set -e
+
+        if command -v ctx7 &> /dev/null; then
+          echo "✅ ctx7 already installed: $(ctx7 --version 2>/dev/null || echo 'unknown version')"
+        else
+          echo "📦 Installing ctx7..."
+          npm install -g ctx7
+          echo "✅ ctx7 installed: $(ctx7 --version 2>/dev/null || echo 'installed')"
+        fi
+
+    - name: Verify tools
+      shell: bash
+      run: |
+        echo "--- Installed tools ---"
+        command -v ctx7 && ctx7 --version 2>/dev/null || echo "ctx7: not found"
+        command -v gh && gh --version 2>/dev/null | head -1 || echo "gh: not found"
+        command -v python3 && python3 --version || echo "python3: not found"
+        echo "------------------------"

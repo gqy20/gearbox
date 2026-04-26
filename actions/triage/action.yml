@@ -53,6 +53,9 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Setup tools
+      uses: ./actions/_setup
+
     - name: Verify environment
       shell: bash
       run: |

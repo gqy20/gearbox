@@ -27,8 +27,8 @@ jobs:
   plan:
     if: |
       (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@gearbox')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id)
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@backlog')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@backlog') && github.event.comment.user.id != github.event.installation.id)
     runs-on: ubuntu-latest
     outputs:
       repo: ${{ steps.target.outputs.repo }}

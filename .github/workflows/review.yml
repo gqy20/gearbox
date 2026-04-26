@@ -29,7 +29,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'pull_request') ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id)
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@review') && github.event.comment.user.id != github.event.installation.id)
     uses: ./.github/workflows/reusable-review.yml
     with:
       repo: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}

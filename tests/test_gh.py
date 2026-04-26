@@ -12,6 +12,7 @@ from gearbox.core.gh import (
     build_issue_body,
     build_review_body,
     create_issue,
+    finalize_and_create_pr,
     get_issue_summary,
     get_repo_labels,
     list_open_issues,
@@ -237,6 +238,72 @@ class TestCreateIssue:
         assert "--label" in call_args
         # Should only have enhancement, not invalid-label
         assert "invalid-label" not in call_args
+
+
+class TestFinalizeAndCreatePr:
+    """测试分支提交和 PR 创建。"""
+
+    def test_sets_git_author_before_commit_when_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GITHUB_ACTOR", "gqy20")
+        monkeypatch.setenv("GITHUB_ACTOR_ID", "12345")
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            commands.append(cmd)
+            if cmd == ["git", "config", "--get", "user.name"]:
+                return MagicMock(stdout="")
+            if cmd == ["git", "config", "--get", "user.email"]:
+                return MagicMock(stdout="")
+            if cmd == ["git", "diff", "--staged", "--quiet"]:
+                return MagicMock(returncode=1)
+            if cmd[0:3] == ["gh", "pr", "create"]:
+                return MagicMock(stdout="https://github.com/owner/repo/pull/1")
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = finalize_and_create_pr(
+            repo="owner/repo",
+            temp_branch="gearbox/temp",
+            final_branch="feat/issue-2",
+            commit_message="feat: test",
+            pr_title="feat: test",
+            pr_body="body",
+        )
+
+        assert result.success is True
+        assert ["git", "config", "user.name", "gqy20"] in commands
+        assert [
+            "git",
+            "config",
+            "user.email",
+            "12345+github-actions[bot]@users.noreply.github.com",
+        ] in commands
+        assert ["git", "commit", "-m", "feat: test"] in commands
+
+    def test_called_process_error_without_stderr_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            if cmd == ["git", "branch", "-m", "gearbox/temp", "feat/issue-2"]:
+                raise subprocess.CalledProcessError(128, cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = finalize_and_create_pr(
+            repo="owner/repo",
+            temp_branch="gearbox/temp",
+            final_branch="feat/issue-2",
+            commit_message="feat: test",
+            pr_title="feat: test",
+            pr_body="body",
+        )
+
+        assert result.success is False
+        assert result.error
 
 
 class TestBuildReviewBody:

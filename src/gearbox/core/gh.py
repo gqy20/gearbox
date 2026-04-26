@@ -1,6 +1,7 @@
 """GitHub 操作模块 - 集中管理所有 gh/git 操作"""
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -463,6 +464,7 @@ def finalize_and_create_pr(
             capture_output=True,
         )
         if result.returncode == 1:
+            ensure_git_author()
             subprocess.run(["git", "commit", "-m", commit_message], check=True)
             subprocess.run(
                 ["git", "push", "-u", "origin", final_branch],
@@ -480,7 +482,7 @@ def finalize_and_create_pr(
             base=base,
         )
     except subprocess.CalledProcessError as e:
-        return CreatePrResult(success=False, error=e.stderr.strip())
+        return CreatePrResult(success=False, error=_called_process_error_message(e))
 
 
 def create_pr(
@@ -519,7 +521,7 @@ def create_pr(
         )
         return CreatePrResult(success=True, pr_url=result.stdout.strip())
     except subprocess.CalledProcessError as e:
-        return CreatePrResult(success=False, error=e.stderr.strip())
+        return CreatePrResult(success=False, error=_called_process_error_message(e))
 
 
 def checkout_branch(branch_name: str) -> None:
@@ -530,6 +532,41 @@ def checkout_branch(branch_name: str) -> None:
 def delete_branch(branch_name: str) -> None:
     """删除本地分支。"""
     subprocess.run(["git", "branch", "-D", branch_name], check=False)
+
+
+def ensure_git_author() -> None:
+    """Ensure git commits have an identity in non-interactive CI runners."""
+    name = subprocess.run(
+        ["git", "config", "--get", "user.name"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    email = subprocess.run(
+        ["git", "config", "--get", "user.email"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    if not name:
+        actor = os.environ.get("GITHUB_ACTOR") or "github-actions"
+        subprocess.run(["git", "config", "user.name", actor], check=True)
+    if not email:
+        actor_id = os.environ.get("GITHUB_ACTOR_ID") or "41898282"
+        subprocess.run(
+            [
+                "git",
+                "config",
+                "user.email",
+                f"{actor_id}+github-actions[bot]@users.noreply.github.com",
+            ],
+            check=True,
+        )
+
+
+def _called_process_error_message(error: subprocess.CalledProcessError) -> str:
+    stderr = error.stderr.strip() if isinstance(error.stderr, str) else ""
+    stdout = error.stdout.strip() if isinstance(error.stdout, str) else ""
+    return stderr or stdout or str(error)
 
 
 def build_review_body(

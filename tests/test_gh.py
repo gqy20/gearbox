@@ -18,6 +18,7 @@ from gearbox.core.gh import (
     get_repo_labels,
     list_open_issues,
     post_issue_comment,
+    post_review_comment,
     replace_managed_issue_labels,
 )
 
@@ -44,6 +45,36 @@ class TestPostIssueComment:
 
         result = post_issue_comment("owner/repo", 42, "Hello")
         assert result.success is False
+
+
+class TestPostReviewComment:
+    """测试 post_review_comment"""
+
+    @pytest.mark.parametrize(
+        ("event", "expected_flag"),
+        [
+            ("APPROVE", "--approve"),
+            ("COMMENT", "--comment"),
+            ("REQUEST_CHANGES", "--request-changes"),
+        ],
+    )
+    def test_maps_review_event_to_gh_cli_flag(
+        self, monkeypatch: pytest.MonkeyPatch, event: str, expected_flag: str
+    ) -> None:
+        captured: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            captured.extend(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = post_review_comment("owner/repo", 8, "body", event)
+
+        assert result.success is True
+        assert expected_flag in captured
+        assert "--event" not in captured
 
 
 class TestAddIssueLabels:

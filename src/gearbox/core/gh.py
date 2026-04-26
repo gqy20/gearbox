@@ -97,6 +97,12 @@ def post_review_comment(
     Returns:
         PostReviewResult
     """
+    event_flag = {
+        "APPROVE": "--approve",
+        "COMMENT": "--comment",
+        "REQUEST_CHANGES": "--request-changes",
+    }.get(event, "--comment")
+
     try:
         subprocess.run(
             [
@@ -108,8 +114,7 @@ def post_review_comment(
                 str(pr_number),
                 "--body",
                 body,
-                "--event",
-                event,
+                event_flag,
             ],
             check=True,
             capture_output=True,

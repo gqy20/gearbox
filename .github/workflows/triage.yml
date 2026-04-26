@@ -148,7 +148,7 @@ jobs:
       - name: Download all run artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: triage-results-run-*
+          pattern: triage-results-issue-*-run-*
           path: ./triage-runs
 
       - name: Aggregate triage results

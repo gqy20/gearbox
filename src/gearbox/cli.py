@@ -9,10 +9,10 @@ import click
 
 from .agents.audit import load_audit_result, promote_audit_outputs, run_audit
 from .agents.implement import run_implement
-from .agents.review import run_review
+from .agents.review import load_review_result, run_review, write_review_result
 from .agents.shared.github_output import format_currency, result_to_github_output
 from .agents.shared.selection import select_best_result
-from .agents.triage import run_triage
+from .agents.triage import load_triage_result, run_triage, write_triage_result
 from .config import (
     AGENT_DEFAULTS,
     get_config_path,
@@ -215,12 +215,20 @@ def agent() -> None:
 @click.option(
     "--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次"
 )
+@click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
+@click.option(
+    "--apply-side-effects/--no-apply-side-effects",
+    default=True,
+    help="是否应用 GitHub 标签/评论副作用",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def triage(
     repo: str,
     issue: int,
     model: str,
     max_turns: int,
+    artifact_path: str,
+    apply_side_effects: bool,
     output: str,
 ) -> None:
     """运行 Triage Agent - 分析 Issue 并打标签/定优先级"""
@@ -238,12 +246,15 @@ def triage(
     )
     click.echo(f"✅ Triage: labels={result.labels}, priority={result.priority}")
 
-    # GitHub 操作
-    add_issue_labels(repo, issue, result.labels)
-    if result.needs_clarification and result.clarification_question:
-        post_issue_comment(repo, issue, f"👋 {result.clarification_question}")
-    if result.ready_to_implement:
-        post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
+    if artifact_path:
+        write_triage_result(result, Path(artifact_path))
+
+    if apply_side_effects:
+        add_issue_labels(repo, issue, result.labels)
+        if result.needs_clarification and result.clarification_question:
+            post_issue_comment(repo, issue, f"👋 {result.clarification_question}")
+        if result.ready_to_implement:
+            post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
 
     result_to_github_output(result, output)
 
@@ -255,8 +266,22 @@ def triage(
 @click.option(
     "--max-turns", default=AGENT_DEFAULTS["max_turns"]["review"], type=int, help="最大对话轮次"
 )
+@click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
+@click.option(
+    "--apply-side-effects/--no-apply-side-effects",
+    default=True,
+    help="是否应用 GitHub Review 副作用",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
+def review(
+    repo: str,
+    pr: int,
+    model: str,
+    max_turns: int,
+    artifact_path: str,
+    apply_side_effects: bool,
+    output: str,
+) -> None:
     """运行 Review Agent - 审查 PR 代码"""
     from gearbox.config import get_anthropic_model
 
@@ -272,14 +297,19 @@ def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
     )
     click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
 
-    # GitHub 操作
-    comments = [
-        {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
-        for c in result.comments
-    ]
-    body = build_review_body(result.verdict, result.score, result.summary, comments)
-    event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(result.verdict, "COMMENT")
-    post_review_comment(repo, pr, body, event)
+    if artifact_path:
+        write_review_result(result, Path(artifact_path))
+
+    if apply_side_effects:
+        comments = [
+            {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
+            for c in result.comments
+        ]
+        body = build_review_body(result.verdict, result.score, result.summary, comments)
+        event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
+            result.verdict, "COMMENT"
+        )
+        post_review_comment(repo, pr, body, event)
 
     result_to_github_output(result, output)
     click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
@@ -429,6 +459,120 @@ def audit_select(input_root: str, output_dir: str, model: str, output: str) -> N
     click.echo(
         f"✅ Selected audit result: winner={winner_dir.name}, issues={len(winner_result.issues)}"
     )
+
+
+@agent.command(name="triage-select")
+@click.option("--input-root", required=True, help="并行 triage artifact 根目录")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", required=True, type=int, help="Issue 编号")
+@click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def triage_select(
+    input_root: str,
+    repo: str,
+    issue: int,
+    model: str,
+    artifact_path: str,
+    output: str,
+) -> None:
+    """聚合多个 triage 结果并只应用一次 GitHub 副作用。"""
+    root = Path(input_root)
+    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
+    if not candidate_dirs:
+        click.echo(f"❌ 未找到任何 triage 结果目录: {input_root}", err=True)
+        raise click.Abort()
+
+    results = []
+    names = []
+    for run_dir in candidate_dirs:
+        result_path = run_dir / "result.json"
+        if result_path.exists():
+            results.append(load_triage_result(result_path))
+            names.append(run_dir.name)
+
+    if not results:
+        click.echo("❌ 没有可用于聚合的 triage 结果", err=True)
+        raise click.Abort()
+
+    winner_index, winner_result = asyncio.run(
+        select_best_result(
+            results,
+            result_type="Triage 分类结果",
+            result_names=names,
+            model=model or "",
+        )
+    )
+    if artifact_path:
+        write_triage_result(winner_result, Path(artifact_path))
+
+    add_issue_labels(repo, issue, winner_result.labels)
+    if winner_result.needs_clarification and winner_result.clarification_question:
+        post_issue_comment(repo, issue, f"👋 {winner_result.clarification_question}")
+    if winner_result.ready_to_implement:
+        post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
+
+    result_to_github_output(winner_result, output)
+    click.echo(f"✅ Selected triage result: winner={names[winner_index]}")
+
+
+@agent.command(name="review-select")
+@click.option("--input-root", required=True, help="并行 review artifact 根目录")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--pr", required=True, type=int, help="PR 编号")
+@click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def review_select(
+    input_root: str,
+    repo: str,
+    pr: int,
+    model: str,
+    artifact_path: str,
+    output: str,
+) -> None:
+    """聚合多个 review 结果并只应用一次 GitHub 副作用。"""
+    root = Path(input_root)
+    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
+    if not candidate_dirs:
+        click.echo(f"❌ 未找到任何 review 结果目录: {input_root}", err=True)
+        raise click.Abort()
+
+    results = []
+    names = []
+    for run_dir in candidate_dirs:
+        result_path = run_dir / "result.json"
+        if result_path.exists():
+            results.append(load_review_result(result_path))
+            names.append(run_dir.name)
+
+    if not results:
+        click.echo("❌ 没有可用于聚合的 review 结果", err=True)
+        raise click.Abort()
+
+    winner_index, winner_result = asyncio.run(
+        select_best_result(
+            results,
+            result_type="Review 审查结果",
+            result_names=names,
+            model=model or "",
+        )
+    )
+    if artifact_path:
+        write_review_result(winner_result, Path(artifact_path))
+
+    comments = [
+        {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
+        for c in winner_result.comments
+    ]
+    body = build_review_body(winner_result.verdict, winner_result.score, winner_result.summary, comments)
+    event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
+        winner_result.verdict, "COMMENT"
+    )
+    post_review_comment(repo, pr, body, event)
+
+    result_to_github_output(winner_result, output)
+    click.echo(f"✅ Selected review result: winner={names[winner_index]}")
 
 
 # =============================================================================

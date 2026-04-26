@@ -3,6 +3,7 @@
 import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # =============================================================================
@@ -59,6 +60,26 @@ class TriageResult:
     needs_clarification: bool
     clarification_question: str | None
     ready_to_implement: bool
+
+
+def write_triage_result(result: TriageResult, output_path: Path) -> None:
+    from gearbox.agents.shared.artifacts import write_json_artifact
+
+    write_json_artifact(output_path, result)
+
+
+def load_triage_result(path: Path) -> TriageResult:
+    from gearbox.agents.shared.artifacts import read_json_artifact
+
+    data = read_json_artifact(path)
+    return TriageResult(
+        labels=data.get("labels", []),
+        priority=data.get("priority", "P3"),
+        complexity=data.get("complexity", "M"),
+        needs_clarification=data.get("needs_clarification", False),
+        clarification_question=data.get("clarification_question"),
+        ready_to_implement=data.get("ready_to_implement", False),
+    )
 
 
 # =============================================================================

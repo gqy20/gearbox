@@ -210,6 +210,18 @@ class TestAgentCommand:
         assert "--input-root" in result.output
         assert "--output-dir" in result.output
 
+    def test_agent_triage_select_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["agent", "triage-select", "--help"])
+        assert result.exit_code == 0
+        assert "--input-root" in result.output
+        assert "--issue" in result.output
+
+    def test_agent_review_select_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["agent", "review-select", "--help"])
+        assert result.exit_code == 0
+        assert "--input-root" in result.output
+        assert "--pr" in result.output
+
     def test_agent_triage_requires_args(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "triage"])
         assert result.exit_code != 0

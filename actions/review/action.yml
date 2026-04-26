@@ -18,6 +18,14 @@ inputs:
     description: '使用的模型（可选）'
     required: false
     default: ''
+  artifact_path:
+    description: '可选: 写出结构化结果 artifact'
+    required: false
+    default: ''
+  apply_side_effects:
+    description: '是否应用 GitHub Review 副作用'
+    required: false
+    default: 'true'
   anthropic_base_url:
     description: 'Anthropic 兼容接口 Base URL（可选）'
     required: false
@@ -64,6 +72,14 @@ runs:
 
         if [ -n "${{ inputs.model }}" ]; then
           CMD+=(--model "${{ inputs.model }}")
+        fi
+        if [ -n "${{ inputs.artifact_path }}" ]; then
+          CMD+=(--artifact-path "${{ inputs.artifact_path }}")
+        fi
+        if [ "${{ inputs.apply_side_effects }}" = "true" ]; then
+          CMD+=(--apply-side-effects)
+        else
+          CMD+=(--no-apply-side-effects)
         fi
 
         "${CMD[@]}"

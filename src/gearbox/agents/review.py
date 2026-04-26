@@ -3,6 +3,7 @@
 import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # =============================================================================
@@ -71,6 +72,32 @@ class ReviewResult:
     score: int
     summary: str
     comments: list[ReviewComment]
+
+
+def write_review_result(result: ReviewResult, output_path: Path) -> None:
+    from gearbox.agents.shared.artifacts import write_json_artifact
+
+    write_json_artifact(output_path, result)
+
+
+def load_review_result(path: Path) -> ReviewResult:
+    from gearbox.agents.shared.artifacts import read_json_artifact
+
+    data = read_json_artifact(path)
+    return ReviewResult(
+        verdict=data.get("verdict", "Comment Only"),
+        score=int(data.get("score", 5)),
+        summary=data.get("summary", ""),
+        comments=[
+            ReviewComment(
+                file=comment.get("file", ""),
+                line=comment.get("line"),
+                body=comment.get("body", ""),
+                severity=comment.get("severity", "info"),
+            )
+            for comment in data.get("comments", [])
+        ],
+    )
 
 
 # =============================================================================

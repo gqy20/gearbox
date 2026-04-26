@@ -43,6 +43,22 @@ from .core.gh import (
 from .release import build_marketplace_bundle, release_notes_for_version
 
 
+def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
+    """Return result.json files from both flat and per-artifact layouts."""
+    candidates: list[tuple[str, Path]] = []
+    flat_result = input_root / "result.json"
+    if flat_result.exists():
+        candidates.append((input_root.name, flat_result))
+
+    if input_root.exists():
+        for run_dir in sorted(path for path in input_root.iterdir() if path.is_dir()):
+            result_path = run_dir / "result.json"
+            if result_path.exists():
+                candidates.append((run_dir.name, result_path))
+
+    return candidates
+
+
 @click.group()
 @click.version_option(version="0.1.0", prog_name="gearbox")
 def cli() -> None:
@@ -542,18 +558,16 @@ def triage_select(
 ) -> None:
     """聚合多个 triage 结果并只应用一次 GitHub 副作用。"""
     root = Path(input_root)
-    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
-    if not candidate_dirs:
-        click.echo(f"❌ 未找到任何 triage 结果目录: {input_root}", err=True)
+    candidate_files = _candidate_result_files(root)
+    if not candidate_files:
+        click.echo(f"❌ 未找到任何 triage 结果: {input_root}", err=True)
         raise click.Abort()
 
     results = []
     names = []
-    for run_dir in candidate_dirs:
-        result_path = run_dir / "result.json"
-        if result_path.exists():
-            results.append(load_triage_result(result_path))
-            names.append(run_dir.name)
+    for name, result_path in candidate_files:
+        results.append(load_triage_result(result_path))
+        names.append(name)
 
     if not results:
         click.echo("❌ 没有可用于聚合的 triage 结果", err=True)
@@ -610,18 +624,16 @@ def review_select(
 ) -> None:
     """聚合多个 review 结果并只应用一次 GitHub 副作用。"""
     root = Path(input_root)
-    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
-    if not candidate_dirs:
-        click.echo(f"❌ 未找到任何 review 结果目录: {input_root}", err=True)
+    candidate_files = _candidate_result_files(root)
+    if not candidate_files:
+        click.echo(f"❌ 未找到任何 review 结果: {input_root}", err=True)
         raise click.Abort()
 
     results = []
     names = []
-    for run_dir in candidate_dirs:
-        result_path = run_dir / "result.json"
-        if result_path.exists():
-            results.append(load_review_result(result_path))
-            names.append(run_dir.name)
+    for name, result_path in candidate_files:
+        results.append(load_review_result(result_path))
+        names.append(name)
 
     if not results:
         click.echo("❌ 没有可用于聚合的 review 结果", err=True)
@@ -682,18 +694,16 @@ def implement_select(
     resolved_model = model or get_anthropic_model()
 
     root = Path(input_root)
-    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
-    if not candidate_dirs:
-        click.echo(f"❌ 未找到任何 implement 结果目录: {input_root}", err=True)
+    candidate_files = _candidate_result_files(root)
+    if not candidate_files:
+        click.echo(f"❌ 未找到任何 implement 结果: {input_root}", err=True)
         raise click.Abort()
 
     results = []
     names = []
-    for run_dir in candidate_dirs:
-        result_path = run_dir / "result.json"
-        if result_path.exists():
-            results.append(load_implement_result(result_path))
-            names.append(run_dir.name)
+    for name, result_path in candidate_files:
+        results.append(load_implement_result(result_path))
+        names.append(name)
 
     if not results:
         click.echo("❌ 没有可用于聚合的 implement 结果", err=True)

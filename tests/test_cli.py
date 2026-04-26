@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from gearbox.cli import cli
+from gearbox.cli import _candidate_result_files, cli
 
 
 @pytest.fixture
@@ -38,6 +38,26 @@ class TestVersionAndHelp:
         assert "config" in result.output
         assert "package-marketplace" in result.output
         assert "publish-issues" in result.output
+
+
+class TestResultFileDiscovery:
+    """测试 artifact 下载后的 result.json 布局兼容。"""
+
+    def test_candidate_result_files_supports_flat_layout(self, tmp_path: Path) -> None:
+        (tmp_path / "result.json").write_text("{}", encoding="utf-8")
+
+        candidates = _candidate_result_files(tmp_path)
+
+        assert candidates == [(tmp_path.name, tmp_path / "result.json")]
+
+    def test_candidate_result_files_supports_per_artifact_layout(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "triage-results-run-0"
+        run_dir.mkdir()
+        (run_dir / "result.json").write_text("{}", encoding="utf-8")
+
+        candidates = _candidate_result_files(tmp_path)
+
+        assert candidates == [("triage-results-run-0", run_dir / "result.json")]
 
 
 class TestAuditCommand:

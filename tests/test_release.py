@@ -49,6 +49,9 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     assert "uses: ./actions/_runtime" in publish_action
     assert "uses: ./actions/_setup" not in publish_action
     assert 'echo "::error::No issues.json found"' in audit_action
+    assert 'export PATH=\\"' not in audit_action
+    assert 'uv run --directory \\"' not in audit_action
+    assert "python <<'PY'" in audit_action
     assert "# Gearbox Action" in readme
     assert "Marketplace 发布仓" in readme
     assert "- `audit`" in readme

@@ -150,33 +150,39 @@ runs:
   - name: Comment results (if triggered by issue/PR)
     if: inputs.is_comment_event == 'true'
     shell: bash
-    run: |
-      export PATH=\"$HOME/.local/bin:$PATH\"
-      uv run --directory \"${GITHUB_ACTION_PATH}/../..\" python -c "
-      import os
-      from gearbox.core.gh import post_issue_comment, post_review_comment
-
-      repo = os.environ['GITHUB_REPOSITORY']
-      comparison_path = '${{ inputs.output_dir }}/comparison.md'
-
-      if not os.path.exists(comparison_path):
-        print('⚠️ No comparison.md found, skipping comment')
-        exit(0)
-
-      with open(comparison_path, 'r') as f:
-        body = f.read()
-
-      event_type = '${{ inputs.comment_event_type }}'
-      print(f'Event type: {event_type}')
-
-      if event_type in ('issue_comment', 'issues'):
-        issue_number = int('${{ inputs.issue_number }}')
-        result = post_issue_comment(repo, issue_number, body)
-        print(f'Issue comment: {\"✅\" if result.success else \"❌\"}')
-      elif event_type == 'pull_request_review_comment':
-        pr_number = int('${{ inputs.pr_number }}')
-        result = post_review_comment(repo, pr_number, body)
-        print(f'PR comment: {\"✅\" if result.success else \"❌\"}')
-      "
     env:
       GITHUB_REPOSITORY: ${{ github.repository }}
+      OUTPUT_DIR: ${{ inputs.output_dir }}
+      COMMENT_EVENT_TYPE: ${{ inputs.comment_event_type }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+    run: |
+      export PATH="$HOME/.local/bin:$PATH"
+      uv run --directory "${GITHUB_ACTION_PATH}/../.." python <<'PY'
+      import os
+      from pathlib import Path
+
+      from gearbox.core.gh import post_issue_comment, post_review_comment
+
+      repo = os.environ["GITHUB_REPOSITORY"]
+      comparison_path = Path(os.environ["OUTPUT_DIR"]) / "comparison.md"
+
+      if not comparison_path.exists():
+          print("⚠️ No comparison.md found, skipping comment")
+          raise SystemExit(0)
+
+      body = comparison_path.read_text(encoding="utf-8")
+      event_type = os.environ["COMMENT_EVENT_TYPE"]
+      print(f"Event type: {event_type}")
+
+      if event_type in ("issue_comment", "issues"):
+          issue_number = int(os.environ["ISSUE_NUMBER"])
+          result = post_issue_comment(repo, issue_number, body)
+          print(f"Issue comment: {'✅' if result.success else '❌'}")
+      elif event_type == "pull_request_review_comment":
+          pr_number = int(os.environ["PR_NUMBER"])
+          result = post_review_comment(repo, pr_number, body)
+          print(f"PR comment: {'✅' if result.success else '❌'}")
+      else:
+          print(f"⚠️ Unsupported comment event type: {event_type}")
+      PY

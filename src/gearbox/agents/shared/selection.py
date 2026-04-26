@@ -13,6 +13,7 @@ async def select_best_result(
     result_type: str,
     result_names: list[str] | None = None,
     model: str = "",
+    max_turns: int | None = None,
 ) -> tuple[int, T]:
     """使用 evaluator 在多个候选结果中选出最佳结果。"""
     if not results:
@@ -28,6 +29,7 @@ async def select_best_result(
         result_type=result_type,
         result_names=result_names,
         model=model,
+        **({"max_turns": max_turns} if max_turns is not None else {}),
     )
     winner_index = evaluation.winner if 0 <= evaluation.winner < len(results) else 0
     return winner_index, results[winner_index]

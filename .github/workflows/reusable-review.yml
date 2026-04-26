@@ -115,6 +115,7 @@ jobs:
             --repo "${{ inputs.repo }}"
             --pr "${{ inputs.pr_number }}"
             --artifact-path ./review-output/result.json
+            --max-turns 29
           )
 
           if [ -n "$ANTHROPIC_MODEL" ]; then

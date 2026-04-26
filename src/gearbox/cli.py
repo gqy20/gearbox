@@ -476,8 +476,9 @@ def audit_repo(
 @click.option("--input-root", required=True, help="并行 audit artifact 根目录")
 @click.option("--output-dir", default="./output", help="胜出结果输出目录")
 @click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def audit_select(input_root: str, output_dir: str, model: str, output: str) -> None:
+def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, output: str) -> None:
     """聚合多个 audit 结果并选出最佳结果。"""
     root = Path(input_root)
     if not root.exists():
@@ -511,6 +512,7 @@ def audit_select(input_root: str, output_dir: str, model: str, output: str) -> N
             result_type="Audit 审计结果",
             result_names=names,
             model=model or "",
+            max_turns=max_turns,
         )
     )
     winner_dir = valid_dirs[winner_index]
@@ -526,6 +528,7 @@ def audit_select(input_root: str, output_dir: str, model: str, output: str) -> N
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--issue", required=True, type=int, help="Issue 编号")
 @click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
 @click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def triage_select(
@@ -533,6 +536,7 @@ def triage_select(
     repo: str,
     issue: int,
     model: str,
+    max_turns: int,
     artifact_path: str,
     output: str,
 ) -> None:
@@ -561,6 +565,7 @@ def triage_select(
             result_type="Triage 分类结果",
             result_names=names,
             model=model or "",
+            max_turns=max_turns,
         )
     )
     if artifact_path:
@@ -591,6 +596,7 @@ def triage_select(
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--pr", required=True, type=int, help="PR 编号")
 @click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
 @click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def review_select(
@@ -598,6 +604,7 @@ def review_select(
     repo: str,
     pr: int,
     model: str,
+    max_turns: int,
     artifact_path: str,
     output: str,
 ) -> None:
@@ -626,6 +633,7 @@ def review_select(
             result_type="Review 审查结果",
             result_names=names,
             model=model or "",
+            max_turns=max_turns,
         )
     )
     if artifact_path:
@@ -655,6 +663,7 @@ def review_select(
 @click.option("--issue", required=True, type=int, help="Issue 编号")
 @click.option("--base-branch", default="main", help="PR 目标分支")
 @click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
 @click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement_select(
@@ -663,6 +672,7 @@ def implement_select(
     issue: int,
     base_branch: str,
     model: str,
+    max_turns: int,
     artifact_path: str,
     output: str,
 ) -> None:
@@ -695,6 +705,7 @@ def implement_select(
             result_type="Implement 实现结果",
             result_names=names,
             model=resolved_model,
+            max_turns=max_turns,
         )
     )
 

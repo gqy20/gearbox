@@ -126,6 +126,7 @@ jobs:
             uv run --directory "$GITHUB_WORKSPACE" gearbox agent audit-select
             --input-root ./audit-runs
             --output-dir ./audit-output
+            --max-turns 29
           )
 
           if [ -n "$ANTHROPIC_MODEL" ]; then

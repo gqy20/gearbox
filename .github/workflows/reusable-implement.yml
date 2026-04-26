@@ -123,6 +123,7 @@ jobs:
             --issue "${{ inputs.issue_number }}"
             --base-branch "${{ inputs.base_branch }}"
             --artifact-path ./implement-output/result.json
+            --max-turns 29
           )
 
           if [ -n "$ANTHROPIC_MODEL" ]; then

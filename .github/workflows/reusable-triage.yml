@@ -115,6 +115,7 @@ jobs:
             --repo "${{ inputs.repo }}"
             --issue "${{ inputs.issue_number }}"
             --artifact-path ./triage-output/result.json
+            --max-turns 29
           )
 
           if [ -n "$ANTHROPIC_MODEL" ]; then

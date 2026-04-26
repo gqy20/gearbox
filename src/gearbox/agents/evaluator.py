@@ -8,6 +8,8 @@ from typing import Any
 # Schema 定义
 # =============================================================================
 
+DEFAULT_EVALUATOR_MAX_TURNS = 29
+
 EVALUATOR_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -129,7 +131,7 @@ async def run_evaluator(
     result_names: list[str] | None = None,
     *,
     model: str = "claude-sonnet-4-6",
-    max_turns: int = 5,
+    max_turns: int = DEFAULT_EVALUATOR_MAX_TURNS,
 ) -> EvaluationResult:
     """
     运行评估器。

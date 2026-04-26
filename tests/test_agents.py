@@ -10,7 +10,12 @@ from gearbox.agents.evaluator import EvaluationResult, build_evaluation_prompt
 from gearbox.agents.implement import ImplementResult
 from gearbox.agents.review import ReviewComment, ReviewResult
 from gearbox.agents.shared.structured import parse_structured_output
-from gearbox.agents.triage import TriageResult, github_labels_for_triage_result
+from gearbox.agents.triage import (
+    BacklogResult,
+    TriageResult,
+    github_labels_for_triage_result,
+    parse_issue_numbers,
+)
 
 
 def _result_message(data: dict) -> ResultMessage:
@@ -133,6 +138,26 @@ class TestStructuredOutputParsing:
             "complexity:S",
             "needs-clarification",
         ]
+
+    def test_parse_issue_numbers(self) -> None:
+        assert parse_issue_numbers("2, 5 6") == [2, 5, 6]
+
+    def test_backlog_result_contains_issue_items(self) -> None:
+        result = BacklogResult(
+            items=[
+                TriageResult(
+                    issue_number=5,
+                    labels=["enhancement", "ci"],
+                    priority="P2",
+                    complexity="S",
+                    needs_clarification=False,
+                    clarification_question=None,
+                    ready_to_implement=True,
+                )
+            ]
+        )
+
+        assert result.items[0].issue_number == 5
 
     def test_triage_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
         captured_cmd: list[str] = []

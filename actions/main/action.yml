@@ -8,7 +8,7 @@ branding:
 
 inputs:
   action:
-    description: 'Action to run: audit, triage, implement, review, publish'
+    description: 'Action to run: audit, backlog, triage, implement, review, publish'
     required: true
   repo:
     description: 仓库标识 (owner/name)
@@ -16,6 +16,10 @@ inputs:
     default: ''
   issue_number:
     description: Issue 编号
+    required: false
+    default: ''
+  issues:
+    description: 逗号或空格分隔的 Issue 编号，数量决定单 issue 或 backlog 批量处理
     required: false
     default: ''
   pr_number:
@@ -82,7 +86,7 @@ runs:
     shell: bash
     run: |
       case "${{ inputs.action }}" in
-        audit|triage|implement|review|publish) ;;
+        audit|backlog|triage|implement|review|publish) ;;
         *)
           echo "::error::Unsupported action '${{ inputs.action }}'"
           exit 1
@@ -109,11 +113,12 @@ runs:
 
   - name: Run Triage
     id: triage
-    if: ${{ inputs.action == 'triage' }}
+    if: ${{ inputs.action == 'triage' || inputs.action == 'backlog' }}
     uses: ./actions/triage
     with:
       repo: ${{ inputs.repo }}
       issue_number: ${{ inputs.issue_number }}
+      issues: ${{ inputs.issues }}
       max_turns: ${{ inputs.max_turns }}
       model: ${{ inputs.model }}
       anthropic_base_url: ${{ inputs.anthropic_base_url }}

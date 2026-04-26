@@ -18,9 +18,14 @@ from .agents.review import load_review_result, run_review, write_review_result
 from .agents.shared.github_output import format_currency, result_to_github_output
 from .agents.shared.selection import select_best_result
 from .agents.triage import (
+    BacklogResult,
+    TriageResult,
     github_labels_for_triage_result,
+    load_backlog_result,
     load_triage_result,
+    parse_issue_numbers,
     run_triage,
+    write_backlog_result,
     write_triage_result,
 )
 from .config import (
@@ -35,7 +40,6 @@ from .config import (
     set_provider,
 )
 from .core.gh import (
-    add_issue_labels,
     build_review_body,
     create_issue,
     create_pr,
@@ -44,6 +48,7 @@ from .core.gh import (
     post_issue_comment,
     post_review_comment,
     prepare_working_branch,
+    replace_managed_issue_labels,
 )
 from .release import build_marketplace_bundle, release_notes_for_version
 
@@ -62,6 +67,32 @@ def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
                 candidates.append((run_dir.name, result_path))
 
     return candidates
+
+
+def _apply_triage_result(repo: str, result: object, fallback_issue: int | None = None) -> None:
+    """Apply one triage result to GitHub with idempotent managed labels."""
+    issue_number = getattr(result, "issue_number", None) or fallback_issue
+    if issue_number is None:
+        raise click.ClickException("triage result missing issue_number")
+
+    labels = github_labels_for_triage_result(result)  # type: ignore[arg-type]
+    label_result = replace_managed_issue_labels(repo, issue_number, labels)
+    if not label_result.success:
+        click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
+
+    needs_clarification = bool(getattr(result, "needs_clarification", False))
+    clarification_question = getattr(result, "clarification_question", None)
+    ready_to_implement = bool(getattr(result, "ready_to_implement", False))
+    if needs_clarification and clarification_question:
+        comment_result = post_issue_comment(repo, issue_number, f"👋 {clarification_question}")
+        if not comment_result.success:
+            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
+    if ready_to_implement:
+        comment_result = post_issue_comment(
+            repo, issue_number, "✅ 此 Issue 分类完成，标记为 ready-to-implement"
+        )
+        if not comment_result.success:
+            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
 
 
 @click.group()
@@ -293,19 +324,62 @@ def triage(
         write_triage_result(result, Path(artifact_path))
 
     if apply_side_effects:
-        label_result = add_issue_labels(repo, issue, github_labels_for_triage_result(result))
-        if not label_result.success:
-            click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
-        if result.needs_clarification and result.clarification_question:
-            comment_result = post_issue_comment(repo, issue, f"👋 {result.clarification_question}")
-            if not comment_result.success:
-                click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
-        if result.ready_to_implement:
-            comment_result = post_issue_comment(
-                repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement"
+        _apply_triage_result(repo, result, fallback_issue=issue)
+
+    result_to_github_output(result, output)
+
+
+@agent.command(name="backlog")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issues", required=True, help="逗号或空格分隔的 Issue 编号")
+@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
+@click.option(
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次"
+)
+@click.option("--artifact-path", default="", help="可选: 写出结构化 backlog artifact")
+@click.option(
+    "--apply-side-effects/--no-apply-side-effects",
+    default=False,
+    help="是否应用 GitHub 标签/评论副作用（并行时建议关闭）",
+)
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def backlog(
+    repo: str,
+    issues: str,
+    model: str,
+    max_turns: int,
+    artifact_path: str,
+    apply_side_effects: bool,
+    output: str,
+) -> None:
+    """运行 Backlog Agent - 统一处理单个或多个 Issue 分类。"""
+    from gearbox.config import get_anthropic_model
+
+    issue_numbers = parse_issue_numbers(issues)
+    if not issue_numbers:
+        raise click.ClickException("--issues must contain at least one issue number")
+
+    resolved_model = model or get_anthropic_model()
+    items = [
+        asyncio.run(
+            run_triage(
+                repo,
+                issue_number,
+                model=resolved_model,
+                max_turns=max_turns,
             )
-            if not comment_result.success:
-                click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
+        )
+        for issue_number in issue_numbers
+    ]
+    result = BacklogResult(items=items)
+    click.echo(f"✅ Backlog: issues={','.join(str(item.issue_number) for item in items)}")
+
+    if artifact_path:
+        write_backlog_result(result, Path(artifact_path))
+
+    if apply_side_effects:
+        for item in result.items:
+            _apply_triage_result(repo, item)
 
     result_to_github_output(result, output)
 
@@ -590,24 +664,66 @@ def triage_select(
     if artifact_path:
         write_triage_result(winner_result, Path(artifact_path))
 
-    label_result = add_issue_labels(repo, issue, github_labels_for_triage_result(winner_result))
-    if not label_result.success:
-        click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
-    if winner_result.needs_clarification and winner_result.clarification_question:
-        comment_result = post_issue_comment(
-            repo, issue, f"👋 {winner_result.clarification_question}"
-        )
-        if not comment_result.success:
-            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
-    if winner_result.ready_to_implement:
-        comment_result = post_issue_comment(
-            repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement"
-        )
-        if not comment_result.success:
-            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
+    _apply_triage_result(repo, winner_result, fallback_issue=issue)
 
     result_to_github_output(winner_result, output)
     click.echo(f"✅ Selected triage result: winner={names[winner_index]}")
+
+
+@agent.command(name="backlog-select")
+@click.option("--input-root", required=True, help="并行 backlog artifact 根目录")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
+@click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def backlog_select(
+    input_root: str,
+    repo: str,
+    model: str,
+    max_turns: int,
+    artifact_path: str,
+    output: str,
+) -> None:
+    """聚合多个 backlog 结果并按 issue 只应用一次 GitHub 副作用。"""
+    root = Path(input_root)
+    candidate_files = _candidate_result_files(root)
+    if not candidate_files:
+        click.echo(f"❌ 未找到任何 backlog 结果: {input_root}", err=True)
+        raise click.Abort()
+
+    by_issue: dict[int, list[tuple[str, TriageResult]]] = {}
+    for name, result_path in candidate_files:
+        backlog_result = load_backlog_result(result_path)
+        for item in backlog_result.items:
+            if item.issue_number is None:
+                raise click.ClickException(f"{result_path} missing issue_number")
+            by_issue.setdefault(item.issue_number, []).append((name, item))
+
+    selected_items: list[TriageResult] = []
+    for issue_number in sorted(by_issue):
+        candidates = by_issue[issue_number]
+        names = [name for name, _ in candidates]
+        results = [item for _, item in candidates]
+        winner_index, winner_result = asyncio.run(
+            select_best_result(
+                results,
+                result_type=f"Backlog Issue #{issue_number} 分类结果",
+                result_names=names,
+                model=model or "",
+                max_turns=max_turns,
+            )
+        )
+        selected_items.append(winner_result)
+        _apply_triage_result(repo, winner_result)
+        click.echo(
+            f"✅ Selected backlog result: issue={issue_number}, winner={names[winner_index]}"
+        )
+
+    result = BacklogResult(items=selected_items)
+    if artifact_path:
+        write_backlog_result(result, Path(artifact_path))
+    result_to_github_output(result, output)
 
 
 @agent.command(name="review-select")

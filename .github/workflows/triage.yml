@@ -8,9 +8,13 @@ on:
         required: false
         default: ''
       issue_number:
-        description: 'Issue 编号'
-        required: true
+        description: 'Issue 编号（兼容旧输入；优先使用 issues）'
+        required: false
         type: number
+      issues:
+        description: '逗号或空格分隔的 Issue 编号；数量决定单 issue 或 backlog 批量处理'
+        required: false
+        default: ''
       parallel_runs:
         description: '并行执行次数（workflow 编排层配置）'
         required: false
@@ -33,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       repo: ${{ steps.target.outputs.repo }}
-      issue_number: ${{ steps.target.outputs.issue_number }}
+      issues: ${{ steps.target.outputs.issues }}
       matrix: ${{ steps.matrix.outputs.json }}
     steps:
       - name: Determine target
@@ -46,10 +50,18 @@ jobs:
             else
               echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
             fi
-            echo "issue_number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+            ISSUES="${{ inputs.issues }}"
+            if [ -z "$ISSUES" ]; then
+              ISSUES="${{ inputs.issue_number }}"
+            fi
+            if [ -z "$ISSUES" ]; then
+              echo "::error::issues or issue_number is required"
+              exit 1
+            fi
+            echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
           else
             echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
-            echo "issue_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "issues=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build matrix
@@ -57,6 +69,7 @@ jobs:
         shell: bash
         env:
           COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
+          ISSUES: ${{ steps.target.outputs.issues }}
         run: |
           if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then
             echo "::error::parallel_runs must be a positive integer"
@@ -66,14 +79,25 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           import os
+          import re
 
           count = int(os.environ["COUNT"])
-          print(f"json={json.dumps({'run_id': list(range(count))})}")
+          issues = [int(part) for part in re.split(r"[\s,]+", os.environ["ISSUES"].strip()) if part]
+          if not issues:
+              raise SystemExit("issues must not be empty")
+          matrix = {
+              "include": [
+                  {"issue_number": issue, "run_id": run_id}
+                  for issue in issues
+                  for run_id in range(count)
+              ]
+          }
+          print(f"json={json.dumps(matrix)}")
           PY
 
   triage-run:
     needs: plan
-    if: needs.plan.outputs.repo != '' && needs.plan.outputs.issue_number != ''
+    if: needs.plan.outputs.repo != '' && needs.plan.outputs.issues != ''
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -89,7 +113,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           repo: ${{ needs.plan.outputs.repo }}
-          issue_number: ${{ needs.plan.outputs.issue_number }}
+          issues: ${{ matrix.issue_number }}
           max_turns: '5'
           model: ${{ secrets.ANTHROPIC_MODEL }}
           anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
@@ -101,13 +125,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: triage-results-run-${{ matrix.run_id }}
+          name: triage-results-issue-${{ matrix.issue_number }}-run-${{ matrix.run_id }}
           path: triage-output/
           if-no-files-found: ignore
 
   aggregate-triage:
     needs: [plan, triage-run]
-    if: ${{ always() && needs.plan.outputs.repo != '' && needs.plan.outputs.issue_number != '' }}
+    if: ${{ always() && needs.plan.outputs.repo != '' && needs.plan.outputs.issues != '' }}
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -136,10 +160,9 @@ jobs:
           echo "::endgroup::"
 
           CMD=(
-            uv run --directory "$GITHUB_WORKSPACE" gearbox agent triage-select
+            uv run --directory "$GITHUB_WORKSPACE" gearbox agent backlog-select
             --input-root ./triage-runs
             --repo "${{ needs.plan.outputs.repo }}"
-            --issue "${{ needs.plan.outputs.issue_number }}"
             --artifact-path ./triage-output/result.json
             --max-turns 29
           )

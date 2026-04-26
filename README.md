@@ -65,8 +65,11 @@ uv run gearbox config list
 # 审计当前项目
 gh workflow run audit.yml
 
-# 分类指定 Issue
+# 分类指定 Issue（单个 issue 是 backlog 的特例）
 gh workflow run triage.yml -f issue_number=123
+
+# 批量分类多个 Issue
+gh workflow run triage.yml -f issues='2,5,6'
 
 # 审查指定 PR
 gh workflow run review.yml -f pr_number=456
@@ -82,6 +85,17 @@ gh workflow run review.yml -f pr_number=456
     anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
     anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
     model: ${{ vars.ANTHROPIC_MODEL }}
+```
+
+统一的 backlog 入口会根据 `issues` 数量自动选择行为：1 个 issue 时执行快速分类，多个 issue 时执行批量分类并逐个写回标签/评论。
+
+```yaml
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: backlog
+    repo: owner/repo
+    issues: '2,5,6'
+    anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 ```
 
 ### 高级 matrix 编排
@@ -149,14 +163,15 @@ gearbox/
 │   ├── _setup/                  # audit 扫描工具：semgrep、deptry、cloc、trivy 等
 │   ├── main/                    # 内部路由层，导出时成为根 action.yml
 │   ├── audit/                   # 审计 action
-│   ├── triage/                  # 分类 action
+│   ├── backlog/                 # backlog 分类 action
+│   ├── triage/                  # 分类 action（兼容旧入口，内部走 backlog）
 │   ├── review/                  # 审查 action
 │   ├── implement/               # 实现 action
 │   └── publish/                 # 发布 action
 ├── .github/workflows/
 │   ├── ci.yml                   # ruff / mypy / pytest
 │   ├── audit.yml                # 当前验证过的内部 audit matrix 编排
-│   ├── triage.yml               # Issue 分类入口
+│   ├── triage.yml               # Issue/backlog 分类入口
 │   ├── review.yml               # PR 审查入口
 │   ├── reusable-*.yml           # 高级编排模板
 │   └── release-marketplace.yml  # Marketplace 发布流程

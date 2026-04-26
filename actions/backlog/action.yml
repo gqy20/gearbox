@@ -1,19 +1,14 @@
-name: Gearbox - Triage
-description: AI 驱动的 Issue 自动分类、优先级判断和标签管理
+name: Gearbox - Backlog
+description: AI 驱动的 Issue/backlog 批量分类、优先级判断和标签管理
 author: gqy20
 
 inputs:
   repo:
     description: 仓库标识 (owner/name)
     required: true
-  issue_number:
-    description: Issue 编号（兼容旧输入；优先使用 issues）
-    required: false
-    default: ''
   issues:
     description: 逗号或空格分隔的 Issue 编号，数量决定单 issue 或 backlog 批量处理
-    required: false
-    default: ''
+    required: true
   max_turns:
     description: 最大对话轮次
     required: false
@@ -50,7 +45,7 @@ runs:
   - name: Setup Gearbox runtime
     uses: ./actions/_runtime
 
-  - name: Run Triage Agent
+  - name: Run Backlog Agent
     id: run
     shell: bash
     env:
@@ -68,19 +63,10 @@ runs:
       fi
       export PATH="$HOME/.local/bin:$PATH"
 
-      ISSUES="${{ inputs.issues }}"
-      if [ -z "$ISSUES" ]; then
-        ISSUES="${{ inputs.issue_number }}"
-      fi
-      if [ -z "$ISSUES" ]; then
-        echo "::error::issues or issue_number is required"
-        exit 1
-      fi
-
       CMD=(
         uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent backlog
         --repo "${{ inputs.repo }}"
-        --issues "${ISSUES}"
+        --issues "${{ inputs.issues }}"
         --max-turns "${{ inputs.max_turns }}"
       )
 

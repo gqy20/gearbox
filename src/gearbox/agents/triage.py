@@ -1,6 +1,7 @@
 """Triage Agent — Issue 自动分类、优先级判断和标签管理"""
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,20 @@ class TriageResult:
     needs_clarification: bool
     clarification_question: str | None
     ready_to_implement: bool
+    issue_number: int | None = None
+
+
+@dataclass
+class BacklogResult:
+    """Backlog 分类结果，单 issue 是多 issue 的特例。"""
+
+    items: list[TriageResult]
+
+
+def parse_issue_numbers(value: str) -> list[int]:
+    """Parse comma/space separated issue numbers."""
+    numbers = [int(part) for part in re.split(r"[\s,]+", value.strip()) if part]
+    return list(dict.fromkeys(numbers))
 
 
 def github_labels_for_triage_result(result: TriageResult) -> list[str]:
@@ -84,17 +99,46 @@ def write_triage_result(result: TriageResult, output_path: Path) -> None:
     write_json_artifact(output_path, result)
 
 
+def write_backlog_result(result: BacklogResult, output_path: Path) -> None:
+    from gearbox.agents.shared.artifacts import write_json_artifact
+
+    write_json_artifact(output_path, result)
+
+
 def load_triage_result(path: Path) -> TriageResult:
     from gearbox.agents.shared.artifacts import read_json_artifact
 
     data = read_json_artifact(path)
     return TriageResult(
+        issue_number=cast(int | None, data.get("issue_number")),
         labels=cast(list[str], data.get("labels", [])),
         priority=cast(str, data.get("priority", "P3")),
         complexity=cast(str, data.get("complexity", "M")),
         needs_clarification=cast(bool, data.get("needs_clarification", False)),
         clarification_question=cast(str | None, data.get("clarification_question")),
         ready_to_implement=cast(bool, data.get("ready_to_implement", False)),
+    )
+
+
+def load_backlog_result(path: Path) -> BacklogResult:
+    from gearbox.agents.shared.artifacts import read_json_artifact
+
+    data = read_json_artifact(path)
+    raw_items = data.get("items", [])
+    assert isinstance(raw_items, list)
+    return BacklogResult(
+        items=[
+            TriageResult(
+                issue_number=cast(int | None, item.get("issue_number")),
+                labels=cast(list[str], item.get("labels", [])),
+                priority=cast(str, item.get("priority", "P3")),
+                complexity=cast(str, item.get("complexity", "M")),
+                needs_clarification=cast(bool, item.get("needs_clarification", False)),
+                clarification_question=cast(str | None, item.get("clarification_question")),
+                ready_to_implement=cast(bool, item.get("ready_to_implement", False)),
+            )
+            for item in cast(list[dict[str, object]], raw_items)
+        ]
     )
 
 
@@ -228,6 +272,7 @@ async def run_triage(
                 parsed = parse_structured_output(
                     message,
                     lambda data: TriageResult(
+                        issue_number=issue_number,
                         labels=cast(list[str], data.get("labels", [])),
                         priority=cast(str, data.get("priority", "P3")),
                         complexity=cast(str, data.get("complexity", "M")),

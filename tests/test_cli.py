@@ -274,13 +274,13 @@ class TestAgentCommand:
 
         captured_labels: list[str] = []
 
-        def fake_add_issue_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+        def fake_replace_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
             del repo, issue
             captured_labels.extend(labels)
             return PostReviewResult(success=True)
 
         monkeypatch.setattr("gearbox.cli.run_triage", fake_run_triage)
-        monkeypatch.setattr("gearbox.cli.add_issue_labels", fake_add_issue_labels)
+        monkeypatch.setattr("gearbox.cli.replace_managed_issue_labels", fake_replace_labels)
         monkeypatch.setattr(
             "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
         )
@@ -328,12 +328,12 @@ class TestAgentCommand:
 
         captured_labels: list[str] = []
 
-        def fake_add_issue_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+        def fake_replace_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
             del repo, issue
             captured_labels.extend(labels)
             return PostReviewResult(success=True)
 
-        monkeypatch.setattr("gearbox.cli.add_issue_labels", fake_add_issue_labels)
+        monkeypatch.setattr("gearbox.cli.replace_managed_issue_labels", fake_replace_labels)
         monkeypatch.setattr(
             "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
         )
@@ -361,6 +361,97 @@ class TestAgentCommand:
             "P3",
             "complexity:M",
             "ready-to-implement",
+        ]
+
+    def test_agent_backlog_runs_multiple_issues(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        async def fake_run_triage(repo: str, issue_number: int, **kwargs) -> TriageResult:
+            del repo, kwargs
+            return TriageResult(
+                issue_number=issue_number,
+                labels=["enhancement"],
+                priority="P2",
+                complexity="S",
+                needs_clarification=False,
+                clarification_question=None,
+                ready_to_implement=True,
+            )
+
+        monkeypatch.setattr("gearbox.cli.run_triage", fake_run_triage)
+
+        artifact_path = tmp_path / "backlog.json"
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "backlog",
+                "--repo",
+                "owner/repo",
+                "--issues",
+                "2,5",
+                "--artifact-path",
+                str(artifact_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        assert [item["issue_number"] for item in data["items"]] == [2, 5]
+
+    def test_agent_backlog_select_applies_each_issue(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        for issue in (2, 5):
+            run_dir = tmp_path / f"backlog-results-issue-{issue}-run-0"
+            run_dir.mkdir()
+            (run_dir / "result.json").write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "issue_number": issue,
+                                "labels": ["enhancement"],
+                                "priority": "P2",
+                                "complexity": "S",
+                                "needs_clarification": False,
+                                "clarification_question": None,
+                                "ready_to_implement": True,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        captured: list[tuple[int, list[str]]] = []
+
+        def fake_replace(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+            del repo
+            captured.append((issue, labels))
+            return PostReviewResult(True)
+
+        monkeypatch.setattr("gearbox.cli.replace_managed_issue_labels", fake_replace)
+        monkeypatch.setattr(
+            "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "backlog-select",
+                "--input-root",
+                str(tmp_path),
+                "--repo",
+                "owner/repo",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured == [
+            (2, ["enhancement", "P2", "complexity:S", "ready-to-implement"]),
+            (5, ["enhancement", "P2", "complexity:S", "ready-to-implement"]),
         ]
 
     def test_agent_review_requires_args(self, runner: CliRunner) -> None:

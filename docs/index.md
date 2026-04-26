@@ -58,7 +58,8 @@ Agent 共享层:
 | Action | 用途 | 主要参数 |
 | --- | --- | --- |
 | `audit` | 审计仓库，发现改进建议 | `repo`, `benchmarks` |
-| `triage` | Issue 分类打标 | `repo`, `issue_number` |
+| `backlog` | 单个或多个 Issue 分类打标 | `repo`, `issues` |
+| `triage` | Issue 分类打标（兼容旧入口，内部走 backlog） | `repo`, `issue_number` |
 | `review` | PR Code Review | `repo`, `pr_number` |
 | `implement` | 实现 Issue 并创建 PR | `repo`, `issue_number` |
 | `publish` | 发布 `issues.json` 为 GitHub Issues | `input_path` |

@@ -13,6 +13,7 @@ from gearbox.core.gh import (
     create_issue,
     get_repo_labels,
     post_issue_comment,
+    replace_managed_issue_labels,
 )
 
 
@@ -104,6 +105,48 @@ class TestAddIssueLabels:
             "42",
             "--add-label",
             "bug,P3,complexity:M",
+        ]
+
+
+class TestReplaceManagedIssueLabels:
+    """测试 Gearbox 管理标签幂等替换"""
+
+    def test_removes_old_managed_labels_before_adding_new(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["P1", "P2"])
+        monkeypatch.setattr(
+            "gearbox.core.gh.get_issue_labels",
+            lambda repo, issue: ["enhancement", "P1", "complexity:M"],
+        )
+        mock_run = MagicMock()
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = replace_managed_issue_labels(
+            "owner/repo", 42, ["enhancement", "P2", "complexity:S"]
+        )
+
+        assert result.success is True
+        commands = [call.args[0] for call in mock_run.call_args_list]
+        assert [
+            "gh",
+            "issue",
+            "edit",
+            "--repo",
+            "owner/repo",
+            "42",
+            "--remove-label",
+            "P1,complexity:M",
+        ] in commands
+        assert commands[-1] == [
+            "gh",
+            "issue",
+            "edit",
+            "--repo",
+            "owner/repo",
+            "42",
+            "--add-label",
+            "enhancement,P2,complexity:S",
         ]
 
 

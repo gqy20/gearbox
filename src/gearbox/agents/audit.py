@@ -2,7 +2,9 @@
 
 import json
 import re
+import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 # =============================================================================
@@ -38,6 +40,8 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     },
     "required": ["repo", "issues"],
 }
+
+OUTPUT_FILES = ("profile.json", "comparison.md", "issues.json")
 
 # =============================================================================
 # 数据模型
@@ -173,8 +177,6 @@ async def run_audit(
     Returns:
         AuditResult 结构
     """
-    from pathlib import Path
-
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
@@ -229,6 +231,7 @@ async def run_audit(
 
     result_text = ""
     structured: AuditResult | None = None
+    total_cost: float | None = None
 
     try:
         async for message in query(prompt=prompt, options=options):
@@ -238,8 +241,8 @@ async def run_audit(
                     if isinstance(block, TextBlock):
                         result_text += block.text
             elif isinstance(message, ResultMessage):
-                if message.total_cost_usd and structured:
-                    structured.cost = message.total_cost_usd
+                if message.total_cost_usd is not None:
+                    total_cost = message.total_cost_usd
 
             parsed = _parse_result(result_text)
             if parsed and not structured:
@@ -255,5 +258,15 @@ async def run_audit(
             repo=repo,
             issues=[],
         )
+    structured.cost = total_cost
 
     return structured
+
+
+def promote_audit_outputs(source_dir: Path, target_dir: Path) -> None:
+    """将胜出实例的产物提升到最终输出目录。"""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for filename in OUTPUT_FILES:
+        source = source_dir / filename
+        if source.exists():
+            shutil.copy2(source, target_dir / filename)

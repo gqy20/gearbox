@@ -42,6 +42,12 @@ def _format_usage(usage: dict[str, int] | None) -> str:
     return ", ".join(parts)
 
 
+def _format_mapping(data: dict[str, object] | None) -> str:
+    if not data:
+        return ""
+    return ", ".join(f"{key}={value}" for key, value in data.items())
+
+
 class SdkEventLogger:
     """把 SDK 原生事件转成适合终端和 GitHub Actions 的日志。"""
 
@@ -124,6 +130,14 @@ class SdkEventLogger:
                 fields.append("is_error=true")
             if message.errors:
                 fields.append(f"errors={'; '.join(message.errors)}")
+            usage = _format_mapping(message.usage if isinstance(message.usage, dict) else None)
+            if usage:
+                fields.append(f"usage[{usage}]")
+            model_usage = _format_mapping(
+                message.model_usage if isinstance(message.model_usage, dict) else None
+            )
+            if model_usage:
+                fields.append(f"model_usage[{model_usage}]")
             _log(self.agent_name, "result", ", ".join(fields))
             return
 

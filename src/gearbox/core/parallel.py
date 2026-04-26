@@ -1,6 +1,7 @@
 """并行执行基础设施 - 通用并行执行器"""
 
 import asyncio
+import traceback
 from typing import Any, Callable, Coroutine, TypeVar
 
 T = TypeVar("T")  # Result type
@@ -29,9 +30,15 @@ async def run_parallel(
 
     # 过滤异常
     valid_results: list[T] = []
-    for r in results:
+    for angle, r in zip(angles, results, strict=False):
         if isinstance(r, Exception):
-            print(f"⚠️ Instance failed: {r}")
+            print(f"⚠️ Instance failed [{angle}]: {type(r).__name__}: {r}")
+            stderr = getattr(r, "stderr", None)
+            if stderr:
+                print(f"stderr[{angle}]: {stderr}")
+            tb = "".join(traceback.format_exception(type(r), r, r.__traceback__))
+            if tb.strip():
+                print(f"traceback[{angle}]:\n{tb}")
         else:
             valid_results.append(r)  # type: ignore[arg-type]
 

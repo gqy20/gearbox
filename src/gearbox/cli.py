@@ -2,12 +2,13 @@
 
 import asyncio
 import json
+import shutil
 import traceback
 from pathlib import Path
 
 import click
 
-from .agents.audit import run_audit
+from .agents.audit import promote_audit_outputs, run_audit
 from .agents.implement import run_implement
 from .agents.review import run_review
 from .agents.triage import run_triage
@@ -216,6 +217,10 @@ def _result_to_github_output(result, output_file: str = "/tmp/github_output") ->
             data[key] = str(value)
     data["status"] = "success"
     write_outputs(data, output_file)
+
+
+def _format_currency(amount: float | None) -> str:
+    return f"${amount:.4f}" if amount is not None else "n/a"
 
 
 @cli.group()
@@ -462,12 +467,17 @@ def audit_repo(
     system_prompt_arg = system_prompt if system_prompt else None
 
     if parallel_count > 1:
+        parallel_root = Path(output_dir) / ".parallel"
+        if parallel_root.exists():
+            shutil.rmtree(parallel_root)
+
         # 同一任务并行执行多次
-        async def agent_factory(_: str):
+        async def agent_factory(angle: str):
+            run_output_dir = parallel_root / angle
             return await run_audit(
                 repo,
                 benchmarks=benchmark_list,
-                output_dir=output_dir,
+                output_dir=str(run_output_dir),
                 model=model_arg,
                 max_turns=max_turns,
                 system_prompt=system_prompt_arg,
@@ -494,8 +504,17 @@ def audit_repo(
             if evaluation.winner < len(all_results)
             else all_results[0]
         )
+        winner_name = (
+            angles[evaluation.winner]
+            if evaluation.winner < len(angles)
+            else angles[0]
+        )
+        promote_audit_outputs(parallel_root / winner_name, Path(output_dir))
+        total_cost = sum(result.cost or 0.0 for result in all_results)
         click.echo(
-            f"✅ Audit (parallel): {len(best_result.issues)} issues, winner={evaluation.winner}"
+            f"✅ Audit (parallel): {len(best_result.issues)} issues, "
+            f"winner={evaluation.winner}, total_cost={_format_currency(total_cost)}, "
+            f"winner_cost={_format_currency(best_result.cost)}"
         )
         result = best_result
     else:
@@ -509,7 +528,9 @@ def audit_repo(
                 system_prompt=system_prompt_arg,
             )
         )
-        click.echo(f"✅ Audit: {len(result.issues)} issues, cost={result.cost}")
+        click.echo(
+            f"✅ Audit: {len(result.issues)} issues, cost={_format_currency(result.cost)}"
+        )
 
     _result_to_github_output(result, output)
 

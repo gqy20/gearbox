@@ -90,14 +90,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          BUNDLE_CHANGED="false"
           git add .
           if git diff --cached --quiet; then
             echo "No bundle changes to publish"
-            exit 0
+          else
+            git commit -m "release: sync ${RELEASE_TAG}"
+            git push origin "${TARGET_BRANCH}"
+            BUNDLE_CHANGED="true"
           fi
-
-          git commit -m "release: sync ${RELEASE_TAG}"
-          git push origin "${TARGET_BRANCH}"
 
           if [ "${RELEASE_REF_TYPE}" != "tag" ]; then
             echo "Skip tag sync for ref type: ${RELEASE_REF_TYPE}"
@@ -111,4 +112,22 @@ jobs:
           if [ -n "${MAJOR_TAG}" ] && [ "${MAJOR_TAG}" != "${RELEASE_TAG}" ]; then
             git tag -fa "${MAJOR_TAG}" -m "Release ${MAJOR_TAG}"
             git push origin "refs/tags/${MAJOR_TAG}" --force
+          fi
+
+          export GH_TOKEN="${GH_PAT}"
+
+          if gh release view "${RELEASE_TAG}" -R "${TARGET_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              -R "${TARGET_REPOSITORY}" \
+              --title "Gearbox Action ${RELEASE_TAG}" \
+              --notes "Synced from \`gqy20/gearbox\` ${RELEASE_TAG}."
+          else
+            gh release create "${RELEASE_TAG}" \
+              -R "${TARGET_REPOSITORY}" \
+              --title "Gearbox Action ${RELEASE_TAG}" \
+              --notes "Synced from \`gqy20/gearbox\` ${RELEASE_TAG}."
+          fi
+
+          if [ "${BUNDLE_CHANGED}" = "false" ]; then
+            echo "Bundle unchanged; updated tags/release metadata only."
           fi

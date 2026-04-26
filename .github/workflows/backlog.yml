@@ -147,7 +147,7 @@ jobs:
           echo "::endgroup::"
 
           CMD=(
-            uv run --directory "$GITHUB_WORKSPACE" gearbox agent backlog-select
+            uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent backlog-select
             --input-root ./backlog-runs
             --repo "${{ needs.plan.outputs.repo }}"
             --artifact-path ./backlog-output/result.json

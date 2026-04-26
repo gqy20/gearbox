@@ -74,6 +74,23 @@ def test_composite_actions_write_outputs_to_workspace() -> None:
     assert 'OUTPUT_DIR="${GITHUB_WORKSPACE}/' in audit_action
 
 
+def test_reusable_workflow_aggregators_use_action_source() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow_paths = [
+        root / ".github" / "workflows" / "reusable-review.yml",
+        root / ".github" / "workflows" / "reusable-implement.yml",
+        root / ".github" / "workflows" / "backlog.yml",
+        root / ".github" / "workflows" / "audit.yml",
+        root / ".github" / "workflows" / "reusable-audit.yml",
+    ]
+
+    for workflow_path in workflow_paths:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert 'uv run --directory "$GITHUB_WORKSPACE" gearbox agent' not in workflow
+        assert 'uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent' in workflow
+
+
 def test_build_marketplace_bundle_excludes_python_cache_files(tmp_path: Path) -> None:
     output_dir = tmp_path / "gearbox-action"
 

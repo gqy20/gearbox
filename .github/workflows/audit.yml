@@ -155,7 +155,7 @@ jobs:
           echo "::endgroup::"
 
           CMD=(
-            uv run --directory "$GITHUB_WORKSPACE" gearbox agent audit-select
+            uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent audit-select
             --input-root ./audit-runs
             --output-dir ./audit-output
             --max-turns 29

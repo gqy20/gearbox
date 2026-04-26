@@ -113,7 +113,7 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           CMD=(
-            uv run --directory "$GITHUB_WORKSPACE" gearbox agent review-select
+            uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent review-select
             --input-root ./review-runs
             --repo "${{ inputs.repo }}"
             --pr "${{ inputs.pr_number }}"

@@ -42,6 +42,7 @@ runs:
     run: |
       set -e
       export PATH="$HOME/.local/bin:$PATH"
+      echo "GEARBOX_ACTION_ROOT=${GITHUB_ACTION_PATH}/../.." >> "$GITHUB_ENV"
       uv sync --directory "${GITHUB_ACTION_PATH}/../.."
 
   - name: Verify runtime

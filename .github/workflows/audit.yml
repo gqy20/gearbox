@@ -11,6 +11,10 @@ on:
         description: '对标仓库列表 (逗号分隔，可选)'
         required: false
         default: ''
+      anthropic_base_url:
+        description: 'Anthropic 兼容接口 Base URL（留空则使用仓库 secret 或默认配置）'
+        required: false
+        default: ''
       create_issues:
         description: '是否创建 Issues'
         required: false
@@ -68,6 +72,7 @@ jobs:
           benchmarks: ${{ inputs.benchmarks }}
           output_dir: ./audit-output
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          anthropic_base_url: ${{ inputs.anthropic_base_url != '' && inputs.anthropic_base_url || secrets.ANTHROPIC_BASE_URL }}
           parallel_count: 3
           is_comment_event: ${{ github.event_name == 'issue_comment' || github.event_name == 'issues' || github.event_name == 'pull_request_review_comment' }}
           comment_event_type: ${{ github.event_name }}

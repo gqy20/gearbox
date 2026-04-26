@@ -7,6 +7,7 @@ from gearbox.config import (
     AGENT_DEFAULTS,
     PROVIDERS,
     get_anthropic_api_key,
+    get_anthropic_base_url,
     get_anthropic_model,
     get_config_path,
     get_github_token,
@@ -107,6 +108,27 @@ class TestAnthropicModel:
             assert model == "test-model"
         finally:
             del os.environ["ANTHROPIC_MODEL"]
+
+
+class TestAnthropicBaseUrl:
+    """测试 get_anthropic_base_url"""
+
+    def test_env_override(self) -> None:
+        os.environ["ANTHROPIC_BASE_URL"] = "https://proxy.example.com/anthropic"
+        try:
+            base_url = get_anthropic_base_url()
+            assert base_url == "https://proxy.example.com/anthropic"
+        finally:
+            del os.environ["ANTHROPIC_BASE_URL"]
+
+    def test_provider_used_when_env_missing(self, temp_home: Path) -> None:
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        save_config({"provider": "glm"})
+
+        base_url = get_anthropic_base_url()
+        assert base_url == PROVIDERS["glm"]["base_url"]
 
 
 class TestProviders:

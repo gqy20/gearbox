@@ -17,6 +17,7 @@ def runner(tmp_path: "Path") -> CliRunner:
     env["HOME"] = str(tmp_path)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
     env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_BASE_URL", None)
     env.pop("GITHUB_TOKEN", None)
     return CliRunner(env=env)
 

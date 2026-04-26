@@ -93,13 +93,17 @@ def get_anthropic_base_url() -> str | None:
     if "anthropic_base_url" in config:
         return cast(str, config["anthropic_base_url"])
 
+    env_base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    if env_base_url:
+        return env_base_url
+
     # 如果配置了 provider，使用其默认值
     if "provider" in config:
         provider = PROVIDERS.get(config["provider"])
         if provider:
             return provider["base_url"]
 
-    return os.environ.get("ANTHROPIC_BASE_URL")
+    return None
 
 
 # Provider 预设配置

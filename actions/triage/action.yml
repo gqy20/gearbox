@@ -9,7 +9,6 @@ inputs:
   issue_number:
     description: Issue 编号
     required: true
-    type: number
   max_turns:
     description: 最大对话轮次
     required: false

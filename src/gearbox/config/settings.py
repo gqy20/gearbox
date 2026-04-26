@@ -8,7 +8,6 @@ import tomli_w
 
 # Agent 默认参数（CLI 和 Action 均引用此处的值）
 AGENT_DEFAULTS: dict[str, Any] = {
-    "parallel_count": 3,
     "max_turns": {
         "triage": 5,
         "review": 10,

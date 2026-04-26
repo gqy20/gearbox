@@ -168,10 +168,6 @@ class TestAgentDefaults:
     def test_is_dict(self) -> None:
         assert isinstance(AGENT_DEFAULTS, dict)
 
-    def test_has_parallel_count(self) -> None:
-        assert "parallel_count" in AGENT_DEFAULTS
-        assert isinstance(AGENT_DEFAULTS["parallel_count"], int)
-
     def test_has_max_turns(self) -> None:
         assert "max_turns" in AGENT_DEFAULTS
         assert isinstance(AGENT_DEFAULTS["max_turns"], dict)

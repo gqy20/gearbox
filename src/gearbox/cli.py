@@ -10,8 +10,8 @@ import click
 from .agents.audit import load_audit_result, promote_audit_outputs, run_audit
 from .agents.implement import run_implement
 from .agents.review import run_review
-from .agents.shared.execution import run_parallel
 from .agents.shared.github_output import format_currency, result_to_github_output
+from .agents.shared.selection import select_best_result
 from .agents.triage import run_triage
 from .config import (
     AGENT_DEFAULTS,
@@ -215,64 +215,28 @@ def agent() -> None:
 @click.option(
     "--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次"
 )
-@click.option(
-    "--parallel-count",
-    default=AGENT_DEFAULTS["parallel_count"],
-    type=int,
-    help="并行执行次数（1=不并行）",
-)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def triage(
     repo: str,
     issue: int,
     model: str,
     max_turns: int,
-    parallel_count: int,
     output: str,
 ) -> None:
     """运行 Triage Agent - 分析 Issue 并打标签/定优先级"""
-    from gearbox.agents.evaluator import run_evaluator
     from gearbox.config import get_anthropic_model
 
     resolved_model = model or get_anthropic_model()
 
-    if parallel_count > 1:
-        # 同一任务并行执行多次
-        async def agent_factory(_: str):
-            return await run_triage(repo, issue, model=resolved_model, max_turns=max_turns)
-
-        angles = [f"run_{i}" for i in range(parallel_count)]
-        all_results = asyncio.run(run_parallel(agent_factory, angles, model=resolved_model))
-
-        if not all_results:
-            click.echo("❌ No results from parallel execution")
-            return
-
-        evaluation = asyncio.run(
-            run_evaluator(
-                results=all_results,
-                result_type="Triage 分类结果",
-                result_names=angles[: len(all_results)],
-                model=resolved_model,
-            )
+    result = asyncio.run(
+        run_triage(
+            repo,
+            issue,
+            model=resolved_model,
+            max_turns=max_turns,
         )
-
-        result = (
-            all_results[evaluation.winner]
-            if evaluation.winner < len(all_results)
-            else all_results[0]
-        )
-        click.echo(f"✅ Triage (parallel): winner={evaluation.winner}, scores={evaluation.scores}")
-    else:
-        result = asyncio.run(
-            run_triage(
-                repo,
-                issue,
-                model=resolved_model,
-                max_turns=max_turns,
-            )
-        )
-        click.echo(f"✅ Triage: labels={result.labels}, priority={result.priority}")
+    )
+    click.echo(f"✅ Triage: labels={result.labels}, priority={result.priority}")
 
     # GitHub 操作
     add_issue_labels(repo, issue, result.labels)
@@ -291,59 +255,22 @@ def triage(
 @click.option(
     "--max-turns", default=AGENT_DEFAULTS["max_turns"]["review"], type=int, help="最大对话轮次"
 )
-@click.option(
-    "--parallel-count",
-    default=AGENT_DEFAULTS["parallel_count"],
-    type=int,
-    help="并行执行次数（1=不并行）",
-)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def review(
-    repo: str, pr: int, model: str, max_turns: int, parallel_count: int, output: str
-) -> None:
+def review(repo: str, pr: int, model: str, max_turns: int, output: str) -> None:
     """运行 Review Agent - 审查 PR 代码"""
-    from gearbox.agents.evaluator import run_evaluator
     from gearbox.config import get_anthropic_model
 
     resolved_model = model or get_anthropic_model()
 
-    if parallel_count > 1:
-        # 同一任务并行执行多次
-        async def agent_factory(_: str):
-            return await run_review(repo, pr, model=resolved_model, max_turns=max_turns)
-
-        angles = [f"run_{i}" for i in range(parallel_count)]
-        all_results = asyncio.run(run_parallel(agent_factory, angles, model=resolved_model))
-
-        if not all_results:
-            click.echo("❌ No results from parallel execution")
-            return
-
-        evaluation = asyncio.run(
-            run_evaluator(
-                results=all_results,
-                result_type="Review 审查结果",
-                result_names=angles[: len(all_results)],
-                model=resolved_model,
-            )
+    result = asyncio.run(
+        run_review(
+            repo,
+            pr,
+            model=resolved_model,
+            max_turns=max_turns,
         )
-
-        result = (
-            all_results[evaluation.winner]
-            if evaluation.winner < len(all_results)
-            else all_results[0]
-        )
-        click.echo(f"✅ Review (parallel): winner={evaluation.winner}, scores={evaluation.scores}")
-    else:
-        result = asyncio.run(
-            run_review(
-                repo,
-                pr,
-                model=resolved_model,
-                max_turns=max_turns,
-            )
-        )
-        click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
+    )
+    click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
 
     # GitHub 操作
     comments = [
@@ -462,8 +389,6 @@ def audit_repo(
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def audit_select(input_root: str, output_dir: str, model: str, output: str) -> None:
     """聚合多个 audit 结果并选出最佳结果。"""
-    from gearbox.agents.evaluator import run_evaluator
-
     root = Path(input_root)
     if not root.exists():
         click.echo(f"❌ 目录不存在: {input_root}", err=True)
@@ -490,21 +415,15 @@ def audit_select(input_root: str, output_dir: str, model: str, output: str) -> N
         click.echo("❌ 没有可用于聚合的 audit 结果", err=True)
         raise click.Abort()
 
-    winner_index = 0
-    if len(results) > 1:
-        evaluation = asyncio.run(
-            run_evaluator(
-                results=results,
-                result_type="Audit 审计结果",
-                result_names=names,
-                model=model or "",
-            )
+    winner_index, winner_result = asyncio.run(
+        select_best_result(
+            results,
+            result_type="Audit 审计结果",
+            result_names=names,
+            model=model or "",
         )
-        if 0 <= evaluation.winner < len(results):
-            winner_index = evaluation.winner
-
+    )
     winner_dir = valid_dirs[winner_index]
-    winner_result = results[winner_index]
     promote_audit_outputs(winner_dir, Path(output_dir))
     result_to_github_output(winner_result, output)
     click.echo(

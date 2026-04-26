@@ -9,13 +9,12 @@ from .review import OUTPUT_SCHEMA as REVIEW_SCHEMA
 from .review import ReviewComment, ReviewResult, run_review
 from .shared import (
     SdkEventLogger,
-    append_assistant_text,
     format_currency,
     json_schema_output,
     parse_structured_output,
     prepare_agent_options,
     result_to_github_output,
-    run_parallel,
+    select_best_result,
 )
 from .triage import OUTPUT_SCHEMA as TRIAGE_SCHEMA
 from .triage import TriageResult, run_triage
@@ -27,11 +26,10 @@ __all__ = [
     "AUDIT_SCHEMA",
     "run_audit",
     "json_schema_output",
-    "append_assistant_text",
     "parse_structured_output",
     "prepare_agent_options",
     "SdkEventLogger",
-    "run_parallel",
+    "select_best_result",
     "result_to_github_output",
     "format_currency",
     # Evaluator

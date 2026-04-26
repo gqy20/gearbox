@@ -180,13 +180,14 @@ class TestAgentCommand:
         assert result.exit_code == 0
         assert "--repo" in result.output
         assert "--issue" in result.output
-        assert "--parallel-count" in result.output
+        assert "--parallel-count" not in result.output
 
     def test_agent_review_help(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "review", "--help"])
         assert result.exit_code == 0
         assert "--repo" in result.output
         assert "--pr" in result.output
+        assert "--parallel-count" not in result.output
 
     def test_agent_implement_help(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "implement", "--help"])

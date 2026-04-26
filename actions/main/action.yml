@@ -54,10 +54,6 @@ inputs:
     description: '最大对话轮次'
     required: false
     default: '20'
-  parallel_count:
-    description: '并行执行次数'
-    required: false
-    default: '3'
   model:
     description: '使用的模型（可选）'
     required: false
@@ -119,7 +115,6 @@ runs:
         repo: ${{ inputs.repo }}
         issue_number: ${{ inputs.issue_number }}
         max_turns: ${{ inputs.max_turns }}
-        parallel_count: ${{ inputs.parallel_count }}
         model: ${{ inputs.model }}
         anthropic_base_url: ${{ inputs.anthropic_base_url }}
         anthropic_api_key: ${{ inputs.anthropic_api_key }}
@@ -145,7 +140,6 @@ runs:
         repo: ${{ inputs.repo }}
         pr_number: ${{ inputs.pr_number }}
         max_turns: ${{ inputs.max_turns }}
-        parallel_count: ${{ inputs.parallel_count }}
         model: ${{ inputs.model }}
         anthropic_base_url: ${{ inputs.anthropic_base_url }}
         anthropic_api_key: ${{ inputs.anthropic_api_key }}

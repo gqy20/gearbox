@@ -10,6 +10,14 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _ignore_runtime_junk(_directory: str, entries: list[str]) -> set[str]:
+    ignored: set[str] = set()
+    for entry in entries:
+        if entry == "__pycache__" or entry.endswith(".pyc"):
+            ignored.add(entry)
+    return ignored
+
+
 def _render_marketplace_readme() -> str:
     return """# Gearbox Action
 
@@ -52,8 +60,16 @@ def build_marketplace_bundle(output_dir: Path) -> Path:
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True)
 
-    shutil.copytree(project_root / "actions", output_dir / "actions")
-    shutil.copytree(project_root / "src", output_dir / "src")
+    shutil.copytree(
+        project_root / "actions",
+        output_dir / "actions",
+        ignore=_ignore_runtime_junk,
+    )
+    shutil.copytree(
+        project_root / "src",
+        output_dir / "src",
+        ignore=_ignore_runtime_junk,
+    )
     shutil.copy2(project_root / "pyproject.toml", output_dir / "pyproject.toml")
 
     router_action = project_root / "actions" / "main" / "action.yml"

@@ -17,7 +17,7 @@ inputs:
   max_turns:
     description: '最大对话轮次'
     required: false
-    default: '20'
+    default: '50'
   system_prompt:
     description: '自定义 System Prompt（可选）'
     required: false

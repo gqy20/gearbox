@@ -18,7 +18,8 @@
 
 ### 变更
 
-- 这里记录尚未发布到 `gearbox-action` 的后续改动。
+- 将过长的 `src/gearbox/cli.py` 拆分为 `src/gearbox/commands/` 命令模块，
+  保留 `gearbox.cli:cli` 作为稳定入口，降低 CLI 后续维护成本。
 
 ## [v1.1.4] - 2026-04-26
 

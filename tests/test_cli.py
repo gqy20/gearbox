@@ -8,7 +8,8 @@ import pytest
 from click.testing import CliRunner
 
 from gearbox.agents.backlog import BacklogItemResult
-from gearbox.cli import _candidate_result_files, cli
+from gearbox.cli import cli
+from gearbox.commands.shared import _candidate_result_files
 from gearbox.core.gh import PostReviewResult
 
 
@@ -275,7 +276,7 @@ class TestAgentCommand:
                 ready_to_implement=True,
             )
 
-        monkeypatch.setattr("gearbox.cli.run_backlog_item", fake_run_backlog_item)
+        monkeypatch.setattr("gearbox.commands.agent.run_backlog_item", fake_run_backlog_item)
 
         artifact_path = tmp_path / "backlog.json"
         result = runner.invoke(
@@ -328,9 +329,10 @@ class TestAgentCommand:
             captured.append((issue, labels))
             return PostReviewResult(True)
 
-        monkeypatch.setattr("gearbox.cli.replace_managed_issue_labels", fake_replace)
+        monkeypatch.setattr("gearbox.commands.shared.replace_managed_issue_labels", fake_replace)
         monkeypatch.setattr(
-            "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
+            "gearbox.commands.shared.post_issue_comment",
+            lambda *args, **kwargs: PostReviewResult(True),
         )
 
         result = runner.invoke(
@@ -379,7 +381,7 @@ class TestDispatchCommand:
         from gearbox.flow.models import DispatchItem, DispatchPlan
 
         monkeypatch.setattr(
-            "gearbox.cli.build_dispatch_plan",
+            "gearbox.commands.dispatch.build_dispatch_plan",
             lambda *args, **kwargs: DispatchPlan(
                 repo="owner/repo",
                 dry_run=True,
@@ -409,7 +411,7 @@ class TestDispatchCommand:
         from gearbox.flow.models import DispatchItem, DispatchPlan
 
         monkeypatch.setattr(
-            "gearbox.cli.build_dispatch_plan",
+            "gearbox.commands.dispatch.build_dispatch_plan",
             lambda *args, **kwargs: DispatchPlan(
                 repo="owner/repo",
                 dry_run=True,
@@ -428,7 +430,7 @@ class TestDispatchCommand:
             ),
         )
         monkeypatch.setattr(
-            "gearbox.cli.run_implement",
+            "gearbox.commands.dispatch.run_implement",
             lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
         )
 

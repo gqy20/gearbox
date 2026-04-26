@@ -82,6 +82,7 @@ runs:
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -e
 
@@ -90,6 +91,7 @@ runs:
         echo "output_dir=${{ inputs.output_dir }}"
         echo "max_turns=${{ inputs.max_turns }}"
         echo "model=${{ inputs.model || '(default)' }}"
+        echo "clone_strategy=always"
         if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
           echo "anthropic_base_url=$ANTHROPIC_BASE_URL_INPUT"
         else

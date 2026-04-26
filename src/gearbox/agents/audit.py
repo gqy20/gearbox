@@ -1,7 +1,9 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
+import subprocess
 import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -136,6 +138,30 @@ def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
     )
 
 
+def _clone_repository(repo: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
+    """将目标仓库克隆到临时目录，供扫描和 Agent 分析统一使用。"""
+    temp_dir = tempfile.TemporaryDirectory(prefix="gearbox-audit-")
+    clone_root = Path(temp_dir.name) / "repo"
+
+    if Path(repo).exists():
+        source = str(Path(repo).resolve())
+        cmd = ["git", "clone", "--depth", "1", source, str(clone_root)]
+    else:
+        cmd = ["gh", "repo", "clone", repo, str(clone_root), "--", "--depth", "1"]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        temp_dir.cleanup()
+        stderr = result.stderr.strip() or result.stdout.strip() or "unknown clone error"
+        raise RuntimeError(f"clone failed for {repo}: {stderr}")
+
+    return clone_root, temp_dir
+
+
 def load_audit_result(output_dir: Path) -> AuditResult:
     """从 audit 产物目录恢复 AuditResult。"""
     issues_path = output_dir / "issues.json"
@@ -221,7 +247,7 @@ async def run_audit(
     执行仓库审计。
 
     Args:
-        repo: 仓库标识 (owner/repo 或本地路径)
+        repo: 仓库标识 (owner/repo 或本地 git 仓库路径)
         benchmarks: 指定的对标仓库列表
         output_dir: 输出目录
         model: 使用的模型
@@ -251,37 +277,33 @@ async def run_audit(
     resolved_model = model or get_anthropic_model()
     resolved_prompt = system_prompt if system_prompt else SYSTEM_PROMPT
 
-    # ========== Pre-Scan 逻辑 ==========
+    clone_root: Path | None = None
+    clone_dir: tempfile.TemporaryDirectory[str] | None = None
     scan_result = None
     scan_summary = ""
 
-    if enable_prescan:
-        repo_path = Path(repo) if Path(repo).exists() else None
-        if repo_path and repo_path.is_dir():
+    try:
+        click.echo(f"📥 克隆目标仓库: {repo}")
+        clone_root, clone_dir = _clone_repository(repo)
+        click.echo(f"✅ 仓库已克隆到: {clone_root}")
+
+        if enable_prescan:
             try:
                 click.echo("🔍 执行静态分析扫描...")
-                scan_result = scan_repository(repo_path)
+                scan_result = scan_repository(clone_root)
                 scan_summary = format_scan_summary(scan_result)
                 click.echo("✅ 扫描完成")
             except Exception as e:
                 click.echo(f"⚠️ 扫描失败: {e}", err=True)
 
-    # ========== Benchmark 缓存优化 ==========
-    if not benchmarks:
-        # 尝试从缓存获取
-        lang = scan_result.project_type if scan_result else None
-        benchmarks = _get_cached_benchmarks(repo, lang)
-        if benchmarks:
-            click.echo(f"📦 使用缓存的对标仓库: {len(benchmarks)} 个")
-    # =====================================
+        if not benchmarks:
+            lang = scan_result.project_type if scan_result else None
+            benchmarks = _get_cached_benchmarks(repo, lang)
+            if benchmarks:
+                click.echo(f"📦 使用缓存的对标仓库: {len(benchmarks)} 个")
 
-    # 仓库根目录（用于定位 .claude/skills/ 和输出目录）
-    project_root = Path(__file__).resolve().parents[3]
-
-    # 构建 enhanced system prompt
-    if scan_summary and enable_prescan:
-        # 在 system prompt 末尾追加扫描结果
-        resolved_prompt = f"""{resolved_prompt}
+        if scan_summary and enable_prescan:
+            resolved_prompt = f"""{resolved_prompt}
 
 ## 扫描结果 (来自预扫描)
 
@@ -290,35 +312,39 @@ async def run_audit(
 请基于上述扫描结果，结合对标项目分析，生成针对性的改进建议。
 不要重复执行上述已完成的扫描，直接利用结果进行分析。"""
 
-    options, sdk_logger = prepare_agent_options(
-        ClaudeAgentOptions(
+        options, sdk_logger = prepare_agent_options(
+            ClaudeAgentOptions(
+                model=resolved_model,
+                system_prompt=resolved_prompt,
+                max_turns=max_turns,
+                output_format=json_schema_output(OUTPUT_SCHEMA),
+                skills="all",
+                cwd=clone_root,
+            ),
+            agent_name="audit",
+        )
+        sdk_logger.log_start(
             model=resolved_model,
-            system_prompt=resolved_prompt,
             max_turns=max_turns,
-            output_format=json_schema_output(OUTPUT_SCHEMA),
-            skills="all",
-            cwd=project_root,
-        ),
-        agent_name="audit",
-    )
-    sdk_logger.log_start(
-        model=resolved_model,
-        max_turns=max_turns,
-        base_url=get_anthropic_base_url(),
-        cwd=str(project_root),
-    )
+            base_url=get_anthropic_base_url(),
+            cwd=str(clone_root),
+        )
 
-    if benchmarks:
-        benchmark_str = ", ".join(benchmarks)
-        prompt = f"""请审计仓库: {repo}
+        if benchmarks:
+            benchmark_str = ", ".join(benchmarks)
+            prompt = f"""请审计仓库: {repo}
+
+本地分析目录: {clone_root}
 
 对标项目: {benchmark_str}
 
 输出目录: {output_dir}
 
 请返回完整的结构化审计结果。"""
-    else:
-        prompt = f"""请审计仓库: {repo}
+        else:
+            prompt = f"""请审计仓库: {repo}
+
+本地分析目录: {clone_root}
 
 请自主发现对标项目（约 5 个），然后进行对比分析。
 
@@ -326,47 +352,47 @@ async def run_audit(
 
 请返回完整的结构化审计结果。"""
 
-    structured: AuditResult | None = None
-    total_cost: float | None = None
+        structured: AuditResult | None = None
+        total_cost: float | None = None
 
-    try:
-        async for message in query(prompt=prompt, options=options):
-            sdk_logger.handle_message(message, echo_assistant_text=False)
-            total_cost = getattr(message, "total_cost_usd", total_cost)
-            if not structured:
-                structured = parse_structured_output(
-                    message,
-                    lambda data: AuditResult(
-                        repo=data.get("repo", repo),
-                        profile=data.get("profile", {}),
-                        comparison_markdown=data.get("comparison_markdown", ""),
-                        benchmarks=data.get("benchmarks", benchmarks or []),
-                        issues=[
-                            Issue(
-                                title=item.get("title", ""),
-                                body=item.get("body", ""),
-                                labels=item.get("labels", "enhancement"),
-                            )
-                            for item in data.get("issues", [])
-                        ],
-                    ),
-                )
+        try:
+            async for message in query(prompt=prompt, options=options):
+                sdk_logger.handle_message(message, echo_assistant_text=False)
+                total_cost = getattr(message, "total_cost_usd", total_cost)
+                if not structured:
+                    structured = parse_structured_output(
+                        message,
+                        lambda data: AuditResult(
+                            repo=data.get("repo", repo),
+                            profile=data.get("profile", {}),
+                            comparison_markdown=data.get("comparison_markdown", ""),
+                            benchmarks=data.get("benchmarks", benchmarks or []),
+                            issues=[
+                                Issue(
+                                    title=item.get("title", ""),
+                                    body=item.get("body", ""),
+                                    labels=item.get("labels", "enhancement"),
+                                )
+                                for item in data.get("issues", [])
+                            ],
+                        ),
+                    )
+        finally:
+            sdk_logger.log_completion()
 
+        if structured is None:
+            raise RuntimeError("Audit agent did not return structured output")
+        structured.cost = total_cost
+
+        if structured.benchmarks and not benchmarks:
+            _cache_benchmarks(repo, structured.benchmarks)
+            click.echo(f"💾 已缓存 {len(structured.benchmarks)} 个对标仓库")
+
+        _write_audit_outputs(structured, Path(output_dir))
+        return structured
     finally:
-        sdk_logger.log_completion()
-
-    if structured is None:
-        raise RuntimeError("Audit agent did not return structured output")
-    structured.cost = total_cost
-
-    # 缓存 benchmarks（如果是自主发现的）
-    if structured.benchmarks and not benchmarks:
-        _cache_benchmarks(repo, structured.benchmarks)
-        click.echo(f"💾 已缓存 {len(structured.benchmarks)} 个对标仓库")
-
-    _write_audit_outputs(structured, Path(output_dir))
-
-    return structured
+        if clone_dir is not None:
+            clone_dir.cleanup()
 
 
 def promote_audit_outputs(source_dir: Path, target_dir: Path) -> None:

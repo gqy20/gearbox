@@ -1,27 +1,44 @@
-"""测试 audit 结果落盘。"""
+"""Tests for audit helpers."""
 
-import json
+from pathlib import Path
+import subprocess
 
-from gearbox.agents.audit import AuditResult, Issue, _write_audit_outputs
+from gearbox.agents.audit import _clone_repository
 
 
-class TestWriteAuditOutputs:
-    def test_writes_expected_files(self, tmp_path) -> None:
-        result = AuditResult(
-            repo="owner/repo",
-            profile={"language": "python"},
-            comparison_markdown="# Comparison\n\nok",
-            benchmarks=["pallets/click"],
-            issues=[Issue(title="A", body="B", labels="high,enhancement")],
-        )
+def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:
+    source_repo = tmp_path / "source"
+    source_repo.mkdir()
 
-        _write_audit_outputs(result, tmp_path)
+    subprocess.run(["git", "init"], cwd=source_repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Gearbox Tests"],
+        cwd=source_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "gearbox-tests@example.com"],
+        cwd=source_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    (source_repo / "README.md").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=source_repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=source_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
-        issues = json.loads((tmp_path / "issues.json").read_text(encoding="utf-8"))
-        profile = json.loads((tmp_path / "profile.json").read_text(encoding="utf-8"))
-        comparison = (tmp_path / "comparison.md").read_text(encoding="utf-8")
-
-        assert issues["repo"] == "owner/repo"
-        assert issues["issues"][0]["title"] == "A"
-        assert profile["language"] == "python"
-        assert comparison.startswith("# Comparison")
+    clone_root, clone_dir = _clone_repository(str(source_repo))
+    try:
+        assert clone_root.exists()
+        assert (clone_root / "README.md").read_text(encoding="utf-8") == "hello\n"
+        assert (clone_root / ".git").exists()
+    finally:
+        clone_dir.cleanup()

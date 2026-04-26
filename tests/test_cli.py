@@ -13,7 +13,12 @@ from gearbox.cli import cli
 @pytest.fixture
 def runner(tmp_path: "Path") -> CliRunner:
     """CliRunner with isolated HOME for config tests"""
-    return CliRunner(env={**os.environ, "HOME": str(tmp_path)})
+    env = dict(os.environ)
+    env["HOME"] = str(tmp_path)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("GITHUB_TOKEN", None)
+    return CliRunner(env=env)
 
 
 class TestVersionAndHelp:
@@ -30,6 +35,7 @@ class TestVersionAndHelp:
         assert "Gearbox" in result.output
         assert "audit" in result.output
         assert "config" in result.output
+        assert "package-marketplace" in result.output
         assert "publish-issues" in result.output
 
 
@@ -48,9 +54,10 @@ class TestAuditCommand:
         assert "--benchmarks" in result.output
         assert "--output" in result.output
 
-    def test_audit_with_repo(self, runner: CliRunner) -> None:
+    def test_audit_with_repo(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         # Audit 需要真实 API key，这里只验证参数传递
         # 实际调用会失败，但参数解析应该是对的
+        monkeypatch.setattr("gearbox.config.get_anthropic_api_key", lambda: None)
         result = runner.invoke(cli, ["audit", "--repo", "owner/repo", "--output", "/tmp/test"])
         # 不应该因为参数问题失败（可能因为没 key 而失败，但参数是对的）
         assert "--repo" not in result.output or result.exit_code != 0
@@ -104,6 +111,27 @@ class TestPublishIssuesCommand:
             result = runner.invoke(cli, ["publish-issues", "--input", "bad.json", "--dry-run"])
         assert result.exit_code == 0
         assert "已跳过: 1" in result.output
+
+
+class TestPackageMarketplaceCommand:
+    """测试 Marketplace 打包命令"""
+
+    def test_package_marketplace_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["package-marketplace", "--help"])
+        assert result.exit_code == 0
+        assert "--output-dir" in result.output
+
+    def test_package_marketplace_writes_bundle(self, runner: CliRunner) -> None:
+        with runner.isolated_filesystem():
+            result = runner.invoke(
+                cli,
+                ["package-marketplace", "--output-dir", "dist/gearbox-action"],
+            )
+
+            bundle_root = Path("dist/gearbox-action")
+            assert result.exit_code == 0
+            assert (bundle_root / "action.yml").exists()
+            assert (bundle_root / "actions" / "audit" / "action.yml").exists()
 
 
 class TestConfigCommand:

@@ -43,7 +43,6 @@ runs:
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
 

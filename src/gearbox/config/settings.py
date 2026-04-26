@@ -6,10 +6,6 @@ from typing import Any, cast
 
 import tomli_w
 
-# 配置文件路径
-CONFIG_DIR = Path.home() / ".config" / "gearbox"
-CONFIG_FILE = CONFIG_DIR / "config.toml"
-
 # Agent 默认参数（CLI 和 Action 均引用此处的值）
 AGENT_DEFAULTS: dict[str, Any] = {
     "parallel_count": 3,
@@ -22,25 +18,34 @@ AGENT_DEFAULTS: dict[str, Any] = {
 }
 
 
+def _config_dir() -> Path:
+    return Path.home() / ".config" / "gearbox"
+
+
+def _config_file() -> Path:
+    return _config_dir() / "config.toml"
+
+
 def ensure_config_dir() -> None:
     """确保配置目录存在"""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    _config_dir().mkdir(parents=True, exist_ok=True)
 
 
 def get_config_path() -> Path:
     """获取配置文件路径"""
-    return CONFIG_FILE
+    return _config_file()
 
 
 def load_config() -> dict[str, Any]:
     """加载配置文件"""
-    if not CONFIG_FILE.exists():
+    config_file = get_config_path()
+    if not config_file.exists():
         return {}
 
     try:
         import tomli
 
-        with open(CONFIG_FILE, "rb") as f:
+        with open(config_file, "rb") as f:
             return tomli.load(f)
     except ImportError:
         return {}
@@ -52,7 +57,7 @@ def save_config(config: dict[str, Any]) -> None:
     """保存配置文件"""
     ensure_config_dir()
 
-    with open(CONFIG_FILE, "wb") as f:
+    with open(get_config_path(), "wb") as f:
         tomli_w.dump(config, f)
 
 

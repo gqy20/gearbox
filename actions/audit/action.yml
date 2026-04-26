@@ -54,10 +54,10 @@ inputs:
 outputs:
   issues_count:
     description: '生成的 Issue 数量'
-    value: ${{ steps.run.outputs.issues_count }}
+    value: ${{ steps.results.outputs.issues_count }}
   status:
     description: '执行状态'
-    value: ${{ steps.run.outputs.status }}
+    value: ${{ steps.results.outputs.status }}
 
 runs:
   using: 'composite'
@@ -81,7 +81,6 @@ runs:
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
 
@@ -111,6 +110,7 @@ runs:
           $MODEL_ARG
 
     - name: Parse results
+      id: results
       shell: bash
       run: |
         if [ -f "${{ inputs.output_dir }}/issues.json" ]; then

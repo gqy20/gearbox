@@ -2,7 +2,7 @@
 
 > AI 驱动的 GitHub 仓库自动化飞轮系统
 
-可复用的 GitHub Action 套件。消费者仓库一行 `uses: gqy20/gearbox@main` 接入完整闭环：
+开发母仓，用于产出 `gearbox-action` 的 Marketplace 发布产物。当前仓库保留源码、测试、文档和内部 workflow，不直接作为 Marketplace 商品使用。
 
 ```
 Audit → Issue → Triage → Implement → Review → Merge → Report
@@ -30,12 +30,12 @@ uv run gearbox config list
 ## 架构
 
 ```
-外部仓库: uses: gqy20/gearbox/.github/actions/main@main
+开发仓内部: uses: ./actions/main
     │
     ▼
-.github/actions/main/action.yml (路由层)
+actions/main/action.yml (路由层)
     │
-    └── uses: ../${{ inputs.action }}
+    └── uses: ./actions/${{ inputs.action }}
               │
               ├── audit/action.yml
               ├── triage/action.yml
@@ -43,7 +43,7 @@ uv run gearbox config list
               ├── implement/action.yml
               └── publish/action.yml
                       │
-                      └── uses: ./_setup (环境准备)
+                      └── uses: ./actions/_setup (环境准备)
                               │
                               └── python3 -m gearbox.cli agent $action
                                       │
@@ -52,29 +52,11 @@ uv run gearbox config list
 
 ## GitHub Actions
 
-### 外部仓库接入
+### Marketplace 产物导出
 
 ```yaml
-# .github/workflows/audit.yml
-name: Audit
-on:
-  workflow_dispatch:
-    inputs:
-      benchmarks:
-        description: '对标仓库'
-        required: false
-        default: ''
-
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: gqy20/gearbox/.github/actions/main@main
-        with:
-          action: audit
-          repo: ${{ github.repository }}
-          benchmarks: ${{ inputs.benchmarks }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+# 生成 gearbox-action 发布目录
+uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
 ```
 
 ### 本项目使用
@@ -110,9 +92,9 @@ gh workflow run audit.yml -f is_self_audit=true -f benchmarks=github/copilot
 
 ```text
 gearbox/
-├── action.yml                    # 根入口 (外部 uses: gqy20/gearbox@main)
 ├── actions/
 │   ├── _setup/                  # 环境准备 (Python, gh, 工具链)
+│   ├── main/                    # 内部路由层 / 导出时成为根 action.yml
 │   ├── audit/                   # 审计 action
 │   ├── triage/                  # 分类 action
 │   ├── review/                  # 审查 action

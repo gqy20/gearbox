@@ -60,7 +60,7 @@ jobs:
           fi
 
       - name: Run Audit
-        uses: ./.github/actions/main
+        uses: ./actions/main
         with:
           action: audit
           repo: ${{ steps.target.outputs.repo }}
@@ -99,7 +99,7 @@ jobs:
           path: ./audit-output
 
       - name: Publish Issues
-        uses: ./.github/actions/main
+        uses: ./actions/main
         with:
           action: publish
           input_path: ./audit-output/issues.json

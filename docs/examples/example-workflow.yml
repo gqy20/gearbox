@@ -20,49 +20,45 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # =============================================================
-      # 模式一：仓库审计 (推荐首次使用)
-      # =============================================================
       - name: Audit Repository
         if: github.event.inputs.mode == 'audit'
-        uses: ./.github/actions/gearbox/audit
+        uses: ./actions/main
         with:
+          action: audit
           repo: ${{ github.repository }}
-          benchmarks: ''                          # 可选：逗号分隔的对标仓库
-          parallel_count: 3                       # 可选：并行次数（1=不并行，3=推荐）
-          system_prompt: ''                       # 可选：自定义 System Prompt
+          benchmarks: ''
+          parallel_count: 3
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # =============================================================
-      # 模式二：Issue 分类
-      # =============================================================
       - name: Triage Issue
         if: github.event.inputs.mode == 'triage'
-        uses: ./.github/actions/gearbox/triage
+        uses: ./actions/main
         with:
+          action: triage
+          repo: ${{ github.repository }}
+          issue_number: ${{ github.event.issue.number }}
           max_turns: 5
-          parallel_count: 3                       # 可选：并行次数
+          parallel_count: 3
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # =============================================================
-      # 模式三：PR Code Review
-      # =============================================================
       - name: Review PR
         if: github.event.inputs.mode == 'review'
-        uses: ./.github/actions/gearbox/review
+        uses: ./actions/main
         with:
+          action: review
+          repo: ${{ github.repository }}
+          pr_number: ${{ github.event.pull_request.number }}
           max_turns: 10
-          parallel_count: 3                       # 可选：并行次数
+          parallel_count: 3
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # =============================================================
-      # 模式四：Issue 实现
-      # =============================================================
       - name: Implement Issue
         if: github.event.inputs.mode == 'implement'
-        uses: ./.github/actions/gearbox/implement
+        uses: ./actions/main
         with:
-          issue: ${{ github.event.issue.number }}
+          action: implement
+          repo: ${{ github.repository }}
+          issue_number: ${{ github.event.issue.number }}
           base_branch: main
           max_turns: 20
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

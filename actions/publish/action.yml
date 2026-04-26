@@ -7,14 +7,20 @@ inputs:
     description: 'issues.json 文件路径'
     required: true
 
+outputs:
+  status:
+    description: '执行状态'
+    value: ${{ steps.publish.outputs.status }}
+
 runs:
   using: 'composite'
   steps:
     - name: Setup tools
-      uses: ./_setup
+      uses: ./actions/_setup
 
     - name: Publish Issues
       id: publish
       shell: bash
       run: |
         python3 -m gearbox.cli publish-issues --input "${{ inputs.input_path }}"
+        echo "status=success" >> $GITHUB_OUTPUT

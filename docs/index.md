@@ -5,10 +5,10 @@
 ## 整体架构
 
 ```
-外部仓库: uses: gqy20/gearbox@main
+开发仓内部: uses: ./actions/main
     │
     ▼
-action.yml (根入口，路由层)
+actions/main/action.yml (路由层)
     │
     └── uses: ./actions/${{ inputs.action }}
               │
@@ -18,7 +18,7 @@ action.yml (根入口，路由层)
               ├── implement/action.yml  ← Issue 实现
               └── publish/action.yml     ← 发布 Issues
                       │
-                      └── uses: ./_setup (环境准备)
+                      └── uses: ./actions/_setup (环境准备)
                               │
                               └── python3 -m gearbox.cli agent $action
                                       │
@@ -29,7 +29,7 @@ action.yml (根入口，路由层)
 
 | 层级 | 文件 | 职责 |
 |------|------|------|
-| 外部入口 | `action.yml` (根) | 供外部仓库 `uses: gqy20/gearbox@main` 调用，路由到具体 action |
+| 内部入口 | `actions/main/action.yml` | 当前仓库内部调用入口，也是导出的 Marketplace 根 `action.yml` 来源 |
 | 内部编排 | `.github/workflows/*.yml` | 本项目内部 workflow orchestration |
 | Action | `actions/*/action.yml` | 具体业务逻辑，调用 CLI + gh.py |
 | 环境准备 | `actions/_setup/action.yml` | 安装必要工具 (Python, gh, 工具链) |
@@ -52,8 +52,14 @@ action.yml (根入口，路由层)
 ### 外部调用（其他仓库）
 
 ```yaml
-# 外部仓库 workflow
-- uses: gqy20/gearbox@main
+# 导出 Marketplace bundle
+- run: uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
+```
+
+### Marketplace 发布仓调用（导出后）
+
+```yaml
+- uses: gqy20/gearbox-action@v1
   with:
     action: audit
     repo: owner/repo
@@ -65,8 +71,9 @@ action.yml (根入口，路由层)
 
 ```yaml
 # 本项目 .github/workflows/audit.yml
-- uses: ./.github/actions/audit
+- uses: ./actions/main
   with:
+    action: audit
     repo: ${{ steps.target.outputs.repo }}
     parallel_count: 3
 ```
@@ -107,10 +114,10 @@ workflow → actions/audit → cli.py → run_parallel() → 多个 Agent 实例
 
 ## 开发路线图
 
-- [x] Phase 1: Action 架构 (action.yml 路由层)
+- [x] Phase 1: Action 架构 (main 路由层)
 - [x] Phase 2: audit / publish action 实现
-- [ ] Phase 3: triage / review / implement action 实现
-- [ ] Phase 4: Marketplace 发布
+- [x] Phase 3: triage / review / implement action 实现
+- [ ] Phase 4: Marketplace 发布仓同步与发版
 
 ## 调研文档
 

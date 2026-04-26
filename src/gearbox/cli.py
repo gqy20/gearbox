@@ -33,6 +33,7 @@ from .core.gh import (
     prepare_working_branch,
     write_outputs,
 )
+from .release import build_marketplace_bundle
 
 
 @click.group()
@@ -181,6 +182,19 @@ def publish_issues(input_path: str, dry_run: bool) -> None:
 
     if failed:
         raise click.Abort()
+
+
+@cli.command("package-marketplace")
+@click.option(
+    "--output-dir",
+    default="./dist/gearbox-action",
+    show_default=True,
+    help="输出 Marketplace 发布产物目录",
+)
+def package_marketplace(output_dir: str) -> None:
+    """导出 Marketplace 发布仓需要的最小目录结构。"""
+    bundle_dir = build_marketplace_bundle(Path(output_dir))
+    click.echo(f"✅ Marketplace bundle written to: {bundle_dir}")
 
 
 # =============================================================================

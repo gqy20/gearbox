@@ -1,0 +1,108 @@
+name: Release Marketplace Bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: 'Marketplace 发布仓（例如 gqy20/gearbox-action）'
+        required: false
+        default: ''
+      target_branch:
+        description: '发布仓分支'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    outputs:
+      target_repository: ${{ steps.target.outputs.repository }}
+      target_branch: ${{ steps.target.outputs.branch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install Gearbox
+        run: python3 -m pip install --disable-pip-version-check .
+
+      - name: Package Marketplace bundle
+        run: python3 -m gearbox.cli package-marketplace --output-dir ./dist/gearbox-action
+
+      - name: Resolve target repository
+        id: target
+        run: |
+          REPO="${{ inputs.target_repository }}"
+          if [ -z "$REPO" ]; then
+            REPO="${{ vars.GEARBOX_ACTION_REPOSITORY }}"
+          fi
+
+          BRANCH="${{ inputs.target_branch }}"
+          if [ -z "$BRANCH" ]; then
+            BRANCH="main"
+          fi
+
+          echo "repository=$REPO" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: gearbox-action-bundle
+          path: ./dist/gearbox-action
+
+  sync:
+    if: ${{ needs.bundle.outputs.target_repository != '' }}
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: gearbox-action-bundle
+          path: ./bundle
+
+      - name: Push bundle to release repository
+        env:
+          TARGET_REPOSITORY: ${{ needs.bundle.outputs.target_repository }}
+          TARGET_BRANCH: ${{ needs.bundle.outputs.target_branch }}
+          REPO_PUSH_TOKEN: ${{ secrets.MARKETPLACE_REPO_PAT != '' && secrets.MARKETPLACE_REPO_PAT || secrets.GH_PAT }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${REPO_PUSH_TOKEN}" ]; then
+            echo "::error::Missing push token secret. Set GH_PAT or MARKETPLACE_REPO_PAT."
+            exit 1
+          fi
+
+          git clone "https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${TARGET_REPOSITORY}.git" release-repo
+          cd release-repo
+          git checkout "${TARGET_BRANCH}" || git checkout -b "${TARGET_BRANCH}"
+
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -R ../bundle/. .
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "No bundle changes to publish"
+            exit 0
+          fi
+
+          git commit -m "release: sync ${RELEASE_TAG}"
+          git push origin "${TARGET_BRANCH}"

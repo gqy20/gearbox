@@ -1,65 +1,71 @@
 # Gearbox 架构文档
 
-> 齿轮箱 — AI 驱动的 GitHub 仓库自动化飞轮系统
+> 齿轮箱：AI 驱动的 GitHub 仓库自动化飞轮系统
 
 ## 整体架构
 
-```
-轻量入口:
-  gearbox-action@v1
-      │
-      └── 根 action.yml（由 actions/main 导出）
-              │
-              └── uses: ./actions/${{ inputs.action }}
+```text
+Marketplace 轻量入口:
+  gqy20/gearbox-action@v1
+      |
+      `-- action.yml
+              |
+              `-- actions/${{ inputs.action }}/action.yml
 
-高级入口:
-  .github/workflows/reusable-*.yml
-      │
-      ├── matrix 并行执行
-      ├── artifact 聚合
-      └── evaluator 选优
+开发仓内部入口:
+  .github/workflows/audit.yml
+      |
+      |-- plan
+      |-- audit-run matrix
+      |-- aggregate-audit
+      `-- create-issues
 
 执行层:
   actions/*/action.yml
-      │
-      └── uses: ./actions/_setup
-              │
-              └── uv run gearbox agent ...
+      |
+      `-- actions/_setup
+              |
+              `-- uv run gearbox agent ...
+
+Agent 共享层:
+  src/gearbox/agents/shared/
+      |
+      |-- runtime.py      # Claude Agent SDK 调用、流式日志、token usage
+      |-- structured.py   # 结构化输出提取与校验
+      |-- scanner.py      # 克隆后静态扫描
+      |-- artifacts.py    # 输出文件管理
+      `-- selection.py    # 多实例结果选优
 ```
 
 ## 层级说明
 
 | 层级 | 文件 | 职责 |
-|------|------|------|
-| 内部入口 | `actions/main/action.yml` | 当前仓库内部调用入口，也是导出的 Marketplace 根 `action.yml` 来源 |
-| 内部编排 | `.github/workflows/*.yml` | 薄入口 + reusable workflow orchestration |
-| Action | `actions/*/action.yml` | 单次执行层，调用 CLI + gh.py |
-| 环境准备 | `actions/_setup/action.yml` | 安装 uv、gh 和依赖工具链 |
+| --- | --- | --- |
+| Marketplace 根入口 | `actions/main/action.yml` | 导出后成为 `gearbox-action` 的根 `action.yml`，按 `inputs.action` 路由 |
+| 内部 audit 编排 | `.github/workflows/audit.yml` | 当前验证过的 GitHub Actions 原生 matrix 编排 |
+| 高级编排模板 | `.github/workflows/reusable-*.yml` | 面向高级调用方保留的 reusable workflow 模板 |
+| Action 执行层 | `actions/*/action.yml` | 单次执行 action，负责拼装环境变量并调用 CLI |
+| 环境准备 | `actions/_setup/action.yml` | 安装 uv、依赖、gh 与扫描工具 |
 | CLI | `src/gearbox/cli.py` | 命令行入口，解析参数 |
-| Agent | `src/gearbox/agents/*.py` | 业务逻辑实现 |
-| Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、artifacts、selection |
-| GitHub 操作 | `src/gearbox/core/gh.py` | GitHub API 封装 (issue, PR, comment 等) |
+| Agent | `src/gearbox/agents/*.py` | audit、triage、review、implement 等业务逻辑 |
+| Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、scanner、artifacts、selection |
+| GitHub 操作 | `src/gearbox/core/gh.py` | Issue、PR、comment、label 等 GitHub API 封装 |
 
 ## Action 清单
 
 | Action | 用途 | 主要参数 |
-|--------|------|----------|
+| --- | --- | --- |
 | `audit` | 审计仓库，发现改进建议 | `repo`, `benchmarks` |
 | `triage` | Issue 分类打标 | `repo`, `issue_number` |
 | `review` | PR Code Review | `repo`, `pr_number` |
 | `implement` | 实现 Issue 并创建 PR | `repo`, `issue_number` |
-| `publish` | 发布 issues.json 为 GitHub Issues | `input_path` |
+| `publish` | 发布 `issues.json` 为 GitHub Issues | `input_path` |
 
-## 内部调用 vs 外部调用
+## 调用方式
 
-### 外部调用（其他仓库）
+### Marketplace 轻量调用
 
-```yaml
-# 导出 Marketplace bundle
-- run: uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
-```
-
-### Marketplace 发布仓调用（导出后，轻量入口）
+适合大多数外部用户。调用方只需要一个 step，不需要维护 matrix、artifact、聚合脚本。
 
 ```yaml
 - uses: gqy20/gearbox-action@v1
@@ -68,9 +74,30 @@
     repo: owner/repo
     benchmarks: github/copilot
     anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+    anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+    model: ${{ vars.ANTHROPIC_MODEL }}
 ```
 
-### 高级并行调用（Reusable Workflow）
+### 开发仓内部 audit
+
+本项目当前使用 `.github/workflows/audit.yml` 作为验证过的内部审计入口。它不是再调用本地 `reusable-audit.yml`，而是直接在 workflow 内完成 matrix 并行、artifact 上传、聚合与可选 Issue 创建。
+
+```text
+workflow_dispatch
+  -> plan
+  -> audit-run[run_id=0..N]
+  -> actions/audit
+  -> clone target repository
+  -> scanner
+  -> Claude Agent SDK
+  -> upload artifact
+  -> aggregate-audit
+  -> optional create-issues
+```
+
+### 高级 reusable workflow
+
+`reusable-*.yml` 仍保留为高级模板，适合外部仓库希望复用 Gearbox 的并行编排时使用。若只是单次审计，优先使用 Marketplace action。
 
 ```yaml
 jobs:
@@ -78,80 +105,107 @@ jobs:
     uses: gqy20/gearbox/.github/workflows/reusable-audit.yml@main
     with:
       repo: owner/repo
-      benchmarks: github/copilot
+      benchmarks: github/copilot,sourcegraph/amp
       parallel_runs: '3'
       create_issues: false
     secrets: inherit
 ```
 
-### 内部调用（本项目）
+## 审计执行流程
 
-```yaml
-# 本项目 .github/workflows/audit.yml
-jobs:
-  audit:
-    uses: ./.github/workflows/reusable-audit.yml
-    with:
-      repo: ${{ github.repository }}
-      benchmarks: ''
-      parallel_runs: '3'
-      create_issues: false
-    secrets: inherit
-```
+audit agent 的当前流程是：
 
-## 并行执行
+1. 读取 action/CLI 输入与仓库配置。
+2. 将目标仓库克隆到临时目录。
+3. 在克隆目录运行静态扫描。
+4. 将克隆路径、扫描摘要、benchmark 要求写入提示词。
+5. 在克隆目录作为 `cwd` 调用 Claude Agent SDK。
+6. 提取结构化输出；没有结构化结果时直接报错。
+7. 写入 `issues.json`、`summary.md`、`result.json` 等 artifact。
 
-真正并行已经上移到 workflow 层：
+这样做的好处是 scanner 和大模型看到的是同一份代码，不会出现“扫描了一个目录，Agent 又基于另一个上下文分析”的错位。
+
+## 日志与可观测性
+
+长耗时任务需要持续反馈，目前日志分为：
+
+- `runtime config`：模型、base URL、最大轮次、工作目录、克隆策略。
+- `clone`：目标仓库与本地克隆路径。
+- `scanner`：文件数、代码行数、项目类型、工具状态、问题计数。
+- `stream`：SDK 消息生命周期、thinking 摘要、assistant 文本、tool-use 事件。
+- `usage`：SDK 返回的 token usage、cache 命中与 service tier。
+
+工具调用日志会尽量展示关键参数，例如：
 
 ```text
-workflow_dispatch / issues / pull_request
-  -> thin workflow
-  -> reusable workflow
-  -> matrix jobs (多次单跑 actions/*)
-  -> artifact upload
-  -> aggregate job
-  -> evaluator 选优
-  -> 可选 GitHub side effects
+[audit] [tool-use] tool=Read path=pyproject.toml offset=0 limit=2000
+[audit] [tool-use] tool=Glob pattern=.github/workflows/*.yml path=.
+[audit] [tool-use] tool=Bash command=rg "ClaudeAgentOptions" src
 ```
 
-## GitHub 操作封装
+## 扫描工具
 
-`src/gearbox/core/gh.py` 集中管理所有 GitHub 操作：
+| 工具 | 用途 | 状态策略 |
+| --- | --- | --- |
+| `cloc` | 统计文件数与代码行数 | 失败时使用 Python fallback 统计 |
+| `deptry` | Python 依赖问题扫描 | 不可用时记录 skipped/error |
+| `semgrep` | 通用代码规则扫描 | 不可用时记录 skipped/error |
+| `trivy` | 漏洞扫描 | 不可用时记录 skipped/error |
+| `govulncheck` | Go 漏洞扫描 | 非 Go 项目默认 skipped |
 
-- `create_issue()` — 创建 Issue
-- `post_issue_comment()` — Issue 评论
-- `post_review_comment()` — PR Review 评论
-- `add_issue_labels()` — 添加标签
-- `create_pr()` — 创建 PR
+所有工具状态都会进入扫描摘要和日志，避免“扫描完成但不知道扫描了什么”的黑箱感。
 
-## 环境要求
+## 配置与密钥
 
-| 工具 | 用途 |
-|------|------|
-| Python 3.10+ | 运行时 |
-| gh CLI | GitHub 操作 |
-| uv | 包管理 |
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `ANTHROPIC_AUTH_TOKEN` | Secret | LLM Provider API Key |
+| `ANTHROPIC_BASE_URL` | Secret | 兼容 Anthropic API 的自定义网关 |
+| `ANTHROPIC_MODEL` | Variable | 默认模型名 |
+| `GH_PAT` | Secret | 跨仓库写入、创建 Issue、同步 Marketplace 仓库时使用 |
+| `GITHUB_TOKEN` | GitHub 默认 | 当前 workflow 自动提供，适合同仓库读写 |
 
-### 可选工具（audit 需要）
+## CI 与提交检查
 
-| 工具 | 用途 |
-|------|------|
-| node + npm | ctx7, semgrep, ts-prune |
-| go | govulncheck |
-| pip | deptry |
+`.github/workflows/ci.yml` 在 push 和 pull request 时执行：
+
+```bash
+uv sync
+uv run ruff check src tests
+uv run mypy src
+uv run pytest -q
+```
+
+`.pre-commit-config.yaml` 会在本地提交前执行 ruff、ruff format、mypy 和 YAML 基础检查：
+
+```bash
+uvx pre-commit install
+uvx pre-commit run --all-files
+```
+
+## 发布
+
+Marketplace 发布由 `.github/workflows/release-marketplace.yml` 负责：
+
+1. 读取 tag，例如 `v1.1.2`。
+2. 从 [../CHANGELOG.md](../CHANGELOG.md) 提取对应版本说明。
+3. 运行 `uv run gearbox package-marketplace` 导出发布仓内容。
+4. 推送到 `gqy20/gearbox-action`。
+5. 使用版本说明创建 GitHub Release。
 
 ## 开发路线图
 
-- [x] Phase 1: Action 架构 (main 路由层)
-- [x] Phase 2: audit / publish action 实现
-- [x] Phase 3: triage / review / implement action 实现
-- [x] Phase 4: workflow-native matrix + reusable workflow
-- [ ] Phase 5: Marketplace 发布仓持续发版与版本治理
+- [x] Phase 1: Action 架构与根路由层
+- [x] Phase 2: audit / publish action
+- [x] Phase 3: triage / review / implement action
+- [x] Phase 4: workflow-native matrix、artifact 聚合、选优
+- [x] Phase 5: CHANGELOG 驱动的 Marketplace 发布说明
+- [ ] Phase 6: triage / review 内部入口与 audit 编排体验完全对齐
 
 ## 调研文档
 
 | 文档 | 内容 |
-|------|------|
+| --- | --- |
 | [架构设计](research/architecture.md) | 整体架构、目录结构、六大 Action 设计 |
 | [Claude Code Actions 调研](research/claude-code-actions.md) | 自定义命令、Skills、Agents、Settings |
 | [Composite Action 设计](research/composite-actions.md) | Action 类型对比、Monorepo 布局、嵌套编排 |

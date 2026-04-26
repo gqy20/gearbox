@@ -58,7 +58,7 @@ def _render_marketplace_readme(actions: list[str]) -> str:
 
 Gearbox 的 Marketplace 发布仓。
 
-这个仓库由主开发仓自动导出，用于提供稳定的 GitHub Action 对外入口。
+这个仓库由主开发仓 `gqy20/gearbox` 自动导出，用于提供稳定、轻量的 GitHub Action 对外入口。
 
 ## 用法
 
@@ -70,7 +70,9 @@ Gearbox 的 Marketplace 发布仓。
     anthropic_api_key: ${{{{ secrets.ANTHROPIC_AUTH_TOKEN }}}}
 ```
 
-需要真正的 matrix 并行编排时，请改用主开发仓中的 reusable workflows：
+这是推荐给大多数用户的接入方式。action 会负责准备运行环境、克隆目标仓库、执行扫描并调用 Gearbox Agent。
+
+需要真正的 matrix 并行、artifact 聚合和多实例选优时，请参考主开发仓中的 workflow 编排，或使用保留的 reusable workflow 模板：
 
 ```yaml
 jobs:
@@ -86,6 +88,10 @@ jobs:
 ## 支持的动作
 
 {action_lines}
+
+## 发布说明
+
+版本更新记录见 `CHANGELOG.md`。每个 GitHub Release 的说明都从主开发仓的对应版本段落自动提取。
 
 ## 仓库说明
 

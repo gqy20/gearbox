@@ -169,7 +169,8 @@ def run_trivy(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
             "vuln",
             "--severity",
             "HIGH,CRITICAL",
-            "--json",
+            "--format",
+            "json",
             ".",
         ],
         repo_path,
@@ -188,20 +189,30 @@ def run_trivy(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
 
 def run_deptry(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     """执行 deptry 扫描 Python 依赖"""
-    returncode, stdout, stderr = _run_command(
-        ["deptry", ".", "--output-format", "json"],
-        repo_path,
-    )
-    if returncode == 0:
-        try:
-            data = json.loads(stdout)
-            issues = data.get("issues", [])
-            assert isinstance(issues, list)
-            return issues, "ok"
-        except (json.JSONDecodeError, AssertionError):
-            return [], "parse_failed"
-    detail = stderr.strip() or "command_failed"
-    return [], detail
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        tmp_path = f.name
+    try:
+        returncode, stdout, stderr = _run_command(
+            ["deptry", ".", "-o", tmp_path],
+            repo_path,
+        )
+        if returncode == 0:
+            try:
+                data = json.loads(Path(tmp_path).read_text())
+                # 新版本输出是数组，旧版本是 {"issues": [...]}
+                if isinstance(data, list):
+                    return data, "ok"
+                issues = data.get("issues", [])
+                assert isinstance(issues, list)
+                return issues, "ok"
+            except (json.JSONDecodeError, AssertionError):
+                return [], "parse_failed"
+        detail = stderr.strip() or "command_failed"
+        return [], detail
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 def run_govulncheck(repo_path: Path) -> tuple[list[dict[str, Any]], str]:

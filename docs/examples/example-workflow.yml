@@ -1,3 +1,9 @@
+# Gearbox 示例 workflow
+#
+# 这个文件同时展示两种接入方式：
+# - action-audit：外部用户推荐使用的轻量 Marketplace action。
+# - reusable-*：高级调用方需要复用 matrix 编排时才使用。
+
 name: Gearbox Examples
 
 on:
@@ -27,19 +33,18 @@ jobs:
     if: github.event.inputs.mode == 'action-audit'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
-    - uses: ./actions/main
+    - uses: gqy20/gearbox-action@v1
       with:
         action: audit
         repo: ${{ github.repository }}
         benchmarks: github/copilot
         anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
         anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-        model: ${{ secrets.ANTHROPIC_MODEL }}
+        model: ${{ vars.ANTHROPIC_MODEL }}
 
   reusable-audit:
     if: github.event.inputs.mode == 'reusable-audit'
-    uses: ./.github/workflows/reusable-audit.yml
+    uses: gqy20/gearbox/.github/workflows/reusable-audit.yml@main
     with:
       repo: ${{ github.repository }}
       benchmarks: github/copilot,sourcegraph/amp
@@ -49,7 +54,7 @@ jobs:
 
   reusable-triage:
     if: github.event.inputs.mode == 'reusable-triage'
-    uses: ./.github/workflows/reusable-triage.yml
+    uses: gqy20/gearbox/.github/workflows/reusable-triage.yml@main
     with:
       repo: ${{ github.repository }}
       issue_number: ${{ inputs.issue_number }}
@@ -58,7 +63,7 @@ jobs:
 
   reusable-review:
     if: github.event.inputs.mode == 'reusable-review'
-    uses: ./.github/workflows/reusable-review.yml
+    uses: gqy20/gearbox/.github/workflows/reusable-review.yml@main
     with:
       repo: ${{ github.repository }}
       pr_number: ${{ inputs.pr_number }}

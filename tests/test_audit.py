@@ -1,9 +1,11 @@
 """Tests for audit helpers."""
 
+import json
 import subprocess
 from pathlib import Path
 
 from gearbox.agents.audit import _clone_repository
+from gearbox.agents.shared import scanner
 from gearbox.agents.shared.scanner import scan_repository
 
 
@@ -64,3 +66,58 @@ def test_scan_repository_counts_local_python_files(tmp_path: Path) -> None:
     assert result.tool_statuses["cloc"] == "ok" or result.tool_statuses["cloc"].endswith(
         "+fallback"
     )
+
+
+def test_deptry_parses_json_when_issues_exit_nonzero(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo-package"
+version = "0.1.0"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+""",
+        encoding="utf-8",
+    )
+
+    captured_cmd: list[str] = []
+
+    def fake_run_command(
+        cmd: list[str],
+        cwd: Path,
+        timeout: int = 120,
+    ) -> tuple[int, str, str]:
+        del cwd, timeout
+        captured_cmd.extend(cmd)
+        output_path = Path(cmd[cmd.index("-o") + 1])
+        output_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "error": {
+                            "code": "DEP002",
+                            "message": "'unused' defined as a dependency but not used",
+                        },
+                        "module": "unused",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return 1, "", "Found 1 dependency issue."
+
+    monkeypatch.setattr(scanner, "_run_command", fake_run_command)
+
+    issues, status = scanner.run_deptry(repo)
+
+    assert status == "issues=1"
+    assert issues[0]["error"]["code"] == "DEP002"
+    assert "--known-first-party" in captured_cmd
+    assert "demo_package" in captured_cmd
+    assert "--optional-dependencies-dev-groups" in captured_cmd

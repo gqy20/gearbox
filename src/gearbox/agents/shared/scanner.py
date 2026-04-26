@@ -6,7 +6,9 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
+
+import tomli
 
 
 @dataclass
@@ -63,6 +65,31 @@ def _run_command(
         return -1, "", "timeout"
     except Exception as e:
         return -1, "", str(e)
+
+
+def _read_pyproject(repo_path: Path) -> dict[str, Any]:
+    pyproject = repo_path / "pyproject.toml"
+    if not pyproject.exists():
+        return {}
+    try:
+        data = tomli.loads(pyproject.read_text(encoding="utf-8"))
+        return cast(dict[str, Any], data)
+    except Exception:
+        return {}
+
+
+def _project_name(repo_path: Path) -> str:
+    data = _read_pyproject(repo_path)
+    name = data.get("project", {}).get("name", "")
+    if isinstance(name, str):
+        return name.replace("-", "_")
+    return ""
+
+
+def _has_optional_dev_group(repo_path: Path) -> bool:
+    data = _read_pyproject(repo_path)
+    groups = data.get("project", {}).get("optional-dependencies", {})
+    return isinstance(groups, dict) and "dev" in groups
 
 
 def detect_project_type(repo_path: Path) -> tuple[str, str, bool, bool]:
@@ -194,22 +221,39 @@ def run_deptry(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         tmp_path = f.name
     try:
+        cmd = ["deptry", ".", "-o", tmp_path, "--no-ansi"]
+        known_first_party = _project_name(repo_path)
+        if known_first_party:
+            cmd.extend(["--known-first-party", known_first_party])
+        if _has_optional_dev_group(repo_path):
+            cmd.extend(["--optional-dependencies-dev-groups", "dev"])
+
         returncode, stdout, stderr = _run_command(
-            ["deptry", ".", "-o", tmp_path],
+            cmd,
             repo_path,
         )
-        if returncode == 0:
-            try:
-                data = json.loads(Path(tmp_path).read_text())
-                # 新版本输出是数组，旧版本是 {"issues": [...]}
-                if isinstance(data, list):
-                    return data, "ok"
+
+        try:
+            data = json.loads(Path(tmp_path).read_text(encoding="utf-8"))
+            # 新版本输出是数组，旧版本是 {"issues": [...]}
+            if isinstance(data, list):
+                issues = data
+            else:
                 issues = data.get("issues", [])
                 assert isinstance(issues, list)
+
+            if issues:
+                return issues, f"issues={len(issues)}"
+            if returncode == 0:
                 return issues, "ok"
-            except (json.JSONDecodeError, AssertionError):
+        except (json.JSONDecodeError, AssertionError, OSError):
+            if returncode == 0:
                 return [], "parse_failed"
+
         detail = stderr.strip() or "command_failed"
+        if stdout.strip():
+            detail = stdout.strip()
+        detail = detail.splitlines()[-1] if detail else "command_failed"
         return [], detail
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -365,8 +409,8 @@ def format_scan_summary(scan: RepoScanResult) -> str:
         ],
         "dependency_issues": [
             {
-                "type": i.get("type", ""),
-                "message": i.get("message", "")[:100],
+                "type": i.get("type", i.get("error", {}).get("code", "")),
+                "message": i.get("message", i.get("error", {}).get("message", ""))[:100],
             }
             for i in scan.deptry_issues[:10]
         ],

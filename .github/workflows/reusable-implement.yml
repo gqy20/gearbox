@@ -72,6 +72,8 @@ jobs:
 
       - name: Run Implement
         uses: gqy20/gearbox/actions/implement@main
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           repo: ${{ inputs.repo }}
           issue_number: ${{ inputs.issue_number }}

@@ -85,6 +85,8 @@ jobs:
 
       - name: Run Triage
         uses: ./actions/triage
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           repo: ${{ needs.plan.outputs.repo }}
           issue_number: ${{ needs.plan.outputs.issue_number }}

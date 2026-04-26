@@ -66,6 +66,8 @@ jobs:
 
       - name: Run Review
         uses: gqy20/gearbox/actions/review@main
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           repo: ${{ inputs.repo }}
           pr_number: ${{ inputs.pr_number }}

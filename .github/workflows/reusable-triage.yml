@@ -66,6 +66,8 @@ jobs:
 
       - name: Run Triage
         uses: gqy20/gearbox/actions/triage@main
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           repo: ${{ inputs.repo }}
           issue_number: ${{ inputs.issue_number }}

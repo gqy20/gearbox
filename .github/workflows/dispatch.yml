@@ -86,12 +86,7 @@ jobs:
               plan = json.load(file)
 
           include = [
-              {
-                  "issue_number": item["issue_number"],
-                  "title": item["title"],
-                  "priority": item["priority"],
-                  "complexity": item["complexity"],
-              }
+              {"issue_number": item["issue_number"]}
               for item in plan.get("items", [])
           ]
 
@@ -112,7 +107,7 @@ jobs:
       fail-fast: false
       max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    name: Dispatch issue #${{ matrix.issue_number }}
+    name: 'Dispatch issue #${{ matrix.issue_number }}'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

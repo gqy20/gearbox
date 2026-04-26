@@ -28,6 +28,8 @@ on:
         required: false
       ANTHROPIC_MODEL:
         required: false
+      GH_PAT:
+        required: false
 
 permissions:
   contents: write
@@ -73,7 +75,7 @@ jobs:
       - name: Run Implement
         uses: gqy20/gearbox/actions/implement@main
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         with:
           repo: ${{ inputs.repo }}
           issue_number: ${{ inputs.issue_number }}
@@ -101,7 +103,7 @@ jobs:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5

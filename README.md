@@ -41,6 +41,13 @@ uv run gearbox config list
       |-- aggregate-audit
       `-- create-issues（可选）
 
+内部 backlog 编排:
+  .github/workflows/backlog.yml
+      |
+      |-- plan
+      |-- backlog-run matrix（issue_number x run_id）
+      `-- aggregate-backlog（按 issue 选优并写回标签/评论）
+
 执行层:
   actions/*/action.yml
       |
@@ -53,8 +60,8 @@ uv run gearbox config list
 核心取舍：
 
 - Marketplace 用户默认只需要调用 `gqy20/gearbox-action@v1`，不需要手写复杂脚本。
-- 本仓库的 `audit.yml` 使用 inline matrix 编排，这是当前验证过的内部审计入口。
-- `reusable-*.yml` 仍保留为高级编排模板，但不再把本仓库的 audit 主路径建立在本地 reusable 调用上。
+- 本仓库的 `audit.yml` 和 `backlog.yml` 使用 inline matrix 编排，这是当前验证过的内部入口。
+- `reusable-*.yml` 仍保留为高级编排模板，但不再把本仓库主路径建立在本地 reusable 调用上。
 - audit 执行前会先克隆目标仓库，scanner 与 Agent 都基于克隆目录运行，提示词中也会明确写入本地分析目录。
 
 ## GitHub Actions
@@ -75,6 +82,12 @@ gh workflow run backlog.yml -f issues='2,5,6'
 gh workflow run review.yml -f pr_number=456
 ```
 
+也可以在 Issue / PR 评论中用工作流专属 mention 触发，避免一次评论误触发多个流程：
+
+- `@audit`：触发仓库审计。
+- `@backlog`：触发当前 Issue 分类。
+- `@review`：触发 PR 审查。
+
 ### 对外轻量接入
 
 ```yaml
@@ -88,6 +101,12 @@ gh workflow run review.yml -f pr_number=456
 ```
 
 统一的 backlog 入口会根据 `issues` 数量自动选择行为：1 个 issue 时执行快速分类，多个 issue 时执行批量分类并逐个写回标签/评论。
+
+Backlog 会写入类型标签、优先级标签、复杂度标签和状态标签。若仓库还没有
+`P0`-`P3`、`complexity:S/M/L`、`ready-to-implement` 或
+`needs-clarification`，运行时会先自动创建这些标签，再添加到对应 Issue。
+日志中的“标签不存在，正在创建”是初始化提示；只有出现“创建标签失败”或
+“添加标签失败”才表示写回失败。
 
 ```yaml
 - uses: gqy20/gearbox-action@v1

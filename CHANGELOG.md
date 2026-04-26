@@ -7,9 +7,24 @@
 
 ## [未发布]
 
+### 新增
+
+- 新增统一的 `backlog` workflow/action 入口，支持单个 Issue 和多个 Issue
+  使用同一套参数、artifact 与聚合逻辑。
+- Backlog 会自动创建缺失的 Gearbox 管理标签，例如 `P0`-`P3`、
+  `complexity:S/M/L`、`ready-to-implement` 与 `needs-clarification`。
+
 ### 变更
 
-- 这里记录尚未发布到 `gearbox-action` 的后续改动。
+- 删除旧 `triage` action、workflow 与 CLI 兼容入口，外部和内部调用统一使用
+  `backlog`。
+- 将内部 Agent 文件与导出命名从 triage 收口为 backlog：
+  `src/gearbox/agents/backlog.py`、`BacklogItemResult`、`run_backlog_item`。
+- 将工作流评论触发词拆分为 `@audit`、`@backlog`、`@review`，避免一个
+  `@gearbox` 同时触发多个 workflow。
+- Backlog matrix artifact 命名统一为
+  `backlog-results-issue-{issue_number}-run-{run_id}`，聚合目录统一为
+  `backlog-runs`。
 
 ## [v1.1.2] - 2026-04-26
 

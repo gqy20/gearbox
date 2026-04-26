@@ -20,6 +20,12 @@ Marketplace 轻量入口:
       |-- aggregate-audit
       `-- create-issues
 
+  .github/workflows/backlog.yml
+      |
+      |-- plan
+      |-- backlog-run matrix
+      `-- aggregate-backlog
+
 执行层:
   actions/*/action.yml
       |
@@ -43,13 +49,14 @@ Agent 共享层:
 | 层级 | 文件 | 职责 |
 | --- | --- | --- |
 | Marketplace 根入口 | `actions/main/action.yml` | 导出后成为 `gearbox-action` 的根 `action.yml`，按 `inputs.action` 路由 |
-| 内部 audit 编排 | `.github/workflows/audit.yml` | 当前验证过的 GitHub Actions 原生 matrix 编排 |
+| 内部 audit 编排 | `.github/workflows/audit.yml` | GitHub Actions 原生 matrix，并可选发布审计 Issue |
+| 内部 backlog 编排 | `.github/workflows/backlog.yml` | GitHub Actions 原生 matrix，按 Issue 聚合选优并写回标签/评论 |
 | 高级编排模板 | `.github/workflows/reusable-*.yml` | 面向高级调用方保留的 reusable workflow 模板 |
 | Action 执行层 | `actions/*/action.yml` | 单次执行 action，负责拼装环境变量并调用 CLI |
 | 轻量运行时 | `actions/_runtime/action.yml` | 安装 uv、同步项目依赖、验证 Python 与 gh |
 | 扫描工具 | `actions/_setup/action.yml` | 基于 `_runtime`，额外安装 audit 需要的静态扫描工具 |
 | CLI | `src/gearbox/cli.py` | 命令行入口，解析参数 |
-| Agent | `src/gearbox/agents/*.py` | audit、backlog、review、implement 等业务逻辑 |
+| Agent | `src/gearbox/agents/*.py` | audit、backlog、review、implement 等业务逻辑；backlog 实现在 `agents/backlog.py` |
 | Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、scanner、artifacts、selection |
 | GitHub 操作 | `src/gearbox/core/gh.py` | Issue、PR、comment、label 等 GitHub API 封装 |
 
@@ -80,9 +87,9 @@ Agent 共享层:
     model: ${{ vars.ANTHROPIC_MODEL }}
 ```
 
-### 开发仓内部 audit
+### 开发仓内部 audit / backlog
 
-本项目当前使用 `.github/workflows/audit.yml` 作为验证过的内部审计入口。它不是再调用本地 `reusable-audit.yml`，而是直接在 workflow 内完成 matrix 并行、artifact 上传、聚合与可选 Issue 创建。
+本项目当前使用 `.github/workflows/audit.yml` 和 `.github/workflows/backlog.yml` 作为验证过的内部入口。它们不是再调用本地 reusable workflow，而是直接在 workflow 内完成 matrix 并行、artifact 上传、聚合与副作用写回。
 
 ```text
 workflow_dispatch
@@ -95,7 +102,20 @@ workflow_dispatch
   -> upload artifact
   -> aggregate-audit
   -> optional create-issues
+
+workflow_dispatch / @backlog
+  -> plan
+  -> backlog-run[issue_number x run_id]
+  -> actions/backlog
+  -> upload backlog-results-issue-{issue_number}-run-{run_id}
+  -> aggregate-backlog
+  -> select best result per issue
+  -> apply labels/comments once per issue
 ```
+
+Backlog 的单 Issue 和多 Issue 都走同一入口：`issues` 只有一个编号时就是单 Issue
+分类，多个编号时就是批量分类。聚合阶段按 Issue 分组，每个 Issue 只会选出一个
+胜出结果并写回一次 GitHub 副作用。
 
 ### 高级 reusable workflow
 
@@ -157,6 +177,20 @@ audit agent 的当前流程是：
 
 所有工具状态都会进入扫描摘要和日志，避免“扫描完成但不知道扫描了什么”的黑箱感。
 
+## Backlog 标签写回
+
+Backlog 结构化结果会映射为 GitHub 标签：
+
+| 结果字段 | 标签 |
+| --- | --- |
+| `labels` | `bug`、`enhancement`、`documentation` 等类型标签 |
+| `priority` | `P0`、`P1`、`P2`、`P3` |
+| `complexity` | `complexity:S`、`complexity:M`、`complexity:L` |
+| `ready_to_implement` | `ready-to-implement` |
+| `needs_clarification` | `needs-clarification` |
+
+如果目标仓库缺少这些标签，Gearbox 会先创建再添加。日志中的“标签不存在，正在创建”表示首次初始化标签，不代表写回失败；只有“创建标签失败”或“添加标签失败”才需要排查权限或 GitHub API 返回。
+
 ## 配置与密钥
 
 | 名称 | 类型 | 说明 |
@@ -202,7 +236,8 @@ Marketplace 发布由 `.github/workflows/release-marketplace.yml` 负责：
 - [x] Phase 3: backlog / review / implement action
 - [x] Phase 4: workflow-native matrix、artifact 聚合、选优
 - [x] Phase 5: CHANGELOG 驱动的 Marketplace 发布说明
-- [ ] Phase 6: backlog / review 内部入口与 audit 编排体验完全对齐
+- [x] Phase 6: backlog 内部入口与 audit 编排体验对齐
+- [ ] Phase 7: review / implement 内部入口与 audit 编排体验完全对齐
 
 ## 调研文档
 

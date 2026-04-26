@@ -57,7 +57,7 @@ jobs:
           fi
 
       - name: Run Audit
-        uses: ./.github/actions/audit
+        uses: ./actions/audit
         with:
           repo: ${{ steps.target.outputs.repo }}
           benchmarks: ${{ inputs.benchmarks }}
@@ -92,6 +92,6 @@ jobs:
           path: ./audit-output
 
       - name: Publish Issues
-        uses: ./.github/actions/publish
+        uses: ./actions/publish
         with:
           input_path: ./audit-output/issues.json

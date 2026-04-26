@@ -63,6 +63,11 @@ runs:
       fi
       export PATH="$HOME/.local/bin:$PATH"
 
+      if [ "${{ inputs.apply_side_effects }}" = "true" ] && [ -z "${GH_TOKEN:-}" ]; then
+        echo "::error::GH_TOKEN is required when apply_side_effects=true. Pass secrets.GH_PAT so Gearbox can push branches and create PRs."
+        exit 1
+      fi
+
       CMD=(
         uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement
         --repo "${{ inputs.repo }}"

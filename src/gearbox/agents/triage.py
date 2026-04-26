@@ -94,7 +94,7 @@ def _gh_issue_view(repo: str, issue_number: int) -> Any:
         "api",
         f"/repos/{repo}/issues/{issue_number}",
         "--jq",
-        "{title:.title,body:.body,labels:.labels[].name,state:.state}",
+        "{title:.title,body:.body,labels:[.labels[].name],state:.state}",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     return json.loads(result.stdout)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from claude_agent_sdk import ResultMessage
 
+from gearbox.agents import triage
 from gearbox.agents.audit import AuditResult, Issue
 from gearbox.agents.evaluator import EvaluationResult, build_evaluation_prompt
 from gearbox.agents.implement import ImplementResult
@@ -72,6 +73,24 @@ class TestStructuredOutputParsing:
         assert result is not None
         assert result.labels == ["bug", "high-priority"]
         assert result.ready_to_implement is True
+
+    def test_triage_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
+        captured_cmd: list[str] = []
+
+        class FakeCompletedProcess:
+            stdout = '{"title":"T","body":"B","labels":["bug","docs"],"state":"open"}'
+
+        def fake_run(cmd: list[str], **kwargs) -> FakeCompletedProcess:
+            del kwargs
+            captured_cmd.extend(cmd)
+            return FakeCompletedProcess()
+
+        monkeypatch.setattr(triage.subprocess, "run", fake_run)
+
+        issue = triage._gh_issue_view("owner/repo", 1)
+
+        assert issue["labels"] == ["bug", "docs"]
+        assert "{title:.title,body:.body,labels:[.labels[].name],state:.state}" in captured_cmd
 
     def test_review_mapping(self) -> None:
         message = _result_message(

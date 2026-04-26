@@ -195,7 +195,7 @@ async def run_audit(
         model=resolved_model,
         system_prompt=resolved_prompt,
         max_turns=max_turns,
-        skills=["ctx7", "gh"],
+        skills="all",
         cwd=project_root,
     )
 

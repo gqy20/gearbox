@@ -173,8 +173,11 @@ async def run_implement(
     Returns:
         ImplementResult 结构
     """
+    from pathlib import Path
+
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    project_root = Path(__file__).parent.parent.parent
     issue = _gh_issue_view(repo, issue_number)
     issue_title = issue["title"]
     issue_body = issue["body"] or "(无正文)"
@@ -196,6 +199,8 @@ async def run_implement(
         max_turns=max_turns,
         allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
         permission_mode="acceptEdits",
+        skills="all",
+        cwd=project_root,
     )
 
     result_text = ""

@@ -177,8 +177,11 @@ async def run_triage(
     Returns:
         TriageResult 结构
     """
+    from pathlib import Path
+
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
+    project_root = Path(__file__).parent.parent.parent
     issue = _gh_issue_view(repo, issue_number)
 
     prompt = f"""## Issue 信息
@@ -199,6 +202,8 @@ async def run_triage(
         model=model,
         max_turns=max_turns,
         allowed_tools=["Read", "Bash"],
+        skills="all",
+        cwd=project_root,
     )
 
     result_text = ""

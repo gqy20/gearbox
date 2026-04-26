@@ -202,8 +202,11 @@ async def run_review(
     Returns:
         ReviewResult 结构
     """
+    from pathlib import Path
+
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    project_root = Path(__file__).parent.parent.parent
     pr_info = _gh_pr_view(repo, pr_number)
     diff_text = _gh_pr_diff(repo, pr_number)
 
@@ -225,6 +228,8 @@ async def run_review(
         model=model,
         max_turns=max_turns,
         allowed_tools=["Read", "Grep", "Glob"],
+        skills="all",
+        cwd=project_root,
     )
 
     result_text = ""

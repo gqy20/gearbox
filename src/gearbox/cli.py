@@ -9,9 +9,10 @@ from pathlib import Path
 import click
 
 from .agents.audit import promote_audit_outputs, run_audit
-from .agents.github_output import format_currency, result_to_github_output
 from .agents.implement import run_implement
 from .agents.review import run_review
+from .agents.shared.execution import run_parallel
+from .agents.shared.github_output import format_currency, result_to_github_output
 from .agents.triage import run_triage
 from .config import (
     AGENT_DEFAULTS,
@@ -24,7 +25,6 @@ from .config import (
     set_github_token,
     set_provider,
 )
-from .core import run_parallel
 from .core.gh import (
     add_issue_labels,
     build_review_body,

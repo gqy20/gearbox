@@ -206,8 +206,8 @@ async def run_audit(
         query,
     )
 
-    from gearbox.agents.runtime import prepare_agent_options
-    from gearbox.agents.structured import (
+    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.structured import (
         append_assistant_text,
         json_schema_output,
         parse_structured_output,

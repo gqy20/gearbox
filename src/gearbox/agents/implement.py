@@ -177,8 +177,8 @@ async def run_implement(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
-    from gearbox.agents.runtime import prepare_agent_options
-    from gearbox.agents.structured import append_assistant_text
+    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.structured import append_assistant_text
     project_root = Path(__file__).parent.parent.parent
     issue = _gh_issue_view(repo, issue_number)
     issue_title = issue["title"]

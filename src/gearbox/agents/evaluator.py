@@ -189,8 +189,8 @@ async def run_evaluator(
         query,
     )
 
-    from gearbox.agents.runtime import prepare_agent_options
-    from gearbox.agents.structured import append_assistant_text, parse_structured_output
+    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.structured import append_assistant_text, parse_structured_output
     from gearbox.config import get_anthropic_model
 
     model = model or get_anthropic_model()

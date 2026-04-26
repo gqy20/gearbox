@@ -4,12 +4,12 @@ import os
 
 from claude_agent_sdk import ClaudeAgentOptions
 
-from gearbox.agents.sdk_logging import prepare_sdk_options
+from gearbox.agents.shared.runtime import prepare_agent_options
 
 
 class TestPrepareSdkOptions:
     def test_preserves_existing_env(self) -> None:
-        prepared, _ = prepare_sdk_options(
+        prepared, _ = prepare_agent_options(
             ClaudeAgentOptions(env={"KEEP_ME": "1"}),
             agent_name="audit",
         )
@@ -19,7 +19,7 @@ class TestPrepareSdkOptions:
         os.environ["ANTHROPIC_AUTH_TOKEN"] = "sk-test-auth"
         os.environ["ANTHROPIC_BASE_URL"] = "https://proxy.example.com/anthropic"
         try:
-            prepared, _ = prepare_sdk_options(ClaudeAgentOptions(), agent_name="audit")
+            prepared, _ = prepare_agent_options(ClaudeAgentOptions(), agent_name="audit")
             assert prepared.env["ANTHROPIC_AUTH_TOKEN"] == "sk-test-auth"
             assert prepared.env["ANTHROPIC_BASE_URL"] == "https://proxy.example.com/anthropic"
             assert prepared.stderr is not None

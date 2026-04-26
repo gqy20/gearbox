@@ -206,8 +206,8 @@ async def run_review(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
-    from gearbox.agents.runtime import prepare_agent_options
-    from gearbox.agents.structured import append_assistant_text
+    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.structured import append_assistant_text
     project_root = Path(__file__).parent.parent.parent
     pr_info = _gh_pr_view(repo, pr_number)
     diff_text = _gh_pr_diff(repo, pr_number)

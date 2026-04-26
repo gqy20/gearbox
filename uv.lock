@@ -254,6 +254,7 @@ dependencies = [
     { name = "claude-agent-sdk" },
     { name = "click" },
     { name = "pydantic" },
+    { name = "tomli" },
     { name = "tomli-w" },
 ]
 
@@ -282,6 +283,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
+    { name = "tomli", specifier = ">=2.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
 ]
 provides-extras = ["dev"]

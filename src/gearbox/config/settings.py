@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import tomli_w
 
@@ -52,7 +52,7 @@ def save_config(config: dict[str, Any]) -> None:
     """保存配置文件"""
     ensure_config_dir()
 
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "wb") as f:
         tomli_w.dump(config, f)
 
 
@@ -60,7 +60,7 @@ def get_github_token() -> str | None:
     """获取 GitHub Token（优先级：配置文件 > 环境变量）"""
     config = load_config()
     if "github_token" in config:
-        return config["github_token"]
+        return cast(str, config["github_token"])
     return os.environ.get("GITHUB_TOKEN")
 
 
@@ -73,7 +73,7 @@ def get_anthropic_api_key() -> str | None:
     """
     config = load_config()
     if "anthropic_api_key" in config:
-        return config["anthropic_api_key"]
+        return cast(str, config["anthropic_api_key"])
 
     # 优先使用官方推荐的环境变量名
     return os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
@@ -86,7 +86,7 @@ def get_anthropic_base_url() -> str | None:
     """
     config = load_config()
     if "anthropic_base_url" in config:
-        return config["anthropic_base_url"]
+        return cast(str, config["anthropic_base_url"])
 
     # 如果配置了 provider，使用其默认值
     if "provider" in config:
@@ -121,7 +121,7 @@ def get_anthropic_model() -> str:
     """
     config = load_config()
     if "anthropic_model" in config:
-        return config["anthropic_model"]
+        return cast(str, config["anthropic_model"])
 
     # 如果配置了 provider，使用其默认值
     if "provider" in config:

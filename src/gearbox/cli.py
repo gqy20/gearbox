@@ -214,8 +214,15 @@ def agent() -> None:
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--issue", required=True, type=int, help="Issue 编号")
 @click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
-@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次")
-@click.option("--parallel-count", default=AGENT_DEFAULTS["parallel_count"], type=int, help="并行执行次数（1=不并行）")
+@click.option(
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次"
+)
+@click.option(
+    "--parallel-count",
+    default=AGENT_DEFAULTS["parallel_count"],
+    type=int,
+    help="并行执行次数（1=不并行）",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def triage(
     repo: str,
@@ -283,8 +290,15 @@ def triage(
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--pr", required=True, type=int, help="PR 编号")
 @click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
-@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["review"], type=int, help="最大对话轮次")
-@click.option("--parallel-count", default=AGENT_DEFAULTS["parallel_count"], type=int, help="并行执行次数（1=不并行）")
+@click.option(
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["review"], type=int, help="最大对话轮次"
+)
+@click.option(
+    "--parallel-count",
+    default=AGENT_DEFAULTS["parallel_count"],
+    type=int,
+    help="并行执行次数（1=不并行）",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def review(
     repo: str, pr: int, model: str, max_turns: int, parallel_count: int, output: str
@@ -351,7 +365,9 @@ def review(
 @click.option("--issue", required=True, type=int, help="Issue 编号")
 @click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
 @click.option("--base-branch", default="main", help="PR 目标分支")
-@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["implement"], type=int, help="最大对话轮次")
+@click.option(
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["implement"], type=int, help="最大对话轮次"
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement(
     repo: str, issue: int, model: str, base_branch: str, max_turns: int, output: str
@@ -403,9 +419,16 @@ def implement(
 @click.option("--benchmarks", default="", help="逗号分隔的对标仓库列表（可选）")
 @click.option("--output-dir", default="./output", help="输出目录")
 @click.option("--model", default="", help="使用的模型")
-@click.option("--max-turns", default=AGENT_DEFAULTS["max_turns"]["audit"], type=int, help="最大对话轮次")
+@click.option(
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["audit"], type=int, help="最大对话轮次"
+)
 @click.option("--system-prompt", default="", help="自定义 System Prompt（可选）")
-@click.option("--parallel-count", default=AGENT_DEFAULTS["parallel_count"], type=int, help="并行执行次数（1=不并行）")
+@click.option(
+    "--parallel-count",
+    default=AGENT_DEFAULTS["parallel_count"],
+    type=int,
+    help="并行执行次数（1=不并行）",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def audit_repo(
     repo: str,
@@ -448,7 +471,7 @@ def audit_repo(
                 results=all_results,
                 result_type="Audit 审计结果",
                 result_names=angles[: len(all_results)],
-                model=model_arg,
+                model=model_arg if model_arg else "claude-sonnet-4-6",
             )
         )
 

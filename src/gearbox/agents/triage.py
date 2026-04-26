@@ -179,9 +179,10 @@ async def run_triage(
     """
     from pathlib import Path
 
-    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+    from claude_agent_sdk import ClaudeAgentOptions, query
 
-    from gearbox.agents.sdk_logging import prepare_sdk_options
+    from gearbox.agents.runtime import prepare_agent_options
+    from gearbox.agents.structured import append_assistant_text, parse_structured_output
     project_root = Path(__file__).parent.parent.parent
     issue = _gh_issue_view(repo, issue_number)
 
@@ -199,7 +200,7 @@ async def run_triage(
 ---
 {SYSTEM_PROMPT}"""
 
-    options, sdk_logger = prepare_sdk_options(
+    options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
@@ -222,24 +223,16 @@ async def run_triage(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if hasattr(message, "content"):
-                for block in message.content:
-                    if hasattr(block, "text"):
-                        result_text += block.text
-
-            if isinstance(message, ResultMessage) and message.structured_output:
-                try:
-                    data = message.structured_output
-                    structured = TriageResult(
-                        labels=data.get("labels", []),
-                        priority=data.get("priority", "P3"),
-                        complexity=data.get("complexity", "M"),
-                        needs_clarification=data.get("needs_clarification", False),
-                        clarification_question=data.get("clarification_question"),
-                        ready_to_implement=data.get("ready_to_implement", False),
-                    )
-                except (KeyError, TypeError):
-                    pass
+            result_text = append_assistant_text(result_text, message)
+            if not structured:
+                structured = parse_structured_output(message, lambda data: TriageResult(
+                    labels=data.get("labels", []),
+                    priority=data.get("priority", "P3"),
+                    complexity=data.get("complexity", "M"),
+                    needs_clarification=data.get("needs_clarification", False),
+                    clarification_question=data.get("clarification_question"),
+                    ready_to_implement=data.get("ready_to_implement", False),
+                ))
     finally:
         sdk_logger.log_completion()
 

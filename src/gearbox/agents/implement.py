@@ -177,7 +177,8 @@ async def run_implement(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
-    from gearbox.agents.sdk_logging import prepare_sdk_options
+    from gearbox.agents.runtime import prepare_agent_options
+    from gearbox.agents.structured import append_assistant_text
     project_root = Path(__file__).parent.parent.parent
     issue = _gh_issue_view(repo, issue_number)
     issue_title = issue["title"]
@@ -195,7 +196,7 @@ async def run_implement(
 ---
 {SYSTEM_PROMPT}"""
 
-    options, sdk_logger = prepare_sdk_options(
+    options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
@@ -219,10 +220,7 @@ async def run_implement(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if hasattr(message, "content"):
-                for block in message.content:
-                    if hasattr(block, "text"):
-                        result_text += block.text
+            result_text = append_assistant_text(result_text, message)
 
             # 尝试解析中间结果（Agent 可能分多次输出）
             parsed = _parse_result(result_text)

@@ -202,14 +202,16 @@ async def run_audit(
         AuditResult 结构
     """
     from claude_agent_sdk import (
-        AssistantMessage,
         ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
         query,
     )
 
-    from gearbox.agents.sdk_logging import prepare_sdk_options
+    from gearbox.agents.runtime import prepare_agent_options
+    from gearbox.agents.structured import (
+        append_assistant_text,
+        json_schema_output,
+        parse_structured_output,
+    )
     from gearbox.config import get_anthropic_base_url, get_anthropic_model
 
     resolved_model = model or get_anthropic_model()
@@ -218,12 +220,12 @@ async def run_audit(
     # 仓库根目录（用于定位 .claude/skills/ 和输出目录）
     project_root = Path(__file__).resolve().parents[3]
 
-    options, sdk_logger = prepare_sdk_options(
+    options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(
             model=resolved_model,
             system_prompt=resolved_prompt,
             max_turns=max_turns,
-            output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
+            output_format=json_schema_output(OUTPUT_SCHEMA),
             skills="all",
             cwd=project_root,
         ),
@@ -261,30 +263,23 @@ async def run_audit(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        result_text += block.text
-            elif isinstance(message, ResultMessage):
-                if message.total_cost_usd is not None:
-                    total_cost = message.total_cost_usd
-                if message.structured_output and not structured:
-                    data = message.structured_output
-                    issues = [
+            result_text = append_assistant_text(result_text, message)
+            total_cost = getattr(message, "total_cost_usd", total_cost)
+            if not structured:
+                structured = parse_structured_output(message, lambda data: AuditResult(
+                    repo=data.get("repo", repo),
+                    profile=data.get("profile", {}),
+                    comparison_markdown=data.get("comparison_markdown", ""),
+                    benchmarks=data.get("benchmarks", benchmarks or []),
+                    issues=[
                         Issue(
                             title=item.get("title", ""),
                             body=item.get("body", ""),
                             labels=item.get("labels", "enhancement"),
                         )
                         for item in data.get("issues", [])
-                    ]
-                    structured = AuditResult(
-                        repo=data.get("repo", repo),
-                        profile=data.get("profile", {}),
-                        comparison_markdown=data.get("comparison_markdown", ""),
-                        benchmarks=data.get("benchmarks", benchmarks or []),
-                        issues=issues,
-                    )
+                    ],
+                ))
 
             parsed = _parse_result(result_text)
             if parsed and not structured:

@@ -9,6 +9,7 @@ from pathlib import Path
 import click
 
 from .agents.audit import promote_audit_outputs, run_audit
+from .agents.github_output import format_currency, result_to_github_output
 from .agents.implement import run_implement
 from .agents.review import run_review
 from .agents.triage import run_triage
@@ -32,7 +33,6 @@ from .core.gh import (
     post_issue_comment,
     post_review_comment,
     prepare_working_branch,
-    write_outputs,
 )
 from .release import build_marketplace_bundle
 
@@ -203,26 +203,6 @@ def package_marketplace(output_dir: str) -> None:
 # =============================================================================
 
 
-def _result_to_github_output(result, output_file: str = "/tmp/github_output") -> None:
-    """通用结果转 GitHub Output 文件"""
-    data = {}
-    for key, value in vars(result).items():
-        if isinstance(value, list):
-            data[key] = json.dumps(value)
-        elif isinstance(value, bool):
-            data[key] = str(value).lower()
-        elif value is None:
-            data[key] = ""
-        else:
-            data[key] = str(value)
-    data["status"] = "success"
-    write_outputs(data, output_file)
-
-
-def _format_currency(amount: float | None) -> str:
-    return f"${amount:.4f}" if amount is not None else "n/a"
-
-
 @cli.group()
 def agent() -> None:
     """运行 Agent (Audit/Triage/Review/Implement)"""
@@ -302,7 +282,7 @@ def triage(
     if result.ready_to_implement:
         post_issue_comment(repo, issue, "✅ 此 Issue 分类完成，标记为 ready-to-implement")
 
-    _result_to_github_output(result, output)
+    result_to_github_output(result, output)
 
 
 @agent.command()
@@ -375,7 +355,7 @@ def review(
     event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(result.verdict, "COMMENT")
     post_review_comment(repo, pr, body, event)
 
-    _result_to_github_output(result, output)
+    result_to_github_output(result, output)
     click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
 
 
@@ -427,7 +407,7 @@ def implement(
             else:
                 click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
 
-        _result_to_github_output(result, output)
+        result_to_github_output(result, output)
         click.echo(f"✅ Implement: branch={result.branch_name}, ready={result.ready_for_review}")
     finally:
         pass  # 分支已在 finalize_and_create_pr 中处理
@@ -500,9 +480,9 @@ def audit_repo(
             )
             click.echo(
                 f"✅ Audit (fallback): {len(result.issues)} issues, "
-                f"cost={_format_currency(result.cost)}"
+                f"cost={format_currency(result.cost)}"
             )
-            _result_to_github_output(result, output)
+            result_to_github_output(result, output)
             return
 
         evaluation = asyncio.run(
@@ -528,8 +508,8 @@ def audit_repo(
         total_cost = sum(result.cost or 0.0 for result in all_results)
         click.echo(
             f"✅ Audit (parallel): {len(best_result.issues)} issues, "
-            f"winner={evaluation.winner}, total_cost={_format_currency(total_cost)}, "
-            f"winner_cost={_format_currency(best_result.cost)}"
+            f"winner={evaluation.winner}, total_cost={format_currency(total_cost)}, "
+            f"winner_cost={format_currency(best_result.cost)}"
         )
         result = best_result
     else:
@@ -544,10 +524,10 @@ def audit_repo(
             )
         )
         click.echo(
-            f"✅ Audit: {len(result.issues)} issues, cost={_format_currency(result.cost)}"
+            f"✅ Audit: {len(result.issues)} issues, cost={format_currency(result.cost)}"
         )
 
-    _result_to_github_output(result, output)
+    result_to_github_output(result, output)
 
 
 # =============================================================================

@@ -185,21 +185,19 @@ async def run_evaluator(
         EvaluationResult
     """
     from claude_agent_sdk import (
-        AssistantMessage,
         ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
         query,
     )
 
-    from gearbox.agents.sdk_logging import prepare_sdk_options
+    from gearbox.agents.runtime import prepare_agent_options
+    from gearbox.agents.structured import append_assistant_text, parse_structured_output
     from gearbox.config import get_anthropic_model
 
     model = model or get_anthropic_model()
 
     prompt = build_evaluation_prompt(results, result_type, result_names)
 
-    options, sdk_logger = prepare_sdk_options(
+    options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(
             model=model,
             system_prompt=SYSTEM_PROMPT,
@@ -220,24 +218,14 @@ async def run_evaluator(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        result_text += block.text
-            elif isinstance(message, ResultMessage):
-                if message.structured_output:
-                    try:
-                        scores: dict[int, float] = {}
-                        for k, v in message.structured_output.get("scores", {}).items():
-                            scores[int(k)] = float(v)
-                        structured = EvaluationResult(
-                            winner=int(message.structured_output.get("winner", 0)),
-                            scores=scores,
-                            reasoning=message.structured_output.get("reasoning", ""),
-                            consensus=message.structured_output.get("consensus", []),
-                        )
-                    except (KeyError, ValueError, TypeError):
-                        pass
+            result_text = append_assistant_text(result_text, message)
+            if not structured:
+                structured = parse_structured_output(message, lambda data: EvaluationResult(
+                    winner=int(data.get("winner", 0)),
+                    scores={int(k): float(v) for k, v in data.get("scores", {}).items()},
+                    reasoning=data.get("reasoning", ""),
+                    consensus=data.get("consensus", []),
+                ))
     finally:
         sdk_logger.log_completion()
 

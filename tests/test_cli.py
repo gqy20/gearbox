@@ -201,7 +201,13 @@ class TestAgentCommand:
         assert "--repo" in result.output
         assert "--benchmarks" in result.output
         assert "--system-prompt" in result.output
-        assert "--parallel-count" in result.output
+        assert "--parallel-count" not in result.output
+
+    def test_agent_audit_select_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["agent", "audit-select", "--help"])
+        assert result.exit_code == 0
+        assert "--input-root" in result.output
+        assert "--output-dir" in result.output
 
     def test_agent_triage_requires_args(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "triage"])

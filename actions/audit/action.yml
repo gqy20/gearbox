@@ -22,10 +22,6 @@ inputs:
     description: '自定义 System Prompt（可选）'
     required: false
     default: ''
-  parallel_count:
-    description: '并行执行次数（1=不并行，2+=并行执行）'
-    required: false
-    default: '3'
   model:
     description: '使用的模型（可选）'
     required: false
@@ -93,7 +89,6 @@ runs:
         echo "repo=${{ inputs.repo }}"
         echo "output_dir=${{ inputs.output_dir }}"
         echo "max_turns=${{ inputs.max_turns }}"
-        echo "parallel_count=${{ inputs.parallel_count }}"
         echo "model=${{ inputs.model || '(default)' }}"
         if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
           echo "anthropic_base_url=$ANTHROPIC_BASE_URL_INPUT"
@@ -110,26 +105,23 @@ runs:
         fi
         export PATH="$HOME/.local/bin:$PATH"
 
-        MODEL_ARG=""
-        if [ -n "${{ inputs.model }}" ]; then
-          MODEL_ARG="--model ${{ inputs.model }}"
-        fi
+        CMD=(
+          uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent audit-repo
+          --repo "${{ inputs.repo }}"
+          --output-dir "${{ inputs.output_dir }}"
+          --benchmarks "${{ inputs.benchmarks }}"
+          --max-turns "${{ inputs.max_turns }}"
+        )
 
-        PARALLEL_ARG="--parallel-count ${{ inputs.parallel_count }}"
-
-        SYSTEM_PROMPT_ARG=""
         if [ -n "${{ inputs.system_prompt }}" ]; then
-          SYSTEM_PROMPT_ARG="--system-prompt '${{ inputs.system_prompt }}'"
+          CMD+=(--system-prompt "${{ inputs.system_prompt }}")
         fi
 
-        uv run --directory "${GITHUB_ACTION_PATH}/../.." python -m gearbox.cli agent audit-repo \
-          --repo "${{ inputs.repo }}" \
-          --output-dir "${{ inputs.output_dir }}" \
-          --benchmarks "${{ inputs.benchmarks }}" \
-          --max-turns "${{ inputs.max_turns }}" \
-          $PARALLEL_ARG \
-          $SYSTEM_PROMPT_ARG \
-          $MODEL_ARG
+        if [ -n "${{ inputs.model }}" ]; then
+          CMD+=(--model "${{ inputs.model }}")
+        fi
+
+        "${CMD[@]}"
 
     - name: Parse results
       id: results

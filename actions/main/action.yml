@@ -107,7 +107,6 @@ runs:
         output_dir: ${{ inputs.output_dir }}
         system_prompt: ${{ inputs.system_prompt }}
         max_turns: ${{ inputs.max_turns }}
-        parallel_count: ${{ inputs.parallel_count }}
         model: ${{ inputs.model }}
         anthropic_base_url: ${{ inputs.anthropic_base_url }}
         anthropic_api_key: ${{ inputs.anthropic_api_key }}

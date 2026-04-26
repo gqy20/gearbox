@@ -102,6 +102,35 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
     (output_dir / "comparison.md").write_text(comparison_markdown + "\n", encoding="utf-8")
 
 
+def load_audit_result(output_dir: Path) -> AuditResult:
+    """从 audit 产物目录恢复 AuditResult。"""
+    issues_path = output_dir / "issues.json"
+    comparison_path = output_dir / "comparison.md"
+
+    if not issues_path.exists():
+        raise FileNotFoundError(f"Missing audit artifact: {issues_path}")
+
+    issues_payload = json.loads(issues_path.read_text(encoding="utf-8"))
+    comparison_markdown = (
+        comparison_path.read_text(encoding="utf-8") if comparison_path.exists() else ""
+    )
+
+    return AuditResult(
+        repo=issues_payload.get("repo", ""),
+        profile=issues_payload.get("profile", {}),
+        comparison_markdown=comparison_markdown,
+        benchmarks=issues_payload.get("benchmarks", []),
+        issues=[
+            Issue(
+                title=item.get("title", ""),
+                body=item.get("body", ""),
+                labels=item.get("labels", "enhancement"),
+            )
+            for item in issues_payload.get("issues", [])
+        ],
+    )
+
+
 # =============================================================================
 # Prompt
 # =============================================================================

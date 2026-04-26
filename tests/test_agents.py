@@ -157,3 +157,14 @@ class TestEvaluatorPrompt:
         assert "run_1" in prompt
         assert "bug" in prompt
         assert "enhancement" in prompt
+
+    def test_build_prompt_with_nested_dataclasses(self) -> None:
+        results = [
+            AuditResult(
+                repo="owner/repo",
+                issues=[Issue(title="A", body="B", labels="high")],
+            )
+        ]
+        prompt = build_evaluation_prompt(results, "Audit 审计结果", ["run_0"])
+        assert "owner/repo" in prompt
+        assert "\"title\": \"A\"" in prompt

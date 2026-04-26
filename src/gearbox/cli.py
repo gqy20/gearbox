@@ -2,13 +2,12 @@
 
 import asyncio
 import json
-import shutil
 import traceback
 from pathlib import Path
 
 import click
 
-from .agents.audit import promote_audit_outputs, run_audit
+from .agents.audit import load_audit_result, promote_audit_outputs, run_audit
 from .agents.implement import run_implement
 from .agents.review import run_review
 from .agents.shared.execution import run_parallel
@@ -423,12 +422,8 @@ def implement(
 )
 @click.option("--system-prompt", default="", help="自定义 System Prompt（可选）")
 @click.option(
-    "--parallel-count",
-    default=AGENT_DEFAULTS["parallel_count"],
-    type=int,
-    help="并行执行次数（1=不并行）",
+    "--output", default="/tmp/github_output", help="输出文件路径"
 )
-@click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def audit_repo(
     repo: str,
     benchmarks: str,
@@ -436,98 +431,85 @@ def audit_repo(
     model: str,
     max_turns: int,
     system_prompt: str,
-    parallel_count: int,
     output: str,
 ) -> None:
-    """运行 Audit Agent - 审计仓库生成改进建议"""
-    from gearbox.agents.evaluator import run_evaluator
-
+    """运行单次 Audit Agent - 审计仓库生成改进建议。"""
     benchmark_list = benchmarks.split(",") if benchmarks else None
     model_arg = model if model else None
     system_prompt_arg = system_prompt if system_prompt else None
 
-    if parallel_count > 1:
-        parallel_root = Path(output_dir) / ".parallel"
-        if parallel_root.exists():
-            shutil.rmtree(parallel_root)
-
-        # 同一任务并行执行多次
-        async def agent_factory(angle: str):
-            run_output_dir = parallel_root / angle
-            return await run_audit(
-                repo,
-                benchmarks=benchmark_list,
-                output_dir=str(run_output_dir),
-                model=model_arg,
-                max_turns=max_turns,
-                system_prompt=system_prompt_arg,
-            )
-
-        angles = [f"run_{i}" for i in range(parallel_count)]
-        all_results = asyncio.run(run_parallel(agent_factory, angles, model=model_arg))
-
-        if not all_results:
-            click.echo("⚠️ Parallel audit failed, retrying once in single-run mode")
-            result = asyncio.run(
-                run_audit(
-                    repo,
-                    benchmarks=benchmark_list,
-                    output_dir=output_dir,
-                    model=model_arg,
-                    max_turns=max_turns,
-                    system_prompt=system_prompt_arg,
-                )
-            )
-            click.echo(
-                f"✅ Audit (fallback): {len(result.issues)} issues, "
-                f"cost={format_currency(result.cost)}"
-            )
-            result_to_github_output(result, output)
-            return
-
-        evaluation = asyncio.run(
-            run_evaluator(
-                results=all_results,
-                result_type="Audit 审计结果",
-                result_names=angles[: len(all_results)],
-                model=model_arg if model_arg else "claude-sonnet-4-6",
-            )
+    result = asyncio.run(
+        run_audit(
+            repo,
+            benchmarks=benchmark_list,
+            output_dir=output_dir,
+            model=model_arg,
+            max_turns=max_turns,
+            system_prompt=system_prompt_arg,
         )
-
-        best_result = (
-            all_results[evaluation.winner]
-            if evaluation.winner < len(all_results)
-            else all_results[0]
-        )
-        winner_name = (
-            angles[evaluation.winner]
-            if evaluation.winner < len(angles)
-            else angles[0]
-        )
-        promote_audit_outputs(parallel_root / winner_name, Path(output_dir))
-        total_cost = sum(result.cost or 0.0 for result in all_results)
-        click.echo(
-            f"✅ Audit (parallel): {len(best_result.issues)} issues, "
-            f"winner={evaluation.winner}, total_cost={format_currency(total_cost)}, "
-            f"winner_cost={format_currency(best_result.cost)}"
-        )
-        result = best_result
-    else:
-        result = asyncio.run(
-            run_audit(
-                repo,
-                benchmarks=benchmark_list,
-                output_dir=output_dir,
-                model=model_arg,
-                max_turns=max_turns,
-                system_prompt=system_prompt_arg,
-            )
-        )
-        click.echo(
-            f"✅ Audit: {len(result.issues)} issues, cost={format_currency(result.cost)}"
-        )
+    )
+    click.echo(
+        f"✅ Audit: {len(result.issues)} issues, cost={format_currency(result.cost)}"
+    )
 
     result_to_github_output(result, output)
+
+
+@agent.command(name="audit-select")
+@click.option("--input-root", required=True, help="并行 audit artifact 根目录")
+@click.option("--output-dir", default="./output", help="胜出结果输出目录")
+@click.option("--model", default="", help="用于评估多个结果的模型")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def audit_select(input_root: str, output_dir: str, model: str, output: str) -> None:
+    """聚合多个 audit 结果并选出最佳结果。"""
+    from gearbox.agents.evaluator import run_evaluator
+
+    root = Path(input_root)
+    if not root.exists():
+        click.echo(f"❌ 目录不存在: {input_root}", err=True)
+        raise click.Abort()
+
+    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
+    if not candidate_dirs:
+        click.echo(f"❌ 未找到任何 audit 结果目录: {input_root}", err=True)
+        raise click.Abort()
+
+    results = []
+    names = []
+    valid_dirs: list[Path] = []
+
+    for run_dir in candidate_dirs:
+        try:
+            results.append(load_audit_result(run_dir))
+            names.append(run_dir.name)
+            valid_dirs.append(run_dir)
+        except FileNotFoundError as exc:
+            click.echo(f"⚠️ 跳过无效结果目录 {run_dir.name}: {exc}")
+
+    if not results:
+        click.echo("❌ 没有可用于聚合的 audit 结果", err=True)
+        raise click.Abort()
+
+    winner_index = 0
+    if len(results) > 1:
+        evaluation = asyncio.run(
+            run_evaluator(
+                results=results,
+                result_type="Audit 审计结果",
+                result_names=names,
+                model=model or "",
+            )
+        )
+        if 0 <= evaluation.winner < len(results):
+            winner_index = evaluation.winner
+
+    winner_dir = valid_dirs[winner_index]
+    winner_result = results[winner_index]
+    promote_audit_outputs(winner_dir, Path(output_dir))
+    result_to_github_output(winner_result, output)
+    click.echo(
+        f"✅ Selected audit result: winner={winner_dir.name}, issues={len(winner_result.issues)}"
+    )
 
 
 # =============================================================================

@@ -1,7 +1,7 @@
 """Evaluator Agent — 通用评估器，评判多个结果的优劣"""
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
 # =============================================================================
@@ -104,8 +104,9 @@ def build_evaluation_prompt(
 
 def _format_result_for_prompt(result: Any) -> str:
     """将结果格式化为 prompt 文本"""
-    if hasattr(result, "__dict__"):
-        # dataclass
+    if is_dataclass(result):
+        data = asdict(result)
+    elif hasattr(result, "__dict__"):
         data = {
             k: v for k, v in result.__dict__.items() if not k.startswith("_") and not callable(v)
         }

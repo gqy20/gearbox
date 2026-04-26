@@ -23,5 +23,5 @@ runs:
       shell: bash
       run: |
         export PATH="$HOME/.local/bin:$PATH"
-        uv run --directory "${GITHUB_ACTION_PATH}/../.." python -m gearbox.cli publish-issues --input "${{ inputs.input_path }}"
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox publish-issues --input "${{ inputs.input_path }}"
         echo "status=success" >> $GITHUB_OUTPUT

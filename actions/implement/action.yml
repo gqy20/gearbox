@@ -59,16 +59,18 @@ runs:
         fi
         export PATH="$HOME/.local/bin:$PATH"
 
-        MODEL_ARG=""
+        CMD=(
+          uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement
+          --repo "${{ inputs.repo }}"
+          --issue "${{ inputs.issue_number }}"
+          --base-branch "${{ inputs.base_branch }}"
+          --max-turns "${{ inputs.max_turns }}"
+        )
+
         if [ -n "${{ inputs.model }}" ]; then
-          MODEL_ARG="--model ${{ inputs.model }}"
+          CMD+=(--model "${{ inputs.model }}")
         fi
 
-        uv run --directory "${GITHUB_ACTION_PATH}/../.." python -m gearbox.cli agent implement \
-          --repo "${{ inputs.repo }}" \
-          --issue "${{ inputs.issue_number }}" \
-          --base-branch "${{ inputs.base_branch }}" \
-          --max-turns "${{ inputs.max_turns }}" \
-          $MODEL_ARG
+        "${CMD[@]}"
 
         echo "status=success" >> $GITHUB_OUTPUT

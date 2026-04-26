@@ -37,6 +37,10 @@ jobs:
       - name: Package Marketplace bundle
         run: uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
 
+      - name: Render release notes
+        if: github.ref_type == 'tag'
+        run: uv run gearbox release-notes --version "${{ github.ref_name }}" --output-file ./dist/release-notes.md
+
       - name: Resolve target branch
         id: target
         run: |
@@ -53,6 +57,13 @@ jobs:
           name: gearbox-action-bundle
           path: ./dist/gearbox-action
 
+      - name: Upload release notes
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gearbox-action-release-notes
+          path: ./dist/release-notes.md
+
   sync:
     needs: bundle
     runs-on: ubuntu-latest
@@ -64,6 +75,13 @@ jobs:
         with:
           name: gearbox-action-bundle
           path: ./bundle
+
+      - name: Download release notes
+        if: github.ref_type == 'tag'
+        uses: actions/download-artifact@v8
+        with:
+          name: gearbox-action-release-notes
+          path: ./release-notes
 
       - name: Push bundle to release repository
         env:
@@ -120,12 +138,12 @@ jobs:
             gh release edit "${RELEASE_TAG}" \
               -R "${TARGET_REPOSITORY}" \
               --title "Gearbox Action ${RELEASE_TAG}" \
-              --notes "Synced from \`gqy20/gearbox\` ${RELEASE_TAG}."
+              --notes-file ../release-notes/release-notes.md
           else
             gh release create "${RELEASE_TAG}" \
               -R "${TARGET_REPOSITORY}" \
               --title "Gearbox Action ${RELEASE_TAG}" \
-              --notes "Synced from \`gqy20/gearbox\` ${RELEASE_TAG}."
+              --notes-file ../release-notes/release-notes.md
           fi
 
           if [ "${BUNDLE_CHANGED}" = "false" ]; then

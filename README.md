@@ -61,6 +61,12 @@ uv run gearbox config list
 uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
 ```
 
+### 发布约定
+
+- 开发仓使用根目录的 [CHANGELOG.md](/home/qy/workspace/project/hub/gearbox/CHANGELOG.md) 作为唯一版本说明来源
+- 每次发布 `vX.Y.Z` tag 前，都需要先补对应版本段落
+- `release-marketplace.yml` 会在发布时自动提取该版本条目，并写入 `gearbox-action` 的 GitHub Release notes
+
 ### 本项目使用
 
 ```bash

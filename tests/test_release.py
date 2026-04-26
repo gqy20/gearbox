@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from gearbox.release import build_marketplace_bundle
+from gearbox.release import build_marketplace_bundle, release_notes_for_version
 
 
 def test_build_marketplace_bundle_writes_expected_files(tmp_path: Path) -> None:
@@ -12,6 +12,7 @@ def test_build_marketplace_bundle_writes_expected_files(tmp_path: Path) -> None:
 
     assert (output_dir / "action.yml").exists()
     assert (output_dir / "README.md").exists()
+    assert (output_dir / "CHANGELOG.md").exists()
     assert (output_dir / "pyproject.toml").exists()
     assert (output_dir / "uv.lock").exists()
     assert (output_dir / "actions" / "audit" / "action.yml").exists()
@@ -69,3 +70,42 @@ def test_build_marketplace_bundle_readme_tracks_router_actions(tmp_path: Path) -
     expected_actions = ["audit", "triage", "implement", "review", "publish"]
     for action in expected_actions:
         assert f"- `{action}`" in readme
+
+
+def test_release_notes_for_version_returns_section() -> None:
+    changelog = """
+# Changelog
+
+## [v1.2.0] - 2026-04-26
+
+### Added
+
+- Something new
+
+## [v1.1.0] - 2026-04-25
+
+### Fixed
+
+- Something old
+"""
+
+    notes = release_notes_for_version("v1.2.0", changelog)
+
+    assert "## [v1.2.0] - 2026-04-26" in notes
+    assert "Something new" in notes
+    assert "v1.1.0" not in notes
+
+
+def test_release_notes_for_version_requires_matching_section() -> None:
+    changelog = """
+# Changelog
+
+## [v1.0.0] - 2026-04-26
+"""
+
+    try:
+        release_notes_for_version("v9.9.9", changelog)
+    except ValueError as exc:
+        assert "v9.9.9" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for missing version entry")

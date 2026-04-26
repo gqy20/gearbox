@@ -28,6 +28,30 @@ def _supported_actions(router_action_text: str) -> list[str]:
     return deduped
 
 
+def changelog_path() -> Path:
+    return _project_root() / "CHANGELOG.md"
+
+
+def release_notes_for_version(version: str, changelog_text: str | None = None) -> str:
+    normalized_version = version if version.startswith("v") else f"v{version}"
+    source = changelog_text
+    if source is None:
+        source = changelog_path().read_text(encoding="utf-8")
+
+    heading = f"## [{normalized_version}]"
+    start = source.find(heading)
+    if start == -1:
+        raise ValueError(f"Version entry not found in CHANGELOG.md: {normalized_version}")
+
+    next_heading = source.find("\n## [", start + len(heading))
+    if next_heading == -1:
+        section = source[start:]
+    else:
+        section = source[start:next_heading]
+
+    return section.strip() + "\n"
+
+
 def _render_marketplace_readme(actions: list[str]) -> str:
     action_lines = "\n".join(f"- `{action}`" for action in actions)
     return f"""# Gearbox Action
@@ -92,6 +116,7 @@ def build_marketplace_bundle(output_dir: Path) -> Path:
     )
     shutil.copy2(project_root / "pyproject.toml", output_dir / "pyproject.toml")
     shutil.copy2(project_root / "uv.lock", output_dir / "uv.lock")
+    shutil.copy2(changelog_path(), output_dir / "CHANGELOG.md")
 
     router_action = project_root / "actions" / "main" / "action.yml"
     router_text = router_action.read_text(encoding="utf-8")

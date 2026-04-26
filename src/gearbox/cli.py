@@ -34,6 +34,7 @@ from .core.gh import (
     prepare_working_branch,
 )
 from .release import build_marketplace_bundle
+from .release import release_notes_for_version
 
 
 @click.group()
@@ -195,6 +196,21 @@ def package_marketplace(output_dir: str) -> None:
     """导出 Marketplace 发布仓需要的最小目录结构。"""
     bundle_dir = build_marketplace_bundle(Path(output_dir))
     click.echo(f"✅ Marketplace bundle written to: {bundle_dir}")
+
+
+@cli.command("release-notes")
+@click.option("--version", required=True, help="版本号，例如 v1.1.2")
+@click.option("--output-file", default="", help="可选：写入目标文件")
+def release_notes(version: str, output_file: str) -> None:
+    """输出指定版本的 CHANGELOG 条目。"""
+    notes = release_notes_for_version(version)
+    if output_file:
+        path = Path(output_file)
+        path.write_text(notes, encoding="utf-8")
+        click.echo(f"✅ Release notes written to: {path}")
+        return
+
+    click.echo(notes, nl=False)
 
 
 # =============================================================================
@@ -381,6 +397,9 @@ def implement(
 @click.option(
     "--output", default="/tmp/github_output", help="输出文件路径"
 )
+@click.option(
+    "--no-prescan", is_flag=True, help="跳过预扫描步骤（静态分析）"
+)
 def audit_repo(
     repo: str,
     benchmarks: str,
@@ -389,6 +408,7 @@ def audit_repo(
     max_turns: int,
     system_prompt: str,
     output: str,
+    no_prescan: bool,
 ) -> None:
     """运行单次 Audit Agent - 审计仓库生成改进建议。"""
     benchmark_list = benchmarks.split(",") if benchmarks else None
@@ -403,6 +423,7 @@ def audit_repo(
             model=model_arg,
             max_turns=max_turns,
             system_prompt=system_prompt_arg,
+            enable_prescan=not no_prescan,
         )
     )
     click.echo(

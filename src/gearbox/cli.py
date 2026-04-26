@@ -487,7 +487,22 @@ def audit_repo(
         all_results = asyncio.run(run_parallel(agent_factory, angles, model=model_arg))
 
         if not all_results:
-            click.echo("❌ No results from parallel execution")
+            click.echo("⚠️ Parallel audit failed, retrying once in single-run mode")
+            result = asyncio.run(
+                run_audit(
+                    repo,
+                    benchmarks=benchmark_list,
+                    output_dir=output_dir,
+                    model=model_arg,
+                    max_turns=max_turns,
+                    system_prompt=system_prompt_arg,
+                )
+            )
+            click.echo(
+                f"✅ Audit (fallback): {len(result.issues)} issues, "
+                f"cost={_format_currency(result.cost)}"
+            )
+            _result_to_github_output(result, output)
             return
 
         evaluation = asyncio.run(

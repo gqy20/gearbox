@@ -143,6 +143,13 @@ runs:
           echo "status=success" >> $GITHUB_OUTPUT
         else
           echo "::error::No issues.json found"
+          echo "::group::[audit] output dir diagnostics"
+          if [ -d "${{ inputs.output_dir }}" ]; then
+            find "${{ inputs.output_dir }}" -maxdepth 3 -type f | sort || true
+          else
+            echo "output directory does not exist: ${{ inputs.output_dir }}"
+          fi
+          echo "::endgroup::"
           exit 1
         fi
 

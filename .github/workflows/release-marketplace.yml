@@ -66,17 +66,17 @@ jobs:
         env:
           TARGET_REPOSITORY: gqy20/gearbox-action
           TARGET_BRANCH: ${{ needs.bundle.outputs.target_branch }}
-          REPO_PUSH_TOKEN: ${{ secrets.MARKETPLACE_REPO_PAT != '' && secrets.MARKETPLACE_REPO_PAT || secrets.GH_PAT }}
+          GH_PAT: ${{ secrets.GH_PAT }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
-          if [ -z "${REPO_PUSH_TOKEN}" ]; then
-            echo "::error::Missing push token secret. Set GH_PAT or MARKETPLACE_REPO_PAT."
+          if [ -z "${GH_PAT}" ]; then
+            echo "::error::Missing GH_PAT secret"
             exit 1
           fi
 
-          git clone "https://x-access-token:${REPO_PUSH_TOKEN}@github.com/${TARGET_REPOSITORY}.git" release-repo
+          git clone "https://x-access-token:${GH_PAT}@github.com/${TARGET_REPOSITORY}.git" release-repo
           cd release-repo
           git checkout "${TARGET_BRANCH}" || git checkout -b "${TARGET_BRANCH}"
 

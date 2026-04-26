@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -18,15 +19,24 @@ def _ignore_runtime_junk(_directory: str, entries: list[str]) -> set[str]:
     return ignored
 
 
-def _render_marketplace_readme() -> str:
-    return """# Gearbox Action
+def _supported_actions(router_action_text: str) -> list[str]:
+    actions = re.findall(r"inputs\.action == '([^']+)'", router_action_text)
+    deduped: list[str] = []
+    for action in actions:
+        if action not in deduped:
+            deduped.append(action)
+    return deduped
 
-Marketplace-facing release repository for Gearbox.
 
-This repository is generated from the main development repository and is intended
-to provide a stable GitHub Action entrypoint for external consumers.
+def _render_marketplace_readme(actions: list[str]) -> str:
+    action_lines = "\n".join(f"- `{action}`" for action in actions)
+    return f"""# Gearbox Action
 
-## Usage
+Gearbox 的 Marketplace 发布仓。
+
+这个仓库由主开发仓自动导出，用于提供稳定的 GitHub Action 对外入口。
+
+## 用法
 
 ```yaml
 - uses: gqy20/gearbox-action@v1
@@ -36,18 +46,15 @@ to provide a stable GitHub Action entrypoint for external consumers.
     anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 ```
 
-## Supported actions
+## 支持的动作
 
-- `audit`
-- `triage`
-- `implement`
-- `review`
-- `publish`
+{action_lines}
 
-## Source of truth
+## 仓库说明
 
-Development happens in the main `gearbox` repository. This bundle is exported for
-release and Marketplace publication.
+- 主开发仓：`gqy20/gearbox`
+- 当前仓库：面向 Marketplace 的发布产物
+- 如需修改功能、提 issue 或提交代码，请回到主开发仓进行
 """
 
 
@@ -73,8 +80,12 @@ def build_marketplace_bundle(output_dir: Path) -> Path:
     shutil.copy2(project_root / "pyproject.toml", output_dir / "pyproject.toml")
 
     router_action = project_root / "actions" / "main" / "action.yml"
+    router_text = router_action.read_text(encoding="utf-8")
     shutil.copy2(router_action, output_dir / "action.yml")
-    (output_dir / "README.md").write_text(_render_marketplace_readme(), encoding="utf-8")
+    (output_dir / "README.md").write_text(
+        _render_marketplace_readme(_supported_actions(router_text)),
+        encoding="utf-8",
+    )
 
     license_file = project_root / "LICENSE"
     if license_file.exists():

@@ -27,12 +27,17 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     setup_action = (output_dir / "actions" / "_setup" / "action.yml").read_text(
         encoding="utf-8"
     )
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
 
     assert "name: 'Gearbox'" in root_action
     assert "uses: ./actions/audit" in root_action
     assert "uses: ./actions/review" in root_action
     assert "python3 -m pip install" in setup_action
     assert "${GITHUB_ACTION_PATH}/../.." in setup_action
+    assert "# Gearbox Action" in readme
+    assert "Marketplace 发布仓" in readme
+    assert "- `audit`" in readme
+    assert "- `review`" in readme
 
 
 def test_build_marketplace_bundle_excludes_python_cache_files(tmp_path: Path) -> None:
@@ -42,3 +47,15 @@ def test_build_marketplace_bundle_excludes_python_cache_files(tmp_path: Path) ->
 
     assert not list(output_dir.rglob("__pycache__"))
     assert not list(output_dir.rglob("*.pyc"))
+
+
+def test_build_marketplace_bundle_readme_tracks_router_actions(tmp_path: Path) -> None:
+    output_dir = tmp_path / "gearbox-action"
+
+    build_marketplace_bundle(output_dir)
+
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
+
+    expected_actions = ["audit", "triage", "implement", "review", "publish"]
+    for action in expected_actions:
+        assert f"- `{action}`" in readme

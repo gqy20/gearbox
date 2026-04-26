@@ -53,16 +53,17 @@ jobs:
       - name: Determine target repo
         id: target
         run: |
-          if [ "${{ inputs.is_self_audit }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ]; then
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
+          elif [ "${{ inputs.is_self_audit }}" == "true" ] || [ -z "${{ inputs.target_repo }}" ]; then
             echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
           else
             echo "repo=${{ inputs.target_repo }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Run Audit
-        uses: ./actions/main
+        uses: ./actions/audit
         with:
-          action: audit
           repo: ${{ steps.target.outputs.repo }}
           benchmarks: ${{ inputs.benchmarks }}
           output_dir: ./audit-output
@@ -99,7 +100,6 @@ jobs:
           path: ./audit-output
 
       - name: Publish Issues
-        uses: ./actions/main
+        uses: ./actions/publish
         with:
-          action: publish
           input_path: ./audit-output/issues.json

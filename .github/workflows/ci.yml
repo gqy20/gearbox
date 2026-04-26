@@ -27,6 +27,14 @@ jobs:
       - name: Sync dependencies
         run: uv sync
 
+      - name: Install actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Actionlint
+        run: actionlint
+
       - name: Ruff
         run: uv run ruff check src tests
 

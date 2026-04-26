@@ -23,6 +23,11 @@ repos:
 
 - repo: local
   hooks:
+  - id: actionlint
+    name: actionlint
+    entry: bash -c 'command -v actionlint >/dev/null || go install github.com/rhysd/actionlint/cmd/actionlint@latest; export PATH="$(go env GOPATH)/bin:$PATH"; actionlint'
+    language: system
+    pass_filenames: false
   - id: ruff-check
     name: ruff check
     entry: uv run ruff check --fix --show-fixes

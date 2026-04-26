@@ -1,23 +1,29 @@
-name: Repo Audit
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+name: Audit
 
 on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: '目标仓库 (默认: gqy20/repo-issue)'
+        description: '目标仓库 (留空则审计当前仓库)'
         required: false
-        default: 'gqy20/repo-issue'
+        default: ''
       benchmarks:
         description: '对标仓库列表 (逗号分隔，可选)'
         required: false
         default: ''
       create_issues:
-        description: '是否创建 Issues (默认: false)'
+        description: '是否创建 Issues'
         required: false
-        default: 'false'
+        default: false
+        type: boolean
+      is_self_audit:
+        description: '审计当前项目自身'
+        required: false
+        default: false
+        type: boolean
+
+  schedule:
+    - cron: '0 1 * * 1'
 
   issue_comment:
     types: [created]
@@ -30,42 +36,41 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write
 
 jobs:
   audit:
     if: |
       (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@gearbox')) ||
+      (github.event_name == 'schedule') ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id) ||
       (github.event_name == 'issues' && contains(github.event.issue.body, '@gearbox'))
     runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || 'glm-5.1' }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Set up Python with uv
-        run: uv sync --locked --no-dev
-
-      - name: Run audit
-        env:
-          TARGET_REPO: ${{ inputs.target_repo || github.event.inputs.target_repo || 'gqy20/repo-issue' }}
-          BENCHMARKS: ${{ inputs.benchmarks || github.event.inputs.benchmarks || '' }}
+      - name: Determine target repo
+        id: target
         run: |
-          if [ -n "$BENCHMARKS" ]; then
-            uv run gearbox audit --repo "$TARGET_REPO" --benchmarks "$BENCHMARKS" --output ./audit-output
+          if [ "${{ inputs.is_self_audit }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
           else
-            uv run gearbox audit --repo "$TARGET_REPO" --output ./audit-output
+            echo "repo=${{ inputs.target_repo }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Run Audit
+        uses: ./.github/actions/audit
+        with:
+          repo: ${{ steps.target.outputs.repo }}
+          benchmarks: ${{ inputs.benchmarks }}
+          output_dir: ./audit-output
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          parallel_count: 3
+          is_comment_event: ${{ github.event_name == 'issue_comment' || github.event_name == 'issues' || github.event_name == 'pull_request_review_comment' }}
+          comment_event_type: ${{ github.event_name }}
+          issue_number: ${{ github.event.issue.number }}
+          pr_number: ${{ github.event.pull_request.number }}
+
       - name: Upload results
+        if: steps.target.outputs.repo != ''
         uses: actions/upload-artifact@v7
         with:
           name: audit-results
@@ -74,42 +79,19 @@ jobs:
   create-issues:
     if: |
       github.event_name == 'workflow_dispatch' &&
-      (inputs.create_issues == 'true' || github.event.inputs.create_issues == 'true')
+      inputs.create_issues == true
     needs: audit
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Set up Python with uv
-        run: uv sync --locked --no-dev
-
       - name: Download results
         uses: actions/download-artifact@v8
         with:
           name: audit-results
           path: ./audit-output
 
-      - name: Create GitHub Issues
-        run: uv run gearbox publish-issues --input ./audit-output/issues.json
-
-      - name: Comment results (if triggered by issue/PR)
-        if: |
-          github.event_name == 'issue_comment' ||
-          github.event_name == 'pull_request_review_comment' ||
-          github.event_name == 'issues'
-        run: |
-          if [ -f "audit-output/comparison.md" ]; then
-            COMMENT_BODY=$(cat audit-output/comparison.md)
-
-            if [ "${{ github.event_name }}" == "issue_comment" ] || [ "${{ github.event_name }}" == "issues" ]; then
-              gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$COMMENT_BODY"
-            else
-              gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "$COMMENT_BODY"
-            fi
-          fi
+      - name: Publish Issues
+        uses: ./.github/actions/publish
+        with:
+          input_path: ./audit-output/issues.json

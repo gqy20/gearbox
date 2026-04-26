@@ -6,39 +6,48 @@ inputs:
   repo:
     description: '仓库标识 (owner/name)'
     required: true
-
   benchmarks:
     description: '逗号分隔的对标仓库列表（可选）'
     required: false
     default: ''
-
   output_dir:
     description: '输出目录'
     required: false
     default: './output'
-
-  model:
-    description: '使用的模型（默认从 provider 配置读取）'
-    required: false
-    default: ''
-
   max_turns:
     description: '最大对话轮次'
     required: false
     default: '20'
-
   system_prompt:
     description: '自定义 System Prompt（可选）'
     required: false
     default: ''
-
   parallel_count:
     description: '并行执行次数（1=不并行，2+=并行执行）'
     required: false
     default: '3'
-
+  model:
+    description: '使用的模型（可选）'
+    required: false
+    default: ''
   anthropic_api_key:
     description: 'Anthropic API Key'
+    required: false
+    default: ''
+  is_comment_event:
+    description: '是否由 issue/PR 触发的评论事件'
+    required: false
+    default: 'false'
+  comment_event_type:
+    description: '事件类型 (issue_comment/issues/pull_request_review_comment)'
+    required: false
+    default: ''
+  issue_number:
+    description: 'Issue 编号（评论事件时）'
+    required: false
+    default: ''
+  pr_number:
+    description: 'PR 编号（评论事件时）'
     required: false
     default: ''
 
@@ -56,14 +65,8 @@ runs:
     - name: Setup tools
       uses: ./actions/_setup
 
-    - name: Check environment
-      shell: bash
-      run: |
-        echo "🔍 Gearbox Audit Agent"
-        echo "Repo: ${{ inputs.repo }}"
-        echo "Output: ${{ inputs.output_dir }}"
-
     - name: Check API key
+      if: inputs.anthropic_api_key == ''
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
@@ -86,10 +89,12 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
-        PARALLEL_ARG=""
-        if [ "${{ inputs.parallel_count }}" -gt 1 ]; then
-          PARALLEL_ARG="--parallel --parallel-count ${{ inputs.parallel_count }}"
+        MODEL_ARG=""
+        if [ -n "${{ inputs.model }}" ]; then
+          MODEL_ARG="--model ${{ inputs.model }}"
         fi
+
+        PARALLEL_ARG="--parallel-count ${{ inputs.parallel_count }}"
 
         SYSTEM_PROMPT_ARG=""
         if [ -n "${{ inputs.system_prompt }}" ]; then
@@ -101,9 +106,9 @@ runs:
           --output-dir "${{ inputs.output_dir }}" \
           --benchmarks "${{ inputs.benchmarks }}" \
           --max-turns "${{ inputs.max_turns }}" \
-          $SYSTEM_PROMPT_ARG \
           $PARALLEL_ARG \
-          --output "$GITHUB_OUTPUT"
+          $SYSTEM_PROMPT_ARG \
+          $MODEL_ARG
 
     - name: Parse results
       shell: bash
@@ -117,3 +122,36 @@ runs:
           echo "⚠️ No issues.json found"
         fi
         echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Comment results (if triggered by issue/PR)
+      if: inputs.is_comment_event == 'true'
+      shell: bash
+      run: |
+        python3 -c "
+        import os
+        from gearbox.core.gh import post_issue_comment, post_review_comment
+
+        repo = os.environ['GITHUB_REPOSITORY']
+        comparison_path = '${{ inputs.output_dir }}/comparison.md'
+
+        if not os.path.exists(comparison_path):
+          print('⚠️ No comparison.md found, skipping comment')
+          exit(0)
+
+        with open(comparison_path, 'r') as f:
+          body = f.read()
+
+        event_type = '${{ inputs.comment_event_type }}'
+        print(f'Event type: {event_type}')
+
+        if event_type in ('issue_comment', 'issues'):
+          issue_number = int('${{ inputs.issue_number }}')
+          result = post_issue_comment(repo, issue_number, body)
+          print(f'Issue comment: {\"✅\" if result.success else \"❌\"}')
+        elif event_type == 'pull_request_review_comment':
+          pr_number = int('${{ inputs.pr_number }}')
+          result = post_review_comment(repo, pr_number, body)
+          print(f'PR comment: {\"✅\" if result.success else \"❌\"}')
+        "
+      env:
+        GITHUB_REPOSITORY: ${{ github.repository }}

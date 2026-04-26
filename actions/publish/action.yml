@@ -1,0 +1,20 @@
+name: 'Gearbox - Publish'
+description: '根据 issues.json 创建 GitHub Issues'
+author: 'gqy20'
+
+inputs:
+  input_path:
+    description: 'issues.json 文件路径'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup tools
+      uses: ./_setup
+
+    - name: Publish Issues
+      id: publish
+      shell: bash
+      run: |
+        python3 -m gearbox.cli publish-issues --input "${{ inputs.input_path }}"

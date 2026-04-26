@@ -3,43 +3,31 @@ description: 'AI 驱动的 Issue → 分支/PR 自动实现'
 author: 'gqy20'
 
 inputs:
-  github_token:
-    description: 'GitHub Token'
-    required: false
-    default: ${{ github.token }}
-
-  model:
-    description: '使用的模型（默认从 provider 配置读取）'
-    required: false
-    default: ''
-
-  max_turns:
-    description: '最大对话轮次'
-    required: false
-    default: '20'
-
+  repo:
+    description: '仓库标识 (owner/name)'
+    required: true
+  issue_number:
+    description: 'Issue 编号'
+    required: true
+    type: number
   base_branch:
     description: 'PR 目标分支'
     required: false
     default: 'main'
-
-  dry_run:
-    description: '试运行模式'
+  max_turns:
+    description: '最大对话轮次'
     required: false
-    default: 'false'
-
+    default: '20'
+  model:
+    description: '使用的模型（可选）'
+    required: false
+    default: ''
   anthropic_api_key:
     description: 'Anthropic API Key'
     required: false
     default: ''
 
 outputs:
-  branch_name:
-    description: '创建的分支名'
-    value: ${{ steps.run.outputs.branch_name }}
-  pr_url:
-    description: '创建的 PR URL'
-    value: ${{ steps.run.outputs.pr_url }}
   status:
     description: '执行状态'
     value: ${{ steps.run.outputs.status }}
@@ -50,47 +38,29 @@ runs:
     - name: Setup tools
       uses: ./actions/_setup
 
-    - name: Check environment
-      shell: bash
-      run: |
-        echo "🔧 Gearbox Implement Agent"
-        echo "Repo: ${{ github.repository }}"
-        echo "Issue: ${{ github.event.issue.number }}"
-        echo "Base: ${{ inputs.base_branch }}"
-
-    - name: Check API key
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-      run: |
-        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
-          echo "::error::API key required"
-          exit 1
-        fi
-
     - name: Run Implement Agent
       id: run
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
+
         if [ -n "$ANTHROPIC_API_KEY" ]; then
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
+        MODEL_ARG=""
+        if [ -n "${{ inputs.model }}" ]; then
+          MODEL_ARG="--model ${{ inputs.model }}"
+        fi
+
         python3 -m gearbox.cli agent implement \
-          --repo "${{ github.repository }}" \
-          --issue "${{ github.event.issue.number }}" \
-          --model "${{ inputs.model }}" \
+          --repo "${{ inputs.repo }}" \
+          --issue "${{ inputs.issue_number }}" \
           --base-branch "${{ inputs.base_branch }}" \
           --max-turns "${{ inputs.max_turns }}" \
-          --output "$GITHUB_OUTPUT"
+          $MODEL_ARG
 
-    - name: Verify completion
-      shell: bash
-      run: |
-        source $GITHUB_OUTPUT
-        echo "✅ Implement completed: branch=$branch_name, pr_url=$pr_url"
+        echo "status=success" >> $GITHUB_OUTPUT

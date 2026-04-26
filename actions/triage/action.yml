@@ -3,49 +3,31 @@ description: 'AI 驱动的 Issue 自动分类、优先级判断和标签管理'
 author: 'gqy20'
 
 inputs:
-  github_token:
-    description: 'GitHub Token (默认使用 GITHUB_TOKEN)'
-    required: false
-    default: ${{ github.token }}
-
-  model:
-    description: '使用的模型（默认从 provider 配置读取）'
-    required: false
-    default: ''
-
+  repo:
+    description: '仓库标识 (owner/name)'
+    required: true
+  issue_number:
+    description: 'Issue 编号'
+    required: true
+    type: number
   max_turns:
-    description: '最大对话轮次（成本护栏）'
+    description: '最大对话轮次'
     required: false
     default: '5'
-
   parallel_count:
-    description: '并行执行次数（1=不并行）'
+    description: '并行执行次数'
     required: false
     default: '3'
-
-  dry_run:
-    description: '试运行模式（只输出，不执行写操作）'
+  model:
+    description: '使用的模型（可选）'
     required: false
-    default: 'false'
-
+    default: ''
   anthropic_api_key:
-    description: 'Anthropic API Key (默认从环境变量读取)'
+    description: 'Anthropic API Key'
     required: false
     default: ''
 
 outputs:
-  labels_added:
-    description: '添加的标签列表（逗号分隔）'
-    value: ${{ steps.run.outputs.labels_added }}
-  priority:
-    description: '判定优先级 P0-P3'
-    value: ${{ steps.run.outputs.priority }}
-  complexity:
-    description: '判定复杂度 S/M/L'
-    value: ${{ steps.run.outputs.complexity }}
-  ready_to_implement:
-    description: '是否标记为可实现'
-    value: ${{ steps.run.outputs.ready_to_implement }}
   status:
     description: '执行状态'
     value: ${{ steps.run.outputs.status }}
@@ -56,44 +38,11 @@ runs:
     - name: Setup tools
       uses: ./actions/_setup
 
-    - name: Verify environment
-      shell: bash
-      run: |
-        echo "🔍 Gearbox Triage Agent"
-        echo "Repo: ${{ github.repository }}"
-        echo "Issue: ${{ github.event.issue.number }}"
-        echo "Dry run: ${{ inputs.dry_run }}"
-
-    - name: Check required tools
-      shell: bash
-      run: |
-        if ! command -v gh &> /dev/null; then
-          echo "::error::gh CLI is required"
-          exit 1
-        fi
-        if ! command -v python3 &> /dev/null; then
-          echo "::error::python3 is required"
-          exit 1
-        fi
-        echo "✅ Environment ready"
-
-    - name: Check API key
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-      run: |
-        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
-          echo "::error::Anthropic API key required. Set inputs.anthropic_api_key or ANTHROPIC_AUTH_TOKEN env var"
-          exit 1
-        fi
-        echo "✅ API key available"
-
     - name: Run Triage Agent
       id: run
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_OUTPUT: ${{ runner.temp }}/github_output
       run: |
         set -e
@@ -102,10 +51,16 @@ runs:
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
 
+        MODEL_ARG=""
+        if [ -n "${{ inputs.model }}" ]; then
+          MODEL_ARG="--model ${{ inputs.model }}"
+        fi
+
         python3 -m gearbox.cli agent triage \
-          --repo "${{ github.repository }}" \
-          --issue "${{ github.event.issue.number }}" \
-          --model "${{ inputs.model }}" \
+          --repo "${{ inputs.repo }}" \
+          --issue "${{ inputs.issue_number }}" \
           --max-turns "${{ inputs.max_turns }}" \
           --parallel-count "${{ inputs.parallel_count }}" \
-          --output "$GITHUB_OUTPUT"
+          $MODEL_ARG
+
+        echo "status=success" >> $GITHUB_OUTPUT

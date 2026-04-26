@@ -44,6 +44,16 @@ class TestSdkEventLogger:
         logger = SdkEventLogger("audit")
         logger.handle_message(
             StreamEvent(
+                uuid="u0",
+                session_id="s1",
+                event={
+                    "type": "content_block_start",
+                    "content_block": {"type": "text"},
+                },
+            )
+        )
+        logger.handle_message(
+            StreamEvent(
                 uuid="u1",
                 session_id="s1",
                 event={

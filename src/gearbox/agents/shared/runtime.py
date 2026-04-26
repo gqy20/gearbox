@@ -79,6 +79,8 @@ class SdkEventLogger:
         self._last_activity_at = self._started_at
         self._last_activity_label = "startup"
         self._stream_text_buffer = ""
+        self._thinking_buffer = ""
+        self._current_block_type: str | None = None
         self._lock = threading.Lock()
 
     def _mark_activity(self, label: str) -> None:
@@ -129,6 +131,12 @@ class SdkEventLogger:
             self._log("assistant-partial", text[:400])
         self._stream_text_buffer = ""
 
+    def _flush_thinking(self) -> None:
+        text = " ".join(self._thinking_buffer.split()).strip()
+        if text:
+            self._log("thinking", text[:240])
+        self._thinking_buffer = ""
+
     def stderr_callback(self, line: str) -> None:
         self._log("claude-stderr", line)
 
@@ -174,7 +182,8 @@ class SdkEventLogger:
 
             thinking = _safe_get(event, "delta", "thinking")
             if isinstance(thinking, str) and thinking.strip():
-                self._log("thinking-partial", thinking.strip()[:240])
+                self._thinking_buffer += thinking
+                self._mark_activity("thinking")
                 return
 
         if event_type == "message_delta":
@@ -192,12 +201,26 @@ class SdkEventLogger:
 
         if event_type == "content_block_start":
             block_type = _safe_get(event, "content_block", "type")
-            self._log("stream-content-start", f"block_type={block_type or 'unknown'}")
+            self._current_block_type = str(block_type or "unknown")
+            if self._current_block_type == "thinking":
+                self._log("thinking-start", "thinking started")
+                return
+            if self._current_block_type == "text":
+                self._log("assistant-start", "assistant text started")
+                return
+            if self._current_block_type == "tool_use":
+                tool_name = _safe_get(event, "content_block", "name")
+                self._log("tool-use", f"tool={tool_name or 'unknown'}")
+                return
+            self._log("stream-content-start", f"block_type={self._current_block_type}")
             return
 
         if event_type == "content_block_stop":
-            self._flush_stream_text()
-            self._log("stream-content-stop", "content block completed")
+            if self._current_block_type == "thinking":
+                self._flush_thinking()
+            elif self._current_block_type == "text":
+                self._flush_stream_text()
+            self._current_block_type = None
             return
 
         if event_type == "message_start":
@@ -206,11 +229,10 @@ class SdkEventLogger:
             return
 
         if event_type == "message_stop":
+            self._flush_thinking()
             self._flush_stream_text()
             self._log("stream-message-stop", "message completed")
             return
-
-        self._log("stream-event", f"type={event_type}")
 
     def handle_message(self, message: object, *, echo_assistant_text: bool = False) -> None:
         if isinstance(message, TaskStartedMessage):

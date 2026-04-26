@@ -192,41 +192,54 @@ async def run_evaluator(
         query,
     )
 
+    from gearbox.agents.sdk_logging import prepare_sdk_options
     from gearbox.config import get_anthropic_model
 
     model = model or get_anthropic_model()
 
     prompt = build_evaluation_prompt(results, result_type, result_names)
 
-    options = ClaudeAgentOptions(
+    options, sdk_logger = prepare_sdk_options(
+        ClaudeAgentOptions(
+            model=model,
+            system_prompt=SYSTEM_PROMPT,
+            max_turns=max_turns,
+        ),
+        agent_name="evaluator",
+    )
+    sdk_logger.log_start(
         model=model,
-        system_prompt=SYSTEM_PROMPT,
         max_turns=max_turns,
+        base_url=options.env.get("ANTHROPIC_BASE_URL"),
+        cwd="(sdk default)",
     )
 
     result_text = ""
     structured: EvaluationResult | None = None
 
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    result_text += block.text
-                    print(block.text)
-        elif isinstance(message, ResultMessage):
-            if message.structured_output:
-                try:
-                    scores: dict[int, float] = {}
-                    for k, v in message.structured_output.get("scores", {}).items():
-                        scores[int(k)] = float(v)
-                    structured = EvaluationResult(
-                        winner=int(message.structured_output.get("winner", 0)),
-                        scores=scores,
-                        reasoning=message.structured_output.get("reasoning", ""),
-                        consensus=message.structured_output.get("consensus", []),
-                    )
-                except (KeyError, ValueError, TypeError):
-                    pass
+    try:
+        async for message in query(prompt=prompt, options=options):
+            sdk_logger.handle_message(message, echo_assistant_text=False)
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        result_text += block.text
+            elif isinstance(message, ResultMessage):
+                if message.structured_output:
+                    try:
+                        scores: dict[int, float] = {}
+                        for k, v in message.structured_output.get("scores", {}).items():
+                            scores[int(k)] = float(v)
+                        structured = EvaluationResult(
+                            winner=int(message.structured_output.get("winner", 0)),
+                            scores=scores,
+                            reasoning=message.structured_output.get("reasoning", ""),
+                            consensus=message.structured_output.get("consensus", []),
+                        )
+                    except (KeyError, ValueError, TypeError):
+                        pass
+    finally:
+        sdk_logger.log_completion()
 
     if structured is None:
         structured = _parse_evaluation_result(result_text)

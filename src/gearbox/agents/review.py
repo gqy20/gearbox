@@ -206,6 +206,7 @@ async def run_review(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    from gearbox.agents.sdk_logging import prepare_sdk_options
     project_root = Path(__file__).parent.parent.parent
     pr_info = _gh_pr_view(repo, pr_number)
     diff_text = _gh_pr_diff(repo, pr_number)
@@ -224,26 +225,39 @@ async def run_review(
 ---
 {SYSTEM_PROMPT}"""
 
-    options = ClaudeAgentOptions(
+    options, sdk_logger = prepare_sdk_options(
+        ClaudeAgentOptions(
+            model=model,
+            max_turns=max_turns,
+            allowed_tools=["Read", "Grep", "Glob"],
+            skills="all",
+            cwd=project_root,
+        ),
+        agent_name="review",
+    )
+    sdk_logger.log_start(
         model=model,
         max_turns=max_turns,
-        allowed_tools=["Read", "Grep", "Glob"],
-        skills="all",
-        cwd=project_root,
+        base_url=options.env.get("ANTHROPIC_BASE_URL"),
+        cwd=str(project_root),
     )
 
     result_text = ""
     structured: ReviewResult | None = None
 
-    async for message in query(prompt=prompt, options=options):
-        if hasattr(message, "content"):
-            for block in message.content:
-                if hasattr(block, "text"):
-                    result_text += block.text
+    try:
+        async for message in query(prompt=prompt, options=options):
+            sdk_logger.handle_message(message, echo_assistant_text=False)
+            if hasattr(message, "content"):
+                for block in message.content:
+                    if hasattr(block, "text"):
+                        result_text += block.text
 
-        parsed = _parse_result(result_text)
-        if parsed and not structured:
-            structured = parsed
+            parsed = _parse_result(result_text)
+            if parsed and not structured:
+                structured = parsed
+    finally:
+        sdk_logger.log_completion()
 
     if structured is None:
         structured = _parse_result(result_text)

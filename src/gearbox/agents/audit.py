@@ -183,7 +183,8 @@ async def run_audit(
         query,
     )
 
-    from gearbox.config import get_anthropic_model
+    from gearbox.agents.sdk_logging import prepare_sdk_options
+    from gearbox.config import get_anthropic_base_url, get_anthropic_model
 
     resolved_model = model or get_anthropic_model()
     resolved_prompt = system_prompt if system_prompt else SYSTEM_PROMPT
@@ -191,12 +192,21 @@ async def run_audit(
     # 项目根目录（用于定位 .claude/skills/）
     project_root = Path(__file__).parent.parent.parent
 
-    options = ClaudeAgentOptions(
+    options, sdk_logger = prepare_sdk_options(
+        ClaudeAgentOptions(
+            model=resolved_model,
+            system_prompt=resolved_prompt,
+            max_turns=max_turns,
+            skills="all",
+            cwd=project_root,
+        ),
+        agent_name="audit",
+    )
+    sdk_logger.log_start(
         model=resolved_model,
-        system_prompt=resolved_prompt,
         max_turns=max_turns,
-        skills="all",
-        cwd=project_root,
+        base_url=get_anthropic_base_url(),
+        cwd=str(project_root),
     )
 
     if benchmarks:
@@ -220,21 +230,22 @@ async def run_audit(
     result_text = ""
     structured: AuditResult | None = None
 
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    result_text += block.text
-                    print(block.text)
-        elif isinstance(message, ResultMessage):
-            if message.total_cost_usd:
-                print(f"\n💰 成本: ${message.total_cost_usd:.4f}")
-                if structured:
+    try:
+        async for message in query(prompt=prompt, options=options):
+            sdk_logger.handle_message(message, echo_assistant_text=False)
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        result_text += block.text
+            elif isinstance(message, ResultMessage):
+                if message.total_cost_usd and structured:
                     structured.cost = message.total_cost_usd
 
-        parsed = _parse_result(result_text)
-        if parsed and not structured:
-            structured = parsed
+            parsed = _parse_result(result_text)
+            if parsed and not structured:
+                structured = parsed
+    finally:
+        sdk_logger.log_completion()
 
     if structured is None:
         structured = _parse_result(result_text)

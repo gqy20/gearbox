@@ -89,6 +89,19 @@ runs:
       run: |
         set -e
 
+        echo "::group::[audit] runtime config"
+        echo "repo=${{ inputs.repo }}"
+        echo "output_dir=${{ inputs.output_dir }}"
+        echo "max_turns=${{ inputs.max_turns }}"
+        echo "parallel_count=${{ inputs.parallel_count }}"
+        echo "model=${{ inputs.model || '(default)' }}"
+        if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+          echo "anthropic_base_url=$ANTHROPIC_BASE_URL_INPUT"
+        else
+          echo "anthropic_base_url=(default)"
+        fi
+        echo "::endgroup::"
+
         if [ -n "$ANTHROPIC_API_KEY" ]; then
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi

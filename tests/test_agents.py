@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
-from gearbox.agents import backlog
+from gearbox.agents import backlog, implement
 from gearbox.agents.audit import AuditResult, Issue
 from gearbox.agents.backlog import (
     BacklogItemResult,
@@ -218,6 +218,24 @@ class TestStructuredOutputParsing:
         result = parse_structured_output(message, lambda data: ImplementResult(**data))
         assert result is not None
         assert result.branch_name == "feat/issue-42"
+
+    def test_implement_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
+        captured_cmd: list[str] = []
+
+        class FakeCompletedProcess:
+            stdout = '{"title":"T","body":"B","labels":["enhancement","P2"]}'
+
+        def fake_run(cmd: list[str], **kwargs) -> FakeCompletedProcess:
+            del kwargs
+            captured_cmd.extend(cmd)
+            return FakeCompletedProcess()
+
+        monkeypatch.setattr(implement.subprocess, "run", fake_run)
+
+        issue = implement._gh_issue_view("owner/repo", 2)
+
+        assert issue["labels"] == ["enhancement", "P2"]
+        assert "{title:.title,body:.body,labels:[.labels[].name]}" in captured_cmd
 
     def test_evaluator_mapping(self) -> None:
         message = _result_message(

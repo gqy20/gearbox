@@ -16,4 +16,4 @@ runs:
   using: 'composite'
   steps:
     - name: Run ${{ inputs.action }}
-      uses: ./actions/${{ inputs.action }}
+      uses: ../${{ inputs.action }}

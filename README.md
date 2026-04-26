@@ -30,12 +30,12 @@ uv run gearbox config list
 ## 架构
 
 ```
-外部仓库: uses: gqy20/gearbox@main
+外部仓库: uses: gqy20/gearbox/.github/actions/main@main
     │
     ▼
-action.yml (根入口，路由层)
+.github/actions/main/action.yml (路由层)
     │
-    └── uses: ./actions/${{ inputs.action }}
+    └── uses: ../${{ inputs.action }}
               │
               ├── audit/action.yml
               ├── triage/action.yml
@@ -69,7 +69,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: gqy20/gearbox@main
+      - uses: gqy20/gearbox/.github/actions/main@main
         with:
           action: audit
           repo: ${{ github.repository }}

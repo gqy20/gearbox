@@ -37,17 +37,52 @@ on:
     types: [opened, labeled]
 
 jobs:
-  audit:
-    if: |
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'schedule') ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@gearbox'))
+  audit-dispatch:
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-audit.yml
     with:
-      repo: ${{ github.event_name != 'workflow_dispatch' && github.repository || ((inputs.is_self_audit || inputs.target_repo == '') && github.repository || inputs.target_repo) }}
-      benchmarks: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmarks || '' }}
-      parallel_runs: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
-      create_issues: ${{ github.event_name == 'workflow_dispatch' && inputs.create_issues || false }}
+      repo: ${{ (inputs.is_self_audit || inputs.target_repo == '') && github.repository || inputs.target_repo }}
+      benchmarks: ${{ inputs.benchmarks }}
+      parallel_runs: ${{ inputs.parallel_runs }}
+      create_issues: ${{ inputs.create_issues }}
+    secrets: inherit
+
+  audit-schedule:
+    if: github.event_name == 'schedule'
+    uses: ./.github/workflows/reusable-audit.yml
+    with:
+      repo: ${{ github.repository }}
+      benchmarks: ''
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
+
+  audit-issue-comment:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id
+    uses: ./.github/workflows/reusable-audit.yml
+    with:
+      repo: ${{ github.repository }}
+      benchmarks: ''
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
+
+  audit-pr-review-comment:
+    if: github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@gearbox') && github.event.comment.user.id != github.event.installation.id
+    uses: ./.github/workflows/reusable-audit.yml
+    with:
+      repo: ${{ github.repository }}
+      benchmarks: ''
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
+
+  audit-issue-body:
+    if: github.event_name == 'issues' && contains(github.event.issue.body, '@gearbox')
+    uses: ./.github/workflows/reusable-audit.yml
+    with:
+      repo: ${{ github.repository }}
+      benchmarks: ''
+      parallel_runs: '3'
+      create_issues: false
     secrets: inherit

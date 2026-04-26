@@ -42,8 +42,8 @@ Gearbox 的 Marketplace 发布仓。
 - uses: gqy20/gearbox-action@v1
   with:
     action: audit
-    repo: ${{ github.repository }}
-    anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+    repo: ${{{{ github.repository }}}}
+    anthropic_api_key: ${{{{ secrets.ANTHROPIC_AUTH_TOKEN }}}}
 ```
 
 需要真正的 matrix 并行编排时，请改用主开发仓中的 reusable workflows：

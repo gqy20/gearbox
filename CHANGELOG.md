@@ -9,6 +9,12 @@
 
 ### 变更
 
+- 这里记录尚未发布到 `gearbox-action` 的后续改动。
+
+## [v1.1.4] - 2026-04-26
+
+### 变更
+
 - 将 Marketplace 根 action 展示名从 `Gearbox` 改为 `Gearbox AI Flywheel`，
   避免 GitHub Marketplace 全站唯一名称校验冲突。
 

@@ -7,6 +7,12 @@
 
 ## [未发布]
 
+### 变更
+
+- 这里记录尚未发布到 `gearbox-action` 的后续改动。
+
+## [v1.1.3] - 2026-04-26
+
 ### 新增
 
 - 新增 `ci.yml` 与本地 pre-commit 基线，覆盖 actionlint、ruff、ruff format、

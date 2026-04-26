@@ -1,4 +1,4 @@
-name: 'Gearbox AI Workflows'
+name: 'Gearbox Examples'
 
 on:
   workflow_dispatch:
@@ -6,59 +6,61 @@ on:
       mode:
         description: '运行模式'
         required: true
-        default: 'audit'
+        default: 'action-audit'
         type: choice
         options:
-          - audit
-          - triage
-          - review
-          - implement
+          - action-audit
+          - reusable-audit
+          - reusable-triage
+          - reusable-review
+      issue_number:
+        description: 'Issue 编号（triage 用）'
+        required: false
+        type: number
+      pr_number:
+        description: 'PR 编号（review 用）'
+        required: false
+        type: number
 
 jobs:
-  gearbox:
+  action-audit:
+    if: github.event.inputs.mode == 'action-audit'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Audit Repository
-        if: github.event.inputs.mode == 'audit'
-        uses: ./actions/main
+      - uses: actions/checkout@v5
+      - uses: ./actions/main
         with:
           action: audit
           repo: ${{ github.repository }}
-          benchmarks: ''
-          parallel_count: 3
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          benchmarks: github/copilot
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+          model: ${{ secrets.ANTHROPIC_MODEL }}
 
-      - name: Triage Issue
-        if: github.event.inputs.mode == 'triage'
-        uses: ./actions/main
-        with:
-          action: triage
-          repo: ${{ github.repository }}
-          issue_number: ${{ github.event.issue.number }}
-          max_turns: 5
-          parallel_count: 3
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+  reusable-audit:
+    if: github.event.inputs.mode == 'reusable-audit'
+    uses: ./.github/workflows/reusable-audit.yml
+    with:
+      repo: ${{ github.repository }}
+      benchmarks: github/copilot,sourcegraph/amp
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
 
-      - name: Review PR
-        if: github.event.inputs.mode == 'review'
-        uses: ./actions/main
-        with:
-          action: review
-          repo: ${{ github.repository }}
-          pr_number: ${{ github.event.pull_request.number }}
-          max_turns: 10
-          parallel_count: 3
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+  reusable-triage:
+    if: github.event.inputs.mode == 'reusable-triage'
+    uses: ./.github/workflows/reusable-triage.yml
+    with:
+      repo: ${{ github.repository }}
+      issue_number: ${{ inputs.issue_number }}
+      parallel_runs: '3'
+    secrets: inherit
 
-      - name: Implement Issue
-        if: github.event.inputs.mode == 'implement'
-        uses: ./actions/main
-        with:
-          action: implement
-          repo: ${{ github.repository }}
-          issue_number: ${{ github.event.issue.number }}
-          base_branch: main
-          max_turns: 20
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+  reusable-review:
+    if: github.event.inputs.mode == 'reusable-review'
+    uses: ./.github/workflows/reusable-review.yml
+    with:
+      repo: ${{ github.repository }}
+      pr_number: ${{ inputs.pr_number }}
+      parallel_runs: '3'
+    secrets: inherit

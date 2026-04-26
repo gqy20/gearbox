@@ -19,7 +19,7 @@ uv sync
 ```bash
 # CLI（本地调试）
 uv run gearbox --help
-uv run gearbox audit --repo owner/repo
+uv run gearbox agent audit-repo --repo owner/repo --output-dir ./audit-output
 uv run gearbox publish-issues --input ./output/issues.json
 
 # 配置
@@ -30,24 +30,26 @@ uv run gearbox config list
 ## 架构
 
 ```
-开发仓内部: uses: ./actions/main
-    │
-    ▼
-actions/main/action.yml (路由层)
-    │
-    └── uses: ./actions/${{ inputs.action }}
+轻量入口:
+  gqy20/gearbox-action@v1
+      │
+      └── 根 action.yml（由 actions/main 导出）
               │
-              ├── audit/action.yml
-              ├── triage/action.yml
-              ├── review/action.yml
-              ├── implement/action.yml
-              └── publish/action.yml
-                      │
-                      └── uses: ./actions/_setup (环境准备)
-                              │
-                              └── python3 -m gearbox.cli agent $action
-                                      │
-                                      └── src/gearbox/core/gh.py (GitHub 操作)
+              └── uses: ./actions/${{ inputs.action }}
+
+高级入口:
+  .github/workflows/reusable-*.yml
+      │
+      ├── workflow matrix 并行
+      ├── artifact 聚合
+      └── evaluator 选优
+
+执行层:
+  actions/*/action.yml
+      │
+      └── uses: ./actions/_setup
+              │
+              └── uv run gearbox agent ...
 ```
 
 ## GitHub Actions
@@ -62,31 +64,55 @@ uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
 ### 本项目使用
 
 ```bash
-# 审计当前项目（每周一自动执行）
+# 审计当前项目
 gh workflow run audit.yml
 
-# 审计指定仓库
-gh workflow run audit.yml -f target_repo=owner/other-repo
+# 分类指定 Issue
+gh workflow run triage.yml -f issue_number=123
 
-# 带对标仓库
-gh workflow run audit.yml -f target_repo=owner/other-repo -f benchmarks=github/copilot
-
-# 审计当前项目自身
-gh workflow run audit.yml -f is_self_audit=true -f benchmarks=github/copilot
+# 审查指定 PR
+gh workflow run review.yml -f pr_number=456
 ```
 
-### 配置环境变量
+### 对外接入方式
+
+轻量单步 Action：
+
+```yaml
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: audit
+    repo: owner/repo
+    anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+```
+
+高级并行 Reusable Workflow：
+
+```yaml
+jobs:
+  audit:
+    uses: gqy20/gearbox/.github/workflows/reusable-audit.yml@main
+    with:
+      repo: owner/repo
+      benchmarks: github/copilot,sourcegraph/amp
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
+```
+
+### 配置 Secrets / Variables
 
 在 GitHub Repository `Settings → Secrets and variables → Actions` 中添加：
 
 | Secret | 必须 | 说明 |
 |---------|------|------|
-| `ANTHROPIC_AUTH_TOKEN` | ✅ | API Key（MiniMax/GLM/Claude） |
-| `GH_PAT` | ❌ | 创建 issues 时需要 |
+| `ANTHROPIC_AUTH_TOKEN` | ✅ | LLM Provider API Key |
+| `ANTHROPIC_BASE_URL` | ❌ | 自定义兼容网关地址 |
+| `GH_PAT` | ❌ | `create_issues=true` 或需要写入 GitHub 副作用时使用 |
 
 | Variable | 默认值 | 说明 |
 |----------|--------|------|
-| `ANTHROPIC_MODEL` | `glm-5.1` | 模型名（推荐 `glm-5v-turbo` 或 `MiniMax-M2.7-highspeed`） |
+| `ANTHROPIC_MODEL` | `glm-5.1` | 默认模型名 |
 
 ## 项目结构
 
@@ -102,13 +128,19 @@ gearbox/
 │   └── publish/                 # 发布 action
 ├── .github/
 │   └── workflows/
-│       └── audit.yml            # 内部 workflow (编排层)
+│       ├── audit.yml            # 薄入口：审计
+│       ├── triage.yml           # 薄入口：Issue 分类
+│       ├── review.yml           # 薄入口：PR 审查
+│       ├── reusable-audit.yml   # 高级并行编排：审计
+│       ├── reusable-triage.yml  # 高级并行编排：分类
+│       └── reusable-review.yml  # 高级并行编排：审查
 └── src/gearbox/
     ├── cli.py                   # CLI 入口
     ├── core/
-    │   ├── gh.py               # GitHub 操作封装
-    │   └── parallel.py          # 并行执行
-    └── agents/                  # Agent 实现
+    │   └── gh.py                # GitHub 操作封装
+    └── agents/
+        ├── *.py                 # 具体 Agent
+        └── shared/              # 共享 runtime / structured / artifacts / selection
 ```
 
 ## 开发

@@ -5,24 +5,26 @@
 ## 整体架构
 
 ```
-开发仓内部: uses: ./actions/main
-    │
-    ▼
-actions/main/action.yml (路由层)
-    │
-    └── uses: ./actions/${{ inputs.action }}
+轻量入口:
+  gearbox-action@v1
+      │
+      └── 根 action.yml（由 actions/main 导出）
               │
-              ├── audit/action.yml       ← 仓库审计
-              ├── triage/action.yml      ← Issue 分类
-              ├── review/action.yml      ← PR 审查
-              ├── implement/action.yml  ← Issue 实现
-              └── publish/action.yml     ← 发布 Issues
-                      │
-                      └── uses: ./actions/_setup (环境准备)
-                              │
-                              └── python3 -m gearbox.cli agent $action
-                                      │
-                                      └── src/gearbox/core/gh.py (GitHub 操作)
+              └── uses: ./actions/${{ inputs.action }}
+
+高级入口:
+  .github/workflows/reusable-*.yml
+      │
+      ├── matrix 并行执行
+      ├── artifact 聚合
+      └── evaluator 选优
+
+执行层:
+  actions/*/action.yml
+      │
+      └── uses: ./actions/_setup
+              │
+              └── uv run gearbox agent ...
 ```
 
 ## 层级说明
@@ -30,18 +32,19 @@ actions/main/action.yml (路由层)
 | 层级 | 文件 | 职责 |
 |------|------|------|
 | 内部入口 | `actions/main/action.yml` | 当前仓库内部调用入口，也是导出的 Marketplace 根 `action.yml` 来源 |
-| 内部编排 | `.github/workflows/*.yml` | 本项目内部 workflow orchestration |
-| Action | `actions/*/action.yml` | 具体业务逻辑，调用 CLI + gh.py |
-| 环境准备 | `actions/_setup/action.yml` | 安装必要工具 (Python, gh, 工具链) |
+| 内部编排 | `.github/workflows/*.yml` | 薄入口 + reusable workflow orchestration |
+| Action | `actions/*/action.yml` | 单次执行层，调用 CLI + gh.py |
+| 环境准备 | `actions/_setup/action.yml` | 安装 uv、gh 和依赖工具链 |
 | CLI | `src/gearbox/cli.py` | 命令行入口，解析参数 |
 | Agent | `src/gearbox/agents/*.py` | 业务逻辑实现 |
+| Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、artifacts、selection |
 | GitHub 操作 | `src/gearbox/core/gh.py` | GitHub API 封装 (issue, PR, comment 等) |
 
 ## Action 清单
 
 | Action | 用途 | 主要参数 |
 |--------|------|----------|
-| `audit` | 审计仓库，发现改进建议 | `repo`, `benchmarks`, `parallel_count` |
+| `audit` | 审计仓库，发现改进建议 | `repo`, `benchmarks` |
 | `triage` | Issue 分类打标 | `repo`, `issue_number` |
 | `review` | PR Code Review | `repo`, `pr_number` |
 | `implement` | 实现 Issue 并创建 PR | `repo`, `issue_number` |
@@ -56,7 +59,7 @@ actions/main/action.yml (路由层)
 - run: uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
 ```
 
-### Marketplace 发布仓调用（导出后）
+### Marketplace 发布仓调用（导出后，轻量入口）
 
 ```yaml
 - uses: gqy20/gearbox-action@v1
@@ -67,23 +70,48 @@ actions/main/action.yml (路由层)
     anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 ```
 
+### 高级并行调用（Reusable Workflow）
+
+```yaml
+jobs:
+  audit:
+    uses: gqy20/gearbox/.github/workflows/reusable-audit.yml@main
+    with:
+      repo: owner/repo
+      benchmarks: github/copilot
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
+```
+
 ### 内部调用（本项目）
 
 ```yaml
 # 本项目 .github/workflows/audit.yml
-- uses: ./actions/main
-  with:
-    action: audit
-    repo: ${{ steps.target.outputs.repo }}
-    parallel_count: 3
+jobs:
+  audit:
+    uses: ./.github/workflows/reusable-audit.yml
+    with:
+      repo: ${{ github.repository }}
+      benchmarks: ''
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
 ```
 
 ## 并行执行
 
-`parallel_count` 参数控制并行任务数：
+真正并行已经上移到 workflow 层：
 
-```
-workflow → actions/audit → cli.py → run_parallel() → 多个 Agent 实例
+```text
+workflow_dispatch / issues / pull_request
+  -> thin workflow
+  -> reusable workflow
+  -> matrix jobs (多次单跑 actions/*)
+  -> artifact upload
+  -> aggregate job
+  -> evaluator 选优
+  -> 可选 GitHub side effects
 ```
 
 ## GitHub 操作封装
@@ -117,7 +145,8 @@ workflow → actions/audit → cli.py → run_parallel() → 多个 Agent 实例
 - [x] Phase 1: Action 架构 (main 路由层)
 - [x] Phase 2: audit / publish action 实现
 - [x] Phase 3: triage / review / implement action 实现
-- [ ] Phase 4: Marketplace 发布仓同步与发版
+- [x] Phase 4: workflow-native matrix + reusable workflow
+- [ ] Phase 5: Marketplace 发布仓持续发版与版本治理
 
 ## 调研文档
 

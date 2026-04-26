@@ -46,6 +46,19 @@ Gearbox 的 Marketplace 发布仓。
     anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 ```
 
+需要真正的 matrix 并行编排时，请改用主开发仓中的 reusable workflows：
+
+```yaml
+jobs:
+  audit:
+    uses: gqy20/gearbox/.github/workflows/reusable-audit.yml@main
+    with:
+      repo: owner/repo
+      parallel_runs: '3'
+      create_issues: false
+    secrets: inherit
+```
+
 ## 支持的动作
 
 {action_lines}

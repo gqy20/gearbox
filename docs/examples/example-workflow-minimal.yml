@@ -1,14 +1,16 @@
-# 最简调用 — 直接拷贝到 .github/workflows/gearbox.yml
+# 最简调用：轻量单步 Action
 
-on: [push, pull_request]
+on: [workflow_dispatch]
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v5
       - uses: ./actions/main
         with:
           action: audit
           repo: ${{ github.repository }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+          model: ${{ secrets.ANTHROPIC_MODEL }}

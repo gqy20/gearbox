@@ -224,8 +224,8 @@ async def run_triage(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if not structured:
-                structured = parse_structured_output(
+            if structured is None:
+                parsed = parse_structured_output(
                     message,
                     lambda data: TriageResult(
                         labels=cast(list[str], data.get("labels", [])),
@@ -236,6 +236,9 @@ async def run_triage(
                         ready_to_implement=cast(bool, data.get("ready_to_implement", False)),
                     ),
                 )
+                if parsed is not None:
+                    structured = parsed
+                    break
     finally:
         sdk_logger.log_completion()
 

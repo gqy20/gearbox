@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, TypeVar
 
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
 T = TypeVar("T")
 
@@ -18,9 +18,17 @@ def parse_structured_output(
     message: object,
     parser: Callable[[dict[str, Any]], T],
 ) -> T | None:
-    """从 ResultMessage.structured_output 中解析结构化结果。"""
-    if not isinstance(message, ResultMessage):
-        return None
-    if not isinstance(message.structured_output, dict):
-        return None
-    return parser(message.structured_output)
+    """从 SDK 结构化输出消息中解析结果。"""
+    if isinstance(message, ResultMessage) and isinstance(message.structured_output, dict):
+        return parser(message.structured_output)
+
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if (
+                isinstance(block, ToolUseBlock)
+                and block.name == "StructuredOutput"
+                and isinstance(block.input, dict)
+            ):
+                return parser(block.input)
+
+    return None

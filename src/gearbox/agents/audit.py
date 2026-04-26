@@ -380,8 +380,8 @@ async def run_audit(
             async for message in query(prompt=prompt, options=options):
                 sdk_logger.handle_message(message, echo_assistant_text=False)
                 total_cost = getattr(message, "total_cost_usd", total_cost)
-                if not structured:
-                    structured = parse_structured_output(
+                if structured is None:
+                    parsed = parse_structured_output(
                         message,
                         lambda data: AuditResult(
                             repo=data.get("repo", repo),
@@ -398,6 +398,9 @@ async def run_audit(
                             ],
                         ),
                     )
+                    if parsed is not None:
+                        structured = parsed
+                        break
         finally:
             sdk_logger.log_completion()
 

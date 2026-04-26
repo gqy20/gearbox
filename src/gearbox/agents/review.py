@@ -237,8 +237,8 @@ async def run_review(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if not structured:
-                structured = parse_structured_output(
+            if structured is None:
+                parsed = parse_structured_output(
                     message,
                     lambda data: ReviewResult(
                         verdict=cast(str, data.get("verdict", "Comment Only")),
@@ -255,6 +255,9 @@ async def run_review(
                         ],
                     ),
                 )
+                if parsed is not None:
+                    structured = parsed
+                    break
     finally:
         sdk_logger.log_completion()
 

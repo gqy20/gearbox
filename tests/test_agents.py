@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
 from gearbox.agents import triage
 from gearbox.agents.audit import AuditResult, Issue
@@ -73,6 +73,31 @@ class TestStructuredOutputParsing:
         assert result is not None
         assert result.labels == ["bug", "high-priority"]
         assert result.ready_to_implement is True
+
+    def test_structured_output_tool_use_mapping(self) -> None:
+        message = AssistantMessage(
+            model="test-model",
+            content=[
+                ToolUseBlock(
+                    id="toolu_1",
+                    name="StructuredOutput",
+                    input={
+                        "labels": ["enhancement", "ci"],
+                        "priority": "P2",
+                        "complexity": "S",
+                        "needs_clarification": False,
+                        "clarification_question": None,
+                        "ready_to_implement": True,
+                    },
+                )
+            ],
+        )
+
+        result = parse_structured_output(message, lambda data: TriageResult(**data))
+
+        assert result is not None
+        assert result.labels == ["enhancement", "ci"]
+        assert result.priority == "P2"
 
     def test_triage_result_maps_metadata_to_github_labels(self) -> None:
         result = TriageResult(

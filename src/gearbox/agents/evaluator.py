@@ -180,8 +180,8 @@ async def run_evaluator(
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            if not structured:
-                structured = parse_structured_output(
+            if structured is None:
+                parsed = parse_structured_output(
                     message,
                     lambda data: EvaluationResult(
                         winner=int(data.get("winner", 0)),
@@ -190,6 +190,9 @@ async def run_evaluator(
                         consensus=data.get("consensus", []),
                     ),
                 )
+                if parsed is not None:
+                    structured = parsed
+                    break
     finally:
         sdk_logger.log_completion()
 

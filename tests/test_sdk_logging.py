@@ -72,3 +72,70 @@ class TestSdkEventLogger:
 
         assert any(stage == "assistant-partial" for _, stage, _ in entries)
         assert any("Inspecting repository" in message for _, _, message in entries)
+
+    def test_tool_use_logs_read_path_and_range(
+        self,
+        monkeypatch,
+    ) -> None:
+        entries: list[tuple[str, str, str]] = []
+
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime._log",
+            lambda agent, stage, message: entries.append((agent, stage, message)),
+        )
+
+        logger = SdkEventLogger("audit")
+        logger.handle_message(
+            StreamEvent(
+                uuid="u0",
+                session_id="s1",
+                event={
+                    "type": "content_block_start",
+                    "content_block": {
+                        "type": "tool_use",
+                        "name": "Read",
+                        "input": {
+                            "file_path": "tests/test_cli.py",
+                            "offset": 10,
+                            "limit": 50,
+                        },
+                    },
+                },
+            )
+        )
+
+        assert ("audit", "tool-use", "tool=Read, path=tests/test_cli.py, offset=10, limit=50") in entries
+
+    def test_tool_use_logs_bash_command_summary(
+        self,
+        monkeypatch,
+    ) -> None:
+        entries: list[tuple[str, str, str]] = []
+
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime._log",
+            lambda agent, stage, message: entries.append((agent, stage, message)),
+        )
+
+        logger = SdkEventLogger("audit")
+        logger.handle_message(
+            StreamEvent(
+                uuid="u0",
+                session_id="s1",
+                event={
+                    "type": "content_block_start",
+                    "content_block": {
+                        "type": "tool_use",
+                        "name": "Bash",
+                        "input": {
+                            "command": "rg -n \"workflow_call\" .github/workflows",
+                        },
+                    },
+                },
+            )
+        )
+
+        assert any(
+            stage == "tool-use" and "tool=Bash, command=rg -n" in message
+            for _, stage, message in entries
+        )

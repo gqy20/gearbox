@@ -119,11 +119,11 @@ runs:
           ISSUES_COUNT=$(uv run --directory "${GITHUB_ACTION_PATH}/../.." python -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
           echo "issues_count=$ISSUES_COUNT" >> $GITHUB_OUTPUT
           echo "✅ Audit completed: $ISSUES_COUNT issues generated"
+          echo "status=success" >> $GITHUB_OUTPUT
         else
-          echo "issues_count=0" >> $GITHUB_OUTPUT
-          echo "⚠️ No issues.json found"
+          echo "::error::No issues.json found"
+          exit 1
         fi
-        echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Comment results (if triggered by issue/PR)
       if: inputs.is_comment_event == 'true'

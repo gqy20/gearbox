@@ -28,6 +28,9 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     setup_action = (output_dir / "actions" / "_setup" / "action.yml").read_text(
         encoding="utf-8"
     )
+    audit_action = (output_dir / "actions" / "audit" / "action.yml").read_text(
+        encoding="utf-8"
+    )
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
 
     assert "name: 'Gearbox'" in root_action
@@ -37,8 +40,10 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     assert 'uv sync --directory "${GITHUB_ACTION_PATH}/../.."' in setup_action
     assert "uv tool install semgrep" in setup_action
     assert "uv tool install deptry" in setup_action
+    assert "sudo apt-get update -qq && sudo apt-get install -y -qq $TOOLS" in setup_action
     assert "python3 -m pip install" not in setup_action
     assert "pip install deptry" not in setup_action
+    assert 'echo "::error::No issues.json found"' in audit_action
     assert "# Gearbox Action" in readme
     assert "Marketplace 发布仓" in readme
     assert "- `audit`" in readme

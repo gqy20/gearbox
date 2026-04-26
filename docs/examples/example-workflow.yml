@@ -16,13 +16,12 @@ on:
         type: choice
         options:
         - action-audit
+        - action-backlog
         - reusable-audit
-        - reusable-triage
         - reusable-review
-      issue_number:
-        description: Issue 编号（triage 用）
+      issues:
+        description: Issue 编号列表（backlog 用）
         required: false
-        type: number
       pr_number:
         description: PR 编号（review 用）
         required: false
@@ -42,6 +41,19 @@ jobs:
         anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
         model: ${{ vars.ANTHROPIC_MODEL }}
 
+  action-backlog:
+    if: github.event.inputs.mode == 'action-backlog'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: gqy20/gearbox-action@v1
+      with:
+        action: backlog
+        repo: ${{ github.repository }}
+        issues: ${{ inputs.issues }}
+        anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+        model: ${{ vars.ANTHROPIC_MODEL }}
+
   reusable-audit:
     if: github.event.inputs.mode == 'reusable-audit'
     uses: gqy20/gearbox/.github/workflows/reusable-audit.yml@main
@@ -50,15 +62,6 @@ jobs:
       benchmarks: github/copilot,sourcegraph/amp
       parallel_runs: '3'
       create_issues: false
-    secrets: inherit
-
-  reusable-triage:
-    if: github.event.inputs.mode == 'reusable-triage'
-    uses: gqy20/gearbox/.github/workflows/reusable-triage.yml@main
-    with:
-      repo: ${{ github.repository }}
-      issue_number: ${{ inputs.issue_number }}
-      parallel_runs: '3'
     secrets: inherit
 
   reusable-review:

@@ -5,7 +5,7 @@
 Gearbox 是开发母仓，用于维护源码、测试、文档、内部 workflow，并导出面向 GitHub Marketplace 的 `gearbox-action` 发布仓。
 
 ```
-Audit -> Issue -> Triage -> Implement -> Review -> Merge -> Report
+Audit -> Issue -> Backlog -> Implement -> Review -> Merge -> Report
 ```
 
 ## 快速开始
@@ -66,10 +66,10 @@ uv run gearbox config list
 gh workflow run audit.yml
 
 # 分类指定 Issue（单个 issue 是 backlog 的特例）
-gh workflow run triage.yml -f issue_number=123
+gh workflow run backlog.yml -f issues='123'
 
 # 批量分类多个 Issue
-gh workflow run triage.yml -f issues='2,5,6'
+gh workflow run backlog.yml -f issues='2,5,6'
 
 # 审查指定 PR
 gh workflow run review.yml -f pr_number=456
@@ -164,14 +164,13 @@ gearbox/
 │   ├── main/                    # 内部路由层，导出时成为根 action.yml
 │   ├── audit/                   # 审计 action
 │   ├── backlog/                 # backlog 分类 action
-│   ├── triage/                  # 分类 action（兼容旧入口，内部走 backlog）
 │   ├── review/                  # 审查 action
 │   ├── implement/               # 实现 action
 │   └── publish/                 # 发布 action
 ├── .github/workflows/
 │   ├── ci.yml                   # ruff / mypy / pytest
 │   ├── audit.yml                # 当前验证过的内部 audit matrix 编排
-│   ├── triage.yml               # Issue/backlog 分类入口
+│   ├── backlog.yml              # Issue/backlog 分类入口
 │   ├── review.yml               # PR 审查入口
 │   ├── reusable-*.yml           # 高级编排模板
 │   └── release-marketplace.yml  # Marketplace 发布流程

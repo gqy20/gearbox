@@ -77,7 +77,7 @@ def parse_issue_numbers(value: str) -> list[int]:
     return list(dict.fromkeys(numbers))
 
 
-def github_labels_for_triage_result(result: TriageResult) -> list[str]:
+def github_labels_for_backlog_item(result: TriageResult) -> list[str]:
     """Return GitHub labels that represent the full triage decision."""
     labels = [
         *result.labels,
@@ -93,31 +93,10 @@ def github_labels_for_triage_result(result: TriageResult) -> list[str]:
     return list(dict.fromkeys(label for label in labels if label))
 
 
-def write_triage_result(result: TriageResult, output_path: Path) -> None:
-    from gearbox.agents.shared.artifacts import write_json_artifact
-
-    write_json_artifact(output_path, result)
-
-
 def write_backlog_result(result: BacklogResult, output_path: Path) -> None:
     from gearbox.agents.shared.artifacts import write_json_artifact
 
     write_json_artifact(output_path, result)
-
-
-def load_triage_result(path: Path) -> TriageResult:
-    from gearbox.agents.shared.artifacts import read_json_artifact
-
-    data = read_json_artifact(path)
-    return TriageResult(
-        issue_number=cast(int | None, data.get("issue_number")),
-        labels=cast(list[str], data.get("labels", [])),
-        priority=cast(str, data.get("priority", "P3")),
-        complexity=cast(str, data.get("complexity", "M")),
-        needs_clarification=cast(bool, data.get("needs_clarification", False)),
-        clarification_question=cast(str | None, data.get("clarification_question")),
-        ready_to_implement=cast(bool, data.get("ready_to_implement", False)),
-    )
 
 
 def load_backlog_result(path: Path) -> BacklogResult:
@@ -254,7 +233,7 @@ async def run_triage(
             skills="all",
             cwd=project_root,
         ),
-        agent_name="triage",
+        agent_name="backlog",
     )
     sdk_logger.log_start(
         model=model,
@@ -288,6 +267,6 @@ async def run_triage(
         sdk_logger.log_completion()
 
     if structured is None:
-        raise RuntimeError("Triage agent did not return structured output")
+        raise RuntimeError("Backlog agent did not return structured output")
 
     return structured

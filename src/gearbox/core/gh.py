@@ -19,7 +19,7 @@ class CreatePrResult:
     error: str | None = None
 
 
-TRIAGE_LABEL_METADATA: dict[str, tuple[str, str]] = {
+BACKLOG_LABEL_METADATA: dict[str, tuple[str, str]] = {
     "P0": ("b60205", "生产环境故障、数据丢失风险"),
     "P1": ("d93f0b", "核心功能受损、用户体验严重下降"),
     "P2": ("fbca04", "一般功能问题、边界情况"),
@@ -31,11 +31,11 @@ TRIAGE_LABEL_METADATA: dict[str, tuple[str, str]] = {
     "ready-to-implement": ("0e8a16", "需求清晰，可进入实现阶段"),
 }
 
-MANAGED_TRIAGE_LABELS = frozenset(TRIAGE_LABEL_METADATA)
+MANAGED_BACKLOG_LABELS = frozenset(BACKLOG_LABEL_METADATA)
 
 
 def _label_metadata(label: str) -> tuple[str, str]:
-    return TRIAGE_LABEL_METADATA.get(label, ("cfd3d7", "由 Gearbox 自动分类创建"))
+    return BACKLOG_LABEL_METADATA.get(label, ("cfd3d7", "由 Gearbox 自动分类创建"))
 
 
 def create_repo_label(repo: str, label: str) -> PostReviewResult:
@@ -247,7 +247,7 @@ def replace_managed_issue_labels(
     managed_to_remove = [
         label
         for label in current_labels
-        if label in MANAGED_TRIAGE_LABELS and label not in next_labels
+        if label in MANAGED_BACKLOG_LABELS and label not in next_labels
     ]
 
     remove_result = remove_issue_labels(repo, issue_number, managed_to_remove)
@@ -489,7 +489,7 @@ def build_issue_body(
     clarification_question: str | None,
     ready_to_implement: bool,
 ) -> str:
-    """构建 Triage 评论的 Markdown body。"""
+    """构建 Backlog 评论的 Markdown body。"""
     lines = [
         f"**优先级**: {priority}",
         f"**复杂度**: {complexity}",

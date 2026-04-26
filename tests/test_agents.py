@@ -13,7 +13,7 @@ from gearbox.agents.shared.structured import parse_structured_output
 from gearbox.agents.triage import (
     BacklogResult,
     TriageResult,
-    github_labels_for_triage_result,
+    github_labels_for_backlog_item,
     parse_issue_numbers,
 )
 
@@ -114,7 +114,7 @@ class TestStructuredOutputParsing:
             ready_to_implement=True,
         )
 
-        assert github_labels_for_triage_result(result) == [
+        assert github_labels_for_backlog_item(result) == [
             "documentation",
             "enhancement",
             "P1",
@@ -132,7 +132,7 @@ class TestStructuredOutputParsing:
             ready_to_implement=False,
         )
 
-        assert github_labels_for_triage_result(result) == [
+        assert github_labels_for_backlog_item(result) == [
             "question",
             "P2",
             "complexity:S",

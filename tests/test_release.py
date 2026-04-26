@@ -71,7 +71,7 @@ def test_build_marketplace_bundle_readme_tracks_router_actions(tmp_path: Path) -
 
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
 
-    expected_actions = ["audit", "triage", "implement", "review", "publish"]
+    expected_actions = ["audit", "backlog", "implement", "review", "publish"]
     for action in expected_actions:
         assert f"- `{action}`" in readme
 

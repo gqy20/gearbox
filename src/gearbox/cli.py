@@ -20,13 +20,11 @@ from .agents.shared.selection import select_best_result
 from .agents.triage import (
     BacklogResult,
     TriageResult,
-    github_labels_for_triage_result,
+    github_labels_for_backlog_item,
     load_backlog_result,
-    load_triage_result,
     parse_issue_numbers,
     run_triage,
     write_backlog_result,
-    write_triage_result,
 )
 from .config import (
     AGENT_DEFAULTS,
@@ -69,13 +67,13 @@ def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
     return candidates
 
 
-def _apply_triage_result(repo: str, result: object, fallback_issue: int | None = None) -> None:
-    """Apply one triage result to GitHub with idempotent managed labels."""
+def _apply_backlog_item(repo: str, result: object, fallback_issue: int | None = None) -> None:
+    """Apply one backlog classification item to GitHub with idempotent managed labels."""
     issue_number = getattr(result, "issue_number", None) or fallback_issue
     if issue_number is None:
-        raise click.ClickException("triage result missing issue_number")
+        raise click.ClickException("backlog item missing issue_number")
 
-    labels = github_labels_for_triage_result(result)  # type: ignore[arg-type]
+    labels = github_labels_for_backlog_item(result)  # type: ignore[arg-type]
     label_result = replace_managed_issue_labels(repo, issue_number, labels)
     if not label_result.success:
         click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
@@ -278,55 +276,8 @@ def release_notes(version: str, output_file: str) -> None:
 
 @cli.group()
 def agent() -> None:
-    """运行 Agent (Audit/Triage/Review/Implement)"""
+    """运行 Agent (Audit/Backlog/Review/Implement)"""
     pass
-
-
-@agent.command()
-@click.option("--repo", required=True, help="仓库标识 (owner/name)")
-@click.option("--issue", required=True, type=int, help="Issue 编号")
-@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
-@click.option(
-    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次"
-)
-@click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
-@click.option(
-    "--apply-side-effects/--no-apply-side-effects",
-    default=False,
-    help="是否应用 GitHub 标签/评论副作用（并行时建议关闭）",
-)
-@click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def triage(
-    repo: str,
-    issue: int,
-    model: str,
-    max_turns: int,
-    artifact_path: str,
-    apply_side_effects: bool,
-    output: str,
-) -> None:
-    """运行 Triage Agent - 分析 Issue 并打标签/定优先级"""
-    from gearbox.config import get_anthropic_model
-
-    resolved_model = model or get_anthropic_model()
-
-    result = asyncio.run(
-        run_triage(
-            repo,
-            issue,
-            model=resolved_model,
-            max_turns=max_turns,
-        )
-    )
-    click.echo(f"✅ Triage: labels={result.labels}, priority={result.priority}")
-
-    if artifact_path:
-        write_triage_result(result, Path(artifact_path))
-
-    if apply_side_effects:
-        _apply_triage_result(repo, result, fallback_issue=issue)
-
-    result_to_github_output(result, output)
 
 
 @agent.command(name="backlog")
@@ -334,7 +285,7 @@ def triage(
 @click.option("--issues", required=True, help="逗号或空格分隔的 Issue 编号")
 @click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
 @click.option(
-    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["triage"], type=int, help="最大对话轮次"
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["backlog"], type=int, help="最大对话轮次"
 )
 @click.option("--artifact-path", default="", help="可选: 写出结构化 backlog artifact")
 @click.option(
@@ -379,7 +330,7 @@ def backlog(
 
     if apply_side_effects:
         for item in result.items:
-            _apply_triage_result(repo, item)
+            _apply_backlog_item(repo, item)
 
     result_to_github_output(result, output)
 
@@ -618,58 +569,6 @@ def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, o
     )
 
 
-@agent.command(name="triage-select")
-@click.option("--input-root", required=True, help="并行 triage artifact 根目录")
-@click.option("--repo", required=True, help="仓库标识 (owner/name)")
-@click.option("--issue", required=True, type=int, help="Issue 编号")
-@click.option("--model", default="", help="用于评估多个结果的模型")
-@click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
-@click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
-@click.option("--output", default="/tmp/github_output", help="输出文件路径")
-def triage_select(
-    input_root: str,
-    repo: str,
-    issue: int,
-    model: str,
-    max_turns: int,
-    artifact_path: str,
-    output: str,
-) -> None:
-    """聚合多个 triage 结果并只应用一次 GitHub 副作用。"""
-    root = Path(input_root)
-    candidate_files = _candidate_result_files(root)
-    if not candidate_files:
-        click.echo(f"❌ 未找到任何 triage 结果: {input_root}", err=True)
-        raise click.Abort()
-
-    results = []
-    names = []
-    for name, result_path in candidate_files:
-        results.append(load_triage_result(result_path))
-        names.append(name)
-
-    if not results:
-        click.echo("❌ 没有可用于聚合的 triage 结果", err=True)
-        raise click.Abort()
-
-    winner_index, winner_result = asyncio.run(
-        select_best_result(
-            results,
-            result_type="Triage 分类结果",
-            result_names=names,
-            model=model or "",
-            max_turns=max_turns,
-        )
-    )
-    if artifact_path:
-        write_triage_result(winner_result, Path(artifact_path))
-
-    _apply_triage_result(repo, winner_result, fallback_issue=issue)
-
-    result_to_github_output(winner_result, output)
-    click.echo(f"✅ Selected triage result: winner={names[winner_index]}")
-
-
 @agent.command(name="backlog-select")
 @click.option("--input-root", required=True, help="并行 backlog artifact 根目录")
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
@@ -715,7 +614,7 @@ def backlog_select(
             )
         )
         selected_items.append(winner_result)
-        _apply_triage_result(repo, winner_result)
+        _apply_backlog_item(repo, winner_result)
         click.echo(
             f"✅ Selected backlog result: issue={issue_number}, winner={names[winner_index]}"
         )

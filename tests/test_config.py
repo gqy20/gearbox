@@ -171,7 +171,7 @@ class TestAgentDefaults:
     def test_has_max_turns(self) -> None:
         assert "max_turns" in AGENT_DEFAULTS
         assert isinstance(AGENT_DEFAULTS["max_turns"], dict)
-        assert "triage" in AGENT_DEFAULTS["max_turns"]
+        assert "backlog" in AGENT_DEFAULTS["max_turns"]
         assert "review" in AGENT_DEFAULTS["max_turns"]
         assert "implement" in AGENT_DEFAULTS["max_turns"]
         assert "audit" in AGENT_DEFAULTS["max_turns"]

@@ -10,27 +10,26 @@
 
 核心差距：仍是"一次性审计工具"，不是可复用的 Action 套件。
 
-## Phase 1: 第一个 Composite Action — Triage
+## Phase 1: 统一 Backlog Action
 
-**目标**：消费者仓库能 `uses: gqy20/gearbox/triage@v1` 自动分类 Issue。
+**目标**：消费者仓库能通过 `uses: gqy20/gearbox-action@v1` + `action: backlog` 批量分类 Issue。
 
 ```
 actions/
-  triage/
+  backlog/
     action.yml          # composite action 定义
-    classify.py         # 分类逻辑（标签、优先级、指派）
 ```
 
 **action.yml 要素**：
-- inputs：`issue-number`、`repo`、`classification-rules`
+- inputs：`issues`、`repo`
 - outputs：`labels`、`priority`、`assignees`
-- steps：checkout → uv sync → run classify → gh api 更新 issue
+- steps：checkout → uv sync → run backlog → gh api 更新 issue
 - 复用现有 config/mcp 基础设施
 
 **交付物**：
-- [ ] `actions/triage/action.yml`
+- [ ] `actions/backlog/action.yml`
 - [ ] `src/gearbox/tools/classify.py` + 注册到 MCP server
-- [ ] `.github/workflows/triage.yml`（独立可触发 + 被 consumer 调用）
+- [ ] `.github/workflows/backlog.yml`（独立可触发）
 - [ ] 测试：mock gh API，验证分类输出格式
 - [ ] 文档：consumer 接入示例
 
@@ -60,7 +59,7 @@ project:
   type: backend
   language: typescript
 
-triage: { enabled: true, auto_label: true }
+backlog: { enabled: true, auto_label: true }
 review: { enabled: true, focus_areas: [security, testing] }
 audit: { enabled: true, schedule: "weekly" }
 report: { enabled: true, schedule: "weekly" }
@@ -80,7 +79,7 @@ report: { enabled: true, schedule: "weekly" }
 
 ## 优先级判断原则
 
-1. **Triage 先行** — 它是飞轮入口，没有分类后面所有动作都缺乏上下文
+1. **Backlog 先行** — 它是飞轮入口，没有分类后面所有动作都缺乏上下文
 2. **每个 Phase 可独立交付** — 不依赖后续阶段就能产生价值
 3. **复用优先于新建** — config/mcp/CLI 基础设施已在，新 action 尽量复用
 4. **测试先行** — 每个 tool 必须有对应的 mock 测试才能合入 main

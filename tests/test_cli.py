@@ -53,13 +53,13 @@ class TestResultFileDiscovery:
         assert candidates == [(tmp_path.name, tmp_path / "result.json")]
 
     def test_candidate_result_files_supports_per_artifact_layout(self, tmp_path: Path) -> None:
-        run_dir = tmp_path / "triage-results-run-0"
+        run_dir = tmp_path / "backlog-results-issue-1-run-0"
         run_dir.mkdir()
         (run_dir / "result.json").write_text("{}", encoding="utf-8")
 
         candidates = _candidate_result_files(tmp_path)
 
-        assert candidates == [("triage-results-run-0", run_dir / "result.json")]
+        assert candidates == [("backlog-results-issue-1-run-0", run_dir / "result.json")]
 
 
 class TestAuditCommand:
@@ -192,16 +192,16 @@ class TestAgentCommand:
     def test_agent_help(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "--help"])
         assert result.exit_code == 0
-        assert "triage" in result.output
+        assert "backlog" in result.output
         assert "review" in result.output
         assert "implement" in result.output
         assert "audit-repo" in result.output
 
-    def test_agent_triage_help(self, runner: CliRunner) -> None:
-        result = runner.invoke(cli, ["agent", "triage", "--help"])
+    def test_agent_backlog_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["agent", "backlog", "--help"])
         assert result.exit_code == 0
         assert "--repo" in result.output
-        assert "--issue" in result.output
+        assert "--issues" in result.output
         assert "--parallel-count" not in result.output
 
     def test_agent_review_help(self, runner: CliRunner) -> None:
@@ -233,11 +233,10 @@ class TestAgentCommand:
         assert "--output-dir" in result.output
         assert "--max-turns" in result.output
 
-    def test_agent_triage_select_help(self, runner: CliRunner) -> None:
-        result = runner.invoke(cli, ["agent", "triage-select", "--help"])
+    def test_agent_backlog_select_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["agent", "backlog-select", "--help"])
         assert result.exit_code == 0
         assert "--input-root" in result.output
-        assert "--issue" in result.output
         assert "--max-turns" in result.output
 
     def test_agent_review_select_help(self, runner: CliRunner) -> None:
@@ -254,114 +253,9 @@ class TestAgentCommand:
         assert "--issue" in result.output
         assert "--max-turns" in result.output
 
-    def test_agent_triage_requires_args(self, runner: CliRunner) -> None:
-        result = runner.invoke(cli, ["agent", "triage"])
+    def test_agent_backlog_requires_args(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["agent", "backlog"])
         assert result.exit_code != 0
-
-    def test_agent_triage_side_effects_apply_mapped_labels(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        async def fake_run_triage(*args, **kwargs) -> TriageResult:
-            del args, kwargs
-            return TriageResult(
-                labels=["documentation", "enhancement"],
-                priority="P3",
-                complexity="M",
-                needs_clarification=False,
-                clarification_question=None,
-                ready_to_implement=True,
-            )
-
-        captured_labels: list[str] = []
-
-        def fake_replace_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
-            del repo, issue
-            captured_labels.extend(labels)
-            return PostReviewResult(success=True)
-
-        monkeypatch.setattr("gearbox.cli.run_triage", fake_run_triage)
-        monkeypatch.setattr("gearbox.cli.replace_managed_issue_labels", fake_replace_labels)
-        monkeypatch.setattr(
-            "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
-        )
-
-        result = runner.invoke(
-            cli,
-            [
-                "agent",
-                "triage",
-                "--repo",
-                "owner/repo",
-                "--issue",
-                "6",
-                "--apply-side-effects",
-            ],
-        )
-
-        assert result.exit_code == 0
-        assert captured_labels == [
-            "documentation",
-            "enhancement",
-            "P3",
-            "complexity:M",
-            "ready-to-implement",
-        ]
-
-    def test_agent_triage_select_applies_mapped_labels_once(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        input_root = tmp_path / "triage-runs"
-        input_root.mkdir()
-        (input_root / "result.json").write_text(
-            json.dumps(
-                {
-                    "labels": ["documentation", "enhancement"],
-                    "priority": "P3",
-                    "complexity": "M",
-                    "needs_clarification": False,
-                    "clarification_question": None,
-                    "ready_to_implement": True,
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        captured_labels: list[str] = []
-
-        def fake_replace_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
-            del repo, issue
-            captured_labels.extend(labels)
-            return PostReviewResult(success=True)
-
-        monkeypatch.setattr("gearbox.cli.replace_managed_issue_labels", fake_replace_labels)
-        monkeypatch.setattr(
-            "gearbox.cli.post_issue_comment", lambda *args, **kwargs: PostReviewResult(True)
-        )
-
-        result = runner.invoke(
-            cli,
-            [
-                "agent",
-                "triage-select",
-                "--input-root",
-                str(input_root),
-                "--repo",
-                "owner/repo",
-                "--issue",
-                "6",
-                "--output",
-                str(tmp_path / "github_output"),
-            ],
-        )
-
-        assert result.exit_code == 0
-        assert captured_labels == [
-            "documentation",
-            "enhancement",
-            "P3",
-            "complexity:M",
-            "ready-to-implement",
-        ]
 
     def test_agent_backlog_runs_multiple_issues(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

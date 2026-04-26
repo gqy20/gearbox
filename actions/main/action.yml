@@ -8,7 +8,7 @@ branding:
 
 inputs:
   action:
-    description: 'Action to run: audit, backlog, triage, implement, review, publish'
+    description: 'Action to run: audit, backlog, implement, review, publish'
     required: true
   repo:
     description: 仓库标识 (owner/name)
@@ -86,7 +86,7 @@ runs:
     shell: bash
     run: |
       case "${{ inputs.action }}" in
-        audit|backlog|triage|implement|review|publish) ;;
+        audit|backlog|implement|review|publish) ;;
         *)
           echo "::error::Unsupported action '${{ inputs.action }}'"
           exit 1
@@ -111,13 +111,12 @@ runs:
       anthropic_base_url: ${{ inputs.anthropic_base_url }}
       anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
-  - name: Run Triage
-    id: triage
-    if: ${{ inputs.action == 'triage' || inputs.action == 'backlog' }}
-    uses: ./actions/triage
+  - name: Run Backlog
+    id: backlog
+    if: ${{ inputs.action == 'backlog' }}
+    uses: ./actions/backlog
     with:
       repo: ${{ inputs.repo }}
-      issue_number: ${{ inputs.issue_number }}
       issues: ${{ inputs.issues }}
       max_turns: ${{ inputs.max_turns }}
       model: ${{ inputs.model }}
@@ -161,14 +160,14 @@ runs:
     shell: bash
     env:
       AUDIT_STATUS: ${{ steps.audit.outputs.status }}
-      TRIAGE_STATUS: ${{ steps.triage.outputs.status }}
+      BACKLOG_STATUS: ${{ steps.backlog.outputs.status }}
       IMPLEMENT_STATUS: ${{ steps.implement.outputs.status }}
       REVIEW_STATUS: ${{ steps.review.outputs.status }}
       PUBLISH_STATUS: ${{ steps.publish.outputs.status }}
       AUDIT_ISSUES_COUNT: ${{ steps.audit.outputs.issues_count }}
     run: |
       STATUS="$AUDIT_STATUS"
-      if [ -z "$STATUS" ]; then STATUS="$TRIAGE_STATUS"; fi
+      if [ -z "$STATUS" ]; then STATUS="$BACKLOG_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$IMPLEMENT_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$REVIEW_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$PUBLISH_STATUS"; fi

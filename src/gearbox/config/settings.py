@@ -9,7 +9,7 @@ import tomli_w
 # Agent 默认参数（CLI 和 Action 均引用此处的值）
 AGENT_DEFAULTS: dict[str, Any] = {
     "max_turns": {
-        "triage": 5,
+        "backlog": 5,
         "review": 10,
         "implement": 20,
         "audit": 20,

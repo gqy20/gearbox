@@ -1,4 +1,4 @@
-name: Triage
+name: Backlog
 
 on:
   workflow_dispatch:
@@ -7,14 +7,9 @@ on:
         description: '目标仓库 (留空则使用当前仓库)'
         required: false
         default: ''
-      issue_number:
-        description: 'Issue 编号（兼容旧输入；优先使用 issues）'
-        required: false
-        type: number
       issues:
         description: '逗号或空格分隔的 Issue 编号；数量决定单 issue 或 backlog 批量处理'
-        required: false
-        default: ''
+        required: true
       parallel_runs:
         description: '并行执行次数（workflow 编排层配置）'
         required: false
@@ -50,15 +45,7 @@ jobs:
             else
               echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
             fi
-            ISSUES="${{ inputs.issues }}"
-            if [ -z "$ISSUES" ]; then
-              ISSUES="${{ inputs.issue_number }}"
-            fi
-            if [ -z "$ISSUES" ]; then
-              echo "::error::issues or issue_number is required"
-              exit 1
-            fi
-            echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
+            echo "issues=${{ inputs.issues }}" >> "$GITHUB_OUTPUT"
           else
             echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
             echo "issues=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
@@ -95,7 +82,7 @@ jobs:
           print(f"json={json.dumps(matrix)}")
           PY
 
-  triage-run:
+  backlog-run:
     needs: plan
     if: needs.plan.outputs.repo != '' && needs.plan.outputs.issues != ''
     continue-on-error: true
@@ -107,8 +94,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Run Triage
-        uses: ./actions/triage
+      - name: Run Backlog
+        uses: ./actions/backlog
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -118,19 +105,19 @@ jobs:
           model: ${{ secrets.ANTHROPIC_MODEL }}
           anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          artifact_path: ./triage-output/result.json
+          artifact_path: ./backlog-output/result.json
           apply_side_effects: 'false'
 
       - name: Upload run results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: triage-results-issue-${{ matrix.issue_number }}-run-${{ matrix.run_id }}
-          path: triage-output/
+          name: backlog-results-issue-${{ matrix.issue_number }}-run-${{ matrix.run_id }}
+          path: backlog-output/
           if-no-files-found: ignore
 
-  aggregate-triage:
-    needs: [plan, triage-run]
+  aggregate-backlog:
+    needs: [plan, backlog-run]
     if: ${{ always() && needs.plan.outputs.repo != '' && needs.plan.outputs.issues != '' }}
     runs-on: ubuntu-latest
     env:
@@ -148,22 +135,22 @@ jobs:
       - name: Download all run artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: triage-results-issue-*-run-*
-          path: ./triage-runs
+          pattern: backlog-results-issue-*-run-*
+          path: ./backlog-runs
 
-      - name: Aggregate triage results
+      - name: Aggregate backlog results
         shell: bash
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          echo "::group::[triage] downloaded run artifacts"
-          find ./triage-runs -maxdepth 2 -type f | sort || true
+          echo "::group::[backlog] downloaded run artifacts"
+          find ./backlog-runs -maxdepth 2 -type f | sort || true
           echo "::endgroup::"
 
           CMD=(
             uv run --directory "$GITHUB_WORKSPACE" gearbox agent backlog-select
-            --input-root ./triage-runs
+            --input-root ./backlog-runs
             --repo "${{ needs.plan.outputs.repo }}"
-            --artifact-path ./triage-output/result.json
+            --artifact-path ./backlog-output/result.json
             --max-turns 29
           )
 
@@ -176,5 +163,5 @@ jobs:
       - name: Upload final result
         uses: actions/upload-artifact@v7
         with:
-          name: triage-results
-          path: triage-output/
+          name: backlog-results
+          path: backlog-output/

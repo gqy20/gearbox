@@ -49,7 +49,7 @@ Agent 共享层:
 | 轻量运行时 | `actions/_runtime/action.yml` | 安装 uv、同步项目依赖、验证 Python 与 gh |
 | 扫描工具 | `actions/_setup/action.yml` | 基于 `_runtime`，额外安装 audit 需要的静态扫描工具 |
 | CLI | `src/gearbox/cli.py` | 命令行入口，解析参数 |
-| Agent | `src/gearbox/agents/*.py` | audit、triage、review、implement 等业务逻辑 |
+| Agent | `src/gearbox/agents/*.py` | audit、backlog、review、implement 等业务逻辑 |
 | Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、scanner、artifacts、selection |
 | GitHub 操作 | `src/gearbox/core/gh.py` | Issue、PR、comment、label 等 GitHub API 封装 |
 
@@ -59,7 +59,6 @@ Agent 共享层:
 | --- | --- | --- |
 | `audit` | 审计仓库，发现改进建议 | `repo`, `benchmarks` |
 | `backlog` | 单个或多个 Issue 分类打标 | `repo`, `issues` |
-| `triage` | Issue 分类打标（兼容旧入口，内部走 backlog） | `repo`, `issue_number` |
 | `review` | PR Code Review | `repo`, `pr_number` |
 | `implement` | 实现 Issue 并创建 PR | `repo`, `issue_number` |
 | `publish` | 发布 `issues.json` 为 GitHub Issues | `input_path` |
@@ -200,10 +199,10 @@ Marketplace 发布由 `.github/workflows/release-marketplace.yml` 负责：
 
 - [x] Phase 1: Action 架构与根路由层
 - [x] Phase 2: audit / publish action
-- [x] Phase 3: triage / review / implement action
+- [x] Phase 3: backlog / review / implement action
 - [x] Phase 4: workflow-native matrix、artifact 聚合、选优
 - [x] Phase 5: CHANGELOG 驱动的 Marketplace 发布说明
-- [ ] Phase 6: triage / review 内部入口与 audit 编排体验完全对齐
+- [ ] Phase 6: backlog / review 内部入口与 audit 编排体验完全对齐
 
 ## 调研文档
 

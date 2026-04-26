@@ -218,6 +218,7 @@ def implement(
         elif result.ready_for_review and result.branch_name:
             commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
             pushed = finalize_and_push(
+                repo=repo,
                 temp_branch=temp_branch,
                 final_branch=result.branch_name,
                 commit_message=commit_msg,

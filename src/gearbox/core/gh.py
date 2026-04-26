@@ -395,6 +395,7 @@ def prepare_working_branch(base_branch: str) -> str:
 
 
 def finalize_and_push(
+    repo: str,
     temp_branch: str,
     final_branch: str,
     commit_message: str,
@@ -407,6 +408,8 @@ def finalize_and_push(
         True if successful, False otherwise
     """
     try:
+        configure_authenticated_origin(repo)
+
         # 重命名分支
         subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
 
@@ -452,6 +455,8 @@ def finalize_and_create_pr(
         CreatePrResult
     """
     try:
+        configure_authenticated_origin(repo)
+
         # 重命名分支
         subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
 
@@ -561,6 +566,24 @@ def ensure_git_author() -> None:
             ],
             check=True,
         )
+
+
+def configure_authenticated_origin(repo: str) -> None:
+    """Prefer GH_TOKEN for git push so checkout credentials do not shadow PAT scopes."""
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        return
+
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "set-url",
+            "origin",
+            f"https://x-access-token:{token}@github.com/{repo}.git",
+        ],
+        check=True,
+    )
 
 
 def _called_process_error_message(error: subprocess.CalledProcessError) -> str:

@@ -11,6 +11,7 @@ from gearbox.core.gh import (
     add_issue_labels,
     build_issue_body,
     build_review_body,
+    configure_authenticated_origin,
     create_issue,
     finalize_and_create_pr,
     get_issue_summary,
@@ -242,6 +243,27 @@ class TestCreateIssue:
 
 class TestFinalizeAndCreatePr:
     """测试分支提交和 PR 创建。"""
+
+    def test_configures_origin_with_gh_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GH_TOKEN", "pat-token")
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        configure_authenticated_origin("owner/repo")
+
+        assert [
+            "git",
+            "remote",
+            "set-url",
+            "origin",
+            "https://x-access-token:pat-token@github.com/owner/repo.git",
+        ] in commands
 
     def test_sets_git_author_before_commit_when_missing(
         self, monkeypatch: pytest.MonkeyPatch

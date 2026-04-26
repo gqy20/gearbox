@@ -60,6 +60,20 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     assert "- `review`" in readme
 
 
+def test_composite_actions_write_outputs_to_workspace() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    review_action = (root / "actions" / "review" / "action.yml").read_text(encoding="utf-8")
+    backlog_action = (root / "actions" / "backlog" / "action.yml").read_text(encoding="utf-8")
+    implement_action = (root / "actions" / "implement" / "action.yml").read_text(encoding="utf-8")
+    audit_action = (root / "actions" / "audit" / "action.yml").read_text(encoding="utf-8")
+
+    assert 'ARTIFACT_PATH="${GITHUB_WORKSPACE}/' in review_action
+    assert 'ARTIFACT_PATH="${GITHUB_WORKSPACE}/' in backlog_action
+    assert 'ARTIFACT_PATH="${GITHUB_WORKSPACE}/' in implement_action
+    assert 'OUTPUT_DIR="${GITHUB_WORKSPACE}/' in audit_action
+
+
 def test_build_marketplace_bundle_excludes_python_cache_files(tmp_path: Path) -> None:
     output_dir = tmp_path / "gearbox-action"
 

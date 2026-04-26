@@ -64,6 +64,16 @@ runs:
       fi
       export PATH="$HOME/.local/bin:$PATH"
 
+      INPUT_ARTIFACT_PATH="${{ inputs.artifact_path }}"
+      ARTIFACT_PATH=""
+      if [ -n "$INPUT_ARTIFACT_PATH" ]; then
+        case "$INPUT_ARTIFACT_PATH" in
+          /*) ARTIFACT_PATH="$INPUT_ARTIFACT_PATH" ;;
+          *) ARTIFACT_PATH="${GITHUB_WORKSPACE}/${INPUT_ARTIFACT_PATH#./}" ;;
+        esac
+        mkdir -p "$(dirname "$ARTIFACT_PATH")"
+      fi
+
       CMD=(
         uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent review
         --repo "${{ inputs.repo }}"
@@ -74,8 +84,8 @@ runs:
       if [ -n "${{ inputs.model }}" ]; then
         CMD+=(--model "${{ inputs.model }}")
       fi
-      if [ -n "${{ inputs.artifact_path }}" ]; then
-        CMD+=(--artifact-path "${{ inputs.artifact_path }}")
+      if [ -n "$ARTIFACT_PATH" ]; then
+        CMD+=(--artifact-path "$ARTIFACT_PATH")
       fi
       if [ "${{ inputs.apply_side_effects }}" = "true" ]; then
         CMD+=(--apply-side-effects)

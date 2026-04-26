@@ -30,6 +30,10 @@ inputs:
     description: Anthropic API Key
     required: false
     default: ''
+  artifact_path:
+    description: '可选: 写出结构化结果 artifact'
+    required: false
+    default: ./implement-output/result.json
   apply_side_effects:
     description: 是否创建分支/PR（并行时建议关闭）
     required: false
@@ -68,14 +72,27 @@ runs:
         exit 1
       fi
 
+      INPUT_ARTIFACT_PATH="${{ inputs.artifact_path }}"
+      ARTIFACT_PATH=""
+      if [ -n "$INPUT_ARTIFACT_PATH" ]; then
+        case "$INPUT_ARTIFACT_PATH" in
+          /*) ARTIFACT_PATH="$INPUT_ARTIFACT_PATH" ;;
+          *) ARTIFACT_PATH="${GITHUB_WORKSPACE}/${INPUT_ARTIFACT_PATH#./}" ;;
+        esac
+        mkdir -p "$(dirname "$ARTIFACT_PATH")"
+      fi
+
       CMD=(
         uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement
         --repo "${{ inputs.repo }}"
         --issue "${{ inputs.issue_number }}"
         --base-branch "${{ inputs.base_branch }}"
         --max-turns "${{ inputs.max_turns }}"
-        --artifact-path ./implement-output/result.json
       )
+
+      if [ -n "$ARTIFACT_PATH" ]; then
+        CMD+=(--artifact-path "$ARTIFACT_PATH")
+      fi
 
       if [ -n "${{ inputs.model }}" ]; then
         CMD+=(--model "${{ inputs.model }}")

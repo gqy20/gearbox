@@ -86,9 +86,16 @@ runs:
     run: |
       set -e
 
+      INPUT_OUTPUT_DIR="${{ inputs.output_dir }}"
+      case "$INPUT_OUTPUT_DIR" in
+        /*) OUTPUT_DIR="$INPUT_OUTPUT_DIR" ;;
+        *) OUTPUT_DIR="${GITHUB_WORKSPACE}/${INPUT_OUTPUT_DIR#./}" ;;
+      esac
+      mkdir -p "$OUTPUT_DIR"
+
       echo "::group::[audit] runtime config"
       echo "repo=${{ inputs.repo }}"
-      echo "output_dir=${{ inputs.output_dir }}"
+      echo "output_dir=$OUTPUT_DIR"
       echo "max_turns=${{ inputs.max_turns }}"
       echo "model=${{ inputs.model || '(default)' }}"
       echo "clone_strategy=always"
@@ -110,7 +117,7 @@ runs:
       CMD=(
         uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent audit-repo
         --repo "${{ inputs.repo }}"
-        --output-dir "${{ inputs.output_dir }}"
+        --output-dir "$OUTPUT_DIR"
         --benchmarks "${{ inputs.benchmarks }}"
         --max-turns "${{ inputs.max_turns }}"
       )
@@ -128,20 +135,27 @@ runs:
   - name: Parse results
     id: results
     shell: bash
+    env:
+      INPUT_OUTPUT_DIR: ${{ inputs.output_dir }}
     run: |
       export PATH="$HOME/.local/bin:$PATH"
-      if [ -f "${{ inputs.output_dir }}/issues.json" ]; then
-        ISSUES_COUNT=$(uv run --directory "${GITHUB_ACTION_PATH}/../.." python -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
+      case "$INPUT_OUTPUT_DIR" in
+        /*) OUTPUT_DIR="$INPUT_OUTPUT_DIR" ;;
+        *) OUTPUT_DIR="${GITHUB_WORKSPACE}/${INPUT_OUTPUT_DIR#./}" ;;
+      esac
+
+      if [ -f "$OUTPUT_DIR/issues.json" ]; then
+        ISSUES_COUNT=$(uv run --directory "${GITHUB_ACTION_PATH}/../.." python -c "import json; print(len(json.load(open('$OUTPUT_DIR/issues.json')).get('issues', [])))")
         echo "issues_count=$ISSUES_COUNT" >> $GITHUB_OUTPUT
         echo "✅ Audit completed: $ISSUES_COUNT issues generated"
         echo "status=success" >> $GITHUB_OUTPUT
       else
         echo "::error::No issues.json found"
         echo "::group::[audit] output dir diagnostics"
-        if [ -d "${{ inputs.output_dir }}" ]; then
-          find "${{ inputs.output_dir }}" -maxdepth 3 -type f | sort || true
+        if [ -d "$OUTPUT_DIR" ]; then
+          find "$OUTPUT_DIR" -maxdepth 3 -type f | sort || true
         else
-          echo "output directory does not exist: ${{ inputs.output_dir }}"
+          echo "output directory does not exist: $OUTPUT_DIR"
         fi
         echo "::endgroup::"
         exit 1
@@ -165,7 +179,10 @@ runs:
       from gearbox.core.gh import post_issue_comment, post_review_comment
 
       repo = os.environ["GITHUB_REPOSITORY"]
-      comparison_path = Path(os.environ["OUTPUT_DIR"]) / "comparison.md"
+      output_dir = Path(os.environ["OUTPUT_DIR"])
+      if not output_dir.is_absolute():
+          output_dir = Path(os.environ["GITHUB_WORKSPACE"]) / str(output_dir).removeprefix("./")
+      comparison_path = output_dir / "comparison.md"
 
       if not comparison_path.exists():
           print("⚠️ No comparison.md found, skipping comment")

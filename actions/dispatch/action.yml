@@ -1,0 +1,95 @@
+name: Gearbox - Dispatch
+description: 从 ready backlog 中选择 Issue，并按优先级触发实现 PR
+author: gqy20
+
+inputs:
+  repo:
+    description: 仓库标识 (owner/name)
+    required: true
+  issue_number:
+    description: 指定 Issue 编号（可选）
+    required: false
+    default: ''
+  max_items:
+    description: 最多处理多少个 Issue
+    required: false
+    default: '1'
+  base_branch:
+    description: PR 目标分支
+    required: false
+    default: main
+  dry_run:
+    description: 是否只输出计划，不创建分支和 PR
+    required: false
+    default: 'true'
+  max_turns:
+    description: 最大对话轮次
+    required: false
+    default: '20'
+  model:
+    description: 使用的模型（可选）
+    required: false
+    default: ''
+  anthropic_base_url:
+    description: Anthropic 兼容接口 Base URL（可选）
+    required: false
+    default: ''
+  anthropic_api_key:
+    description: Anthropic API Key
+    required: false
+    default: ''
+
+outputs:
+  status:
+    description: 执行状态
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+  - name: Setup Gearbox runtime
+    uses: ./actions/_runtime
+
+  - name: Run Dispatch
+    id: run
+    shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+      GH_TOKEN: ${{ github.token }}
+    run: |
+      set -e
+
+      if [ -n "$ANTHROPIC_API_KEY" ]; then
+        export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+      fi
+      if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+        export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
+      fi
+      export PATH="$HOME/.local/bin:$PATH"
+
+      CMD=(
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox dispatch run
+        --repo "${{ inputs.repo }}"
+        --max-items "${{ inputs.max_items }}"
+        --base-branch "${{ inputs.base_branch }}"
+        --max-turns "${{ inputs.max_turns }}"
+      )
+
+      if [ -n "${{ inputs.issue_number }}" ]; then
+        CMD+=(--issue "${{ inputs.issue_number }}")
+      fi
+
+      if [ -n "${{ inputs.model }}" ]; then
+        CMD+=(--model "${{ inputs.model }}")
+      fi
+
+      if [ "${{ inputs.dry_run }}" = "true" ]; then
+        CMD+=(--dry-run)
+      else
+        CMD+=(--no-dry-run)
+      fi
+
+      "${CMD[@]}"
+
+      echo "status=success" >> "$GITHUB_OUTPUT"

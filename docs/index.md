@@ -57,6 +57,7 @@ Agent 共享层:
 | 扫描工具 | `actions/_setup/action.yml` | 基于 `_runtime`，额外安装 audit 需要的静态扫描工具 |
 | CLI | `src/gearbox/cli.py` | 命令行入口，解析参数 |
 | Agent | `src/gearbox/agents/*.py` | audit、backlog、review、implement 等业务逻辑；backlog 实现在 `agents/backlog.py` |
+| Flow 编排 | `src/gearbox/flow/*.py` | 不调用 LLM 的确定性流程，例如 dispatch 选择和排序 |
 | Agent 共享层 | `src/gearbox/agents/shared/*.py` | SDK runtime、structured output、scanner、artifacts、selection |
 | GitHub 操作 | `src/gearbox/core/gh.py` | Issue、PR、comment、label 等 GitHub API 封装 |
 
@@ -66,6 +67,7 @@ Agent 共享层:
 | --- | --- | --- |
 | `audit` | 审计仓库，发现改进建议 | `repo`, `benchmarks` |
 | `backlog` | 单个或多个 Issue 分类打标 | `repo`, `issues` |
+| `dispatch` | 从 ready backlog 中选择 Issue 并触发实现 PR | `repo`, `max_items`, `dry_run` |
 | `review` | PR Code Review | `repo`, `pr_number` |
 | `implement` | 实现 Issue 并创建 PR | `repo`, `issue_number` |
 | `publish` | 发布 `issues.json` 为 GitHub Issues | `input_path` |
@@ -116,6 +118,25 @@ workflow_dispatch / @backlog
 Backlog 的单 Issue 和多 Issue 都走同一入口：`issues` 只有一个编号时就是单 Issue
 分类，多个编号时就是批量分类。聚合阶段按 Issue 分组，每个 Issue 只会选出一个
 胜出结果并写回一次 GitHub 副作用。
+
+### Dispatch 执行流程
+
+`dispatch` 是确定性编排层，不重新实现一个全能 Agent。它只负责从 backlog 标签中
+选择下一个适合开发的 Issue，再复用已有 Implement Agent。
+
+```text
+workflow_dispatch / @dispatch
+  -> fetch open issues with ready-to-implement
+  -> exclude needs-clarification / in-progress / has-pr
+  -> sort by priority, complexity, issue number
+  -> dry-run plan by default
+  -> --no-dry-run calls implement agent
+  -> create PR
+  -> label issue with in-progress / has-pr
+```
+
+默认排序规则是 `P0 > P1 > P2 > P3`，同优先级下 `S > M > L`。为了避免误创建
+PR，`dispatch` 默认 `dry_run=true`；只有显式关闭 dry-run 才会进入实现阶段。
 
 ### 高级 reusable workflow
 
@@ -237,7 +258,8 @@ Marketplace 发布由 `.github/workflows/release-marketplace.yml` 负责：
 - [x] Phase 4: workflow-native matrix、artifact 聚合、选优
 - [x] Phase 5: CHANGELOG 驱动的 Marketplace 发布说明
 - [x] Phase 6: backlog 内部入口与 audit 编排体验对齐
-- [ ] Phase 7: review / implement 内部入口与 audit 编排体验完全对齐
+- [x] Phase 7: dispatch dry-run 与 ready backlog 选择
+- [ ] Phase 8: review / implement 内部入口与 audit 编排体验完全对齐
 
 ## 调研文档
 

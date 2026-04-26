@@ -80,12 +80,16 @@ gh workflow run backlog.yml -f issues='2,5,6'
 
 # 审查指定 PR
 gh workflow run review.yml -f pr_number=456
+
+# 从 ready backlog 中选择最高优先级 Issue（默认 dry-run）
+gh workflow run dispatch.yml
 ```
 
 也可以在 Issue / PR 评论中用工作流专属 mention 触发，避免一次评论误触发多个流程：
 
 - `@audit`：触发仓库审计。
 - `@backlog`：触发当前 Issue 分类。
+- `@dispatch`：从当前 Issue 或 ready backlog 触发实现计划（默认 dry-run）。
 - `@review`：触发 PR 审查。
 
 ### 对外轻量接入
@@ -114,6 +118,19 @@ Backlog 会写入类型标签、优先级标签、复杂度标签和状态标签
     action: backlog
     repo: owner/repo
     issues: '2,5,6'
+    anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+```
+
+实现阶段使用 `dispatch`。它默认只输出计划，不创建 PR；确认选择逻辑可靠后，
+显式设置 `dry_run: 'false'` 才会调用已有 Implement Agent。
+
+```yaml
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: dispatch
+    repo: owner/repo
+    max_items: '1'
+    dry_run: 'true'
     anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 ```
 
@@ -183,6 +200,7 @@ gearbox/
 │   ├── main/                    # 内部路由层，导出时成为根 action.yml
 │   ├── audit/                   # 审计 action
 │   ├── backlog/                 # backlog 分类 action
+│   ├── dispatch/                # 从 ready backlog 选择 Issue 并触发实现
 │   ├── review/                  # 审查 action
 │   ├── implement/               # 实现 action
 │   └── publish/                 # 发布 action
@@ -190,12 +208,14 @@ gearbox/
 │   ├── ci.yml                   # ruff / mypy / pytest
 │   ├── audit.yml                # 当前验证过的内部 audit matrix 编排
 │   ├── backlog.yml              # Issue/backlog 分类入口
+│   ├── dispatch.yml             # ready backlog → implement PR 入口
 │   ├── review.yml               # PR 审查入口
 │   ├── reusable-*.yml           # 高级编排模板
 │   └── release-marketplace.yml  # Marketplace 发布流程
 └── src/gearbox/
     ├── cli.py                   # CLI 入口
     ├── core/                    # GitHub 操作封装
+    ├── flow/                    # 确定性编排：dispatch 计划、排序、过滤
     └── agents/
         ├── *.py                 # 具体 Agent
         └── shared/              # runtime / structured / artifacts / scanner / selection

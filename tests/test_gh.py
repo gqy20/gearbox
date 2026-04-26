@@ -7,11 +7,14 @@ import pytest
 
 from gearbox.core.gh import (
     VALID_ISSUE_LABELS,
+    IssueSummary,
     add_issue_labels,
     build_issue_body,
     build_review_body,
     create_issue,
+    get_issue_summary,
     get_repo_labels,
+    list_open_issues,
     post_issue_comment,
     replace_managed_issue_labels,
 )
@@ -166,6 +169,49 @@ class TestGetRepoLabels:
         monkeypatch.setattr(subprocess, "run", mock_run)
 
         assert get_repo_labels("owner/repo") == []
+
+
+class TestIssueListing:
+    """测试 Issue 查询摘要。"""
+
+    def test_list_open_issues_returns_summaries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(
+            return_value=MagicMock(
+                stdout=(
+                    '[{"number":7,"title":"T","labels":[{"name":"P1"}],'
+                    '"url":"https://github.com/o/r/issues/7","createdAt":"2026-04-26T00:00:00Z"}]'
+                )
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        issues = list_open_issues("owner/repo", labels=["ready-to-implement"], limit=50)
+
+        assert issues == [
+            IssueSummary(
+                number=7,
+                title="T",
+                labels=["P1"],
+                url="https://github.com/o/r/issues/7",
+                created_at="2026-04-26T00:00:00Z",
+            )
+        ]
+        cmd = mock_run.call_args.args[0]
+        assert cmd[-2:] == ["--label", "ready-to-implement"]
+        assert "--limit" in cmd
+        assert "50" in cmd
+
+    def test_get_issue_summary_returns_none_for_closed_issue(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(
+            return_value=MagicMock(
+                stdout='{"number":7,"title":"T","labels":[],"url":"","createdAt":"","state":"CLOSED"}'
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert get_issue_summary("owner/repo", 7) is None
 
 
 class TestCreateIssue:

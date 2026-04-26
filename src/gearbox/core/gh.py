@@ -19,6 +19,15 @@ class CreatePrResult:
     error: str | None = None
 
 
+@dataclass
+class IssueSummary:
+    number: int
+    title: str
+    labels: list[str]
+    url: str
+    created_at: str
+
+
 BACKLOG_LABEL_METADATA: dict[str, tuple[str, str]] = {
     "P0": ("b60205", "生产环境故障、数据丢失风险"),
     "P1": ("d93f0b", "核心功能受损、用户体验严重下降"),
@@ -29,6 +38,8 @@ BACKLOG_LABEL_METADATA: dict[str, tuple[str, str]] = {
     "complexity:L": ("f9d0c4", "高复杂度，预计超过 3 天"),
     "needs-clarification": ("d876e3", "需要补充信息或进一步澄清"),
     "ready-to-implement": ("0e8a16", "需求清晰，可进入实现阶段"),
+    "in-progress": ("fbca04", "Gearbox 正在处理"),
+    "has-pr": ("0e8a16", "已有关联 PR"),
 }
 
 MANAGED_BACKLOG_LABELS = frozenset(BACKLOG_LABEL_METADATA)
@@ -234,6 +245,75 @@ def get_issue_labels(repo: str, issue_number: int) -> list[str]:
         return [str(label) for label in labels]
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return []
+
+
+def list_open_issues(
+    repo: str, labels: list[str] | None = None, limit: int = 100
+) -> list[IssueSummary]:
+    """列出开放 Issue 摘要。"""
+    cmd = [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,labels,url,createdAt",
+    ]
+    for label in labels or []:
+        cmd.extend(["--label", label])
+
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        issues = json.loads(result.stdout)
+        return [
+            IssueSummary(
+                number=int(issue["number"]),
+                title=str(issue["title"]),
+                labels=[str(label["name"]) for label in issue.get("labels", [])],
+                url=str(issue.get("url", "")),
+                created_at=str(issue.get("createdAt", "")),
+            )
+            for issue in issues
+        ]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+        return []
+
+
+def get_issue_summary(repo: str, issue_number: int) -> IssueSummary | None:
+    """获取单个开放 Issue 摘要。"""
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "issue",
+                "view",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--json",
+                "number,title,labels,url,createdAt,state",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        issue = json.loads(result.stdout)
+        if issue.get("state") != "OPEN":
+            return None
+        return IssueSummary(
+            number=int(issue["number"]),
+            title=str(issue["title"]),
+            labels=[str(label["name"]) for label in issue.get("labels", [])],
+            url=str(issue.get("url", "")),
+            created_at=str(issue.get("createdAt", "")),
+        )
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+        return None
 
 
 def replace_managed_issue_labels(

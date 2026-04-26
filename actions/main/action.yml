@@ -8,7 +8,7 @@ branding:
 
 inputs:
   action:
-    description: 'Action to run: audit, backlog, implement, review, publish'
+    description: 'Action to run: audit, backlog, dispatch, implement, review, publish'
     required: true
   repo:
     description: 仓库标识 (owner/name)
@@ -30,6 +30,14 @@ inputs:
     description: issues.json 文件路径
     required: false
     default: ''
+  max_items:
+    description: dispatch 最多处理多少个 Issue
+    required: false
+    default: '1'
+  dry_run:
+    description: dispatch 是否只输出计划，不创建分支和 PR
+    required: false
+    default: 'true'
   benchmarks:
     description: 逗号分隔的对标仓库列表（可选）
     required: false
@@ -86,7 +94,7 @@ runs:
     shell: bash
     run: |
       case "${{ inputs.action }}" in
-        audit|backlog|implement|review|publish) ;;
+        audit|backlog|dispatch|implement|review|publish) ;;
         *)
           echo "::error::Unsupported action '${{ inputs.action }}'"
           exit 1
@@ -136,6 +144,21 @@ runs:
       anthropic_base_url: ${{ inputs.anthropic_base_url }}
       anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
+  - name: Run Dispatch
+    id: dispatch
+    if: ${{ inputs.action == 'dispatch' }}
+    uses: ./actions/dispatch
+    with:
+      repo: ${{ inputs.repo }}
+      issue_number: ${{ inputs.issue_number }}
+      max_items: ${{ inputs.max_items }}
+      base_branch: ${{ inputs.base_branch }}
+      dry_run: ${{ inputs.dry_run }}
+      max_turns: ${{ inputs.max_turns }}
+      model: ${{ inputs.model }}
+      anthropic_base_url: ${{ inputs.anthropic_base_url }}
+      anthropic_api_key: ${{ inputs.anthropic_api_key }}
+
   - name: Run Review
     id: review
     if: ${{ inputs.action == 'review' }}
@@ -162,6 +185,7 @@ runs:
       AUDIT_STATUS: ${{ steps.audit.outputs.status }}
       BACKLOG_STATUS: ${{ steps.backlog.outputs.status }}
       IMPLEMENT_STATUS: ${{ steps.implement.outputs.status }}
+      DISPATCH_STATUS: ${{ steps.dispatch.outputs.status }}
       REVIEW_STATUS: ${{ steps.review.outputs.status }}
       PUBLISH_STATUS: ${{ steps.publish.outputs.status }}
       AUDIT_ISSUES_COUNT: ${{ steps.audit.outputs.issues_count }}
@@ -169,6 +193,7 @@ runs:
       STATUS="$AUDIT_STATUS"
       if [ -z "$STATUS" ]; then STATUS="$BACKLOG_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$IMPLEMENT_STATUS"; fi
+      if [ -z "$STATUS" ]; then STATUS="$DISPATCH_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$REVIEW_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$PUBLISH_STATUS"; fi
 

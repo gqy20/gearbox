@@ -4,6 +4,7 @@ import asyncio
 import json
 import subprocess
 import traceback
+from dataclasses import asdict
 from pathlib import Path
 
 import click
@@ -38,6 +39,7 @@ from .config import (
     set_provider,
 )
 from .core.gh import (
+    add_issue_labels,
     build_review_body,
     create_issue,
     create_pr,
@@ -48,6 +50,7 @@ from .core.gh import (
     prepare_working_branch,
     replace_managed_issue_labels,
 )
+from .flow import DispatchPlan, build_dispatch_plan
 from .release import build_marketplace_bundle, release_notes_for_version
 
 
@@ -767,6 +770,141 @@ def implement_select(
             click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
 
     result_to_github_output(winner_result, output)
+
+
+# =============================================================================
+# Dispatch 命令
+# =============================================================================
+
+
+def _echo_dispatch_plan(plan: DispatchPlan, *, as_json: bool = False) -> None:
+    if as_json:
+        click.echo(json.dumps(asdict(plan), ensure_ascii=False, indent=2))
+        return
+
+    click.echo(f"📋 Dispatch plan: repo={plan.repo}, dry_run={plan.dry_run}")
+    click.echo(f"候选: {len(plan.items)} | 跳过: {plan.skipped_count}")
+    for index, item in enumerate(plan.items, start=1):
+        click.echo(
+            f"{index}. #{item.issue_number} [{item.priority}/{item.complexity}] {item.title}"
+        )
+        click.echo(f"   {item.reason}")
+        if item.url:
+            click.echo(f"   {item.url}")
+
+
+@cli.group()
+def dispatch() -> None:
+    """从 ready backlog 中选择 Issue 并触发实现。"""
+    pass
+
+
+@dispatch.command("plan")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", "issue_number", type=int, default=None, help="只规划指定 Issue")
+@click.option("--max-items", default=1, type=int, help="最多选择多少个 Issue")
+@click.option("--json-output", is_flag=True, help="输出 JSON 计划")
+def dispatch_plan(repo: str, issue_number: int | None, max_items: int, json_output: bool) -> None:
+    """只生成实现计划，不创建分支或 PR。"""
+    try:
+        plan = build_dispatch_plan(
+            repo,
+            issue_number=issue_number,
+            max_items=max_items,
+            dry_run=True,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    _echo_dispatch_plan(plan, as_json=json_output)
+
+
+@dispatch.command("run")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", "issue_number", type=int, default=None, help="只实现指定 Issue")
+@click.option("--max-items", default=1, type=int, help="最多实现多少个 Issue")
+@click.option("--base-branch", default="main", help="PR 目标分支")
+@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
+@click.option(
+    "--max-turns", default=AGENT_DEFAULTS["max_turns"]["implement"], type=int, help="最大对话轮次"
+)
+@click.option(
+    "--dry-run/--no-dry-run",
+    default=True,
+    help="默认只展示计划；显式 --no-dry-run 才会创建分支和 PR",
+)
+def dispatch_run(
+    repo: str,
+    issue_number: int | None,
+    max_items: int,
+    base_branch: str,
+    model: str,
+    max_turns: int,
+    dry_run: bool,
+) -> None:
+    """执行 dispatch 计划，复用已有 Implement Agent。"""
+    from gearbox.config import get_anthropic_model
+
+    try:
+        plan = build_dispatch_plan(
+            repo,
+            issue_number=issue_number,
+            max_items=max_items,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    _echo_dispatch_plan(plan)
+    if dry_run or not plan.items:
+        return
+
+    resolved_model = model or get_anthropic_model()
+    for item in plan.items:
+        click.echo(f"🚀 Dispatching issue #{item.issue_number}")
+        label_result = add_issue_labels(repo, item.issue_number, ["in-progress"])
+        if not label_result.success:
+            click.echo(f"⚠️ 标记 in-progress 失败: {label_result.url}", err=True)
+
+        temp_branch = prepare_working_branch(base_branch)
+        result = asyncio.run(
+            run_implement(
+                repo,
+                item.issue_number,
+                model=resolved_model,
+                base_branch=base_branch,
+                max_turns=max_turns,
+            )
+        )
+        if not result.ready_for_review or not result.branch_name:
+            click.echo(f"⚠️ Issue #{item.issue_number} 未生成可 review 的实现", err=True)
+            continue
+
+        commit_msg = f"feat: {result.summary}\n\nCloses #{item.issue_number}"
+        pr_body = (
+            f"## Summary\n\n{result.summary}\n\n"
+            f"## Dispatch\n\n{item.reason}\n\nCloses #{item.issue_number}"
+        )
+        pr_result = finalize_and_create_pr(
+            repo=repo,
+            temp_branch=temp_branch,
+            final_branch=result.branch_name,
+            commit_message=commit_msg,
+            pr_title=f"feat(#{item.issue_number}): {result.summary}",
+            pr_body=pr_body,
+            base=base_branch,
+        )
+        if not pr_result.success:
+            click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
+            continue
+
+        add_issue_labels(repo, item.issue_number, ["has-pr"])
+        post_issue_comment(
+            repo,
+            item.issue_number,
+            f"✅ Gearbox 已创建实现 PR: {pr_result.pr_url}",
+        )
+        click.echo(f"✅ PR created: {pr_result.pr_url}")
 
 
 # =============================================================================

@@ -155,6 +155,7 @@ class TestPackageMarketplaceCommand:
             assert result.exit_code == 0
             assert (bundle_root / "action.yml").exists()
             assert (bundle_root / "actions" / "audit" / "action.yml").exists()
+            assert (bundle_root / "actions" / "dispatch" / "action.yml").exists()
 
 
 class TestConfigCommand:
@@ -361,3 +362,77 @@ class TestAgentCommand:
     def test_agent_audit_repo_requires_repo(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "audit-repo"])
         assert result.exit_code != 0
+
+
+class TestDispatchCommand:
+    """测试 dispatch 命令组。"""
+
+    def test_dispatch_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["dispatch", "--help"])
+        assert result.exit_code == 0
+        assert "plan" in result.output
+        assert "run" in result.output
+
+    def test_dispatch_plan_outputs_selected_issue(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.flow.models import DispatchItem, DispatchPlan
+
+        monkeypatch.setattr(
+            "gearbox.cli.build_dispatch_plan",
+            lambda *args, **kwargs: DispatchPlan(
+                repo="owner/repo",
+                dry_run=True,
+                skipped_count=1,
+                items=[
+                    DispatchItem(
+                        issue_number=7,
+                        title="Fix CI",
+                        labels=["ready-to-implement", "P1"],
+                        priority="P1",
+                        complexity="S",
+                        url="https://github.com/owner/repo/issues/7",
+                        reason="ready-to-implement, priority=P1, complexity=S",
+                    )
+                ],
+            ),
+        )
+
+        result = runner.invoke(cli, ["dispatch", "plan", "--repo", "owner/repo"])
+
+        assert result.exit_code == 0
+        assert "#7 [P1/S] Fix CI" in result.output
+
+    def test_dispatch_run_defaults_to_dry_run(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.flow.models import DispatchItem, DispatchPlan
+
+        monkeypatch.setattr(
+            "gearbox.cli.build_dispatch_plan",
+            lambda *args, **kwargs: DispatchPlan(
+                repo="owner/repo",
+                dry_run=True,
+                skipped_count=0,
+                items=[
+                    DispatchItem(
+                        issue_number=7,
+                        title="Fix CI",
+                        labels=["ready-to-implement", "P1"],
+                        priority="P1",
+                        complexity="S",
+                        url="",
+                        reason="ready-to-implement, priority=P1, complexity=S",
+                    )
+                ],
+            ),
+        )
+        monkeypatch.setattr(
+            "gearbox.cli.run_implement",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+        )
+
+        result = runner.invoke(cli, ["dispatch", "run", "--repo", "owner/repo"])
+
+        assert result.exit_code == 0
+        assert "#7 [P1/S] Fix CI" in result.output

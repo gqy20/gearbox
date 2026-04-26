@@ -7,6 +7,15 @@
 
 ## [未发布]
 
+### 新增
+
+- 新增 `dispatch` action、CLI 与 workflow，用于从 `ready-to-implement`
+  backlog 中按优先级和复杂度选择 Issue，并复用现有 Implement Agent 创建 PR。
+- 新增 `src/gearbox/flow/` 确定性编排层，将候选筛选、排序和 dispatch 计划与
+  LLM Agent 层分离。
+- 新增 GitHub Issue 摘要查询原子能力，支持按标签拉取开放 Issue 和读取单个
+  Issue 的标签、标题、URL、创建时间。
+
 ### 变更
 
 - 这里记录尚未发布到 `gearbox-action` 的后续改动。

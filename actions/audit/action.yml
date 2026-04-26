@@ -87,6 +87,7 @@ runs:
         if [ -n "$ANTHROPIC_API_KEY" ]; then
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
+        export PATH="$HOME/.local/bin:$PATH"
 
         MODEL_ARG=""
         if [ -n "${{ inputs.model }}" ]; then
@@ -100,7 +101,7 @@ runs:
           SYSTEM_PROMPT_ARG="--system-prompt '${{ inputs.system_prompt }}'"
         fi
 
-        python3 -m gearbox.cli agent audit-repo \
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." python -m gearbox.cli agent audit-repo \
           --repo "${{ inputs.repo }}" \
           --output-dir "${{ inputs.output_dir }}" \
           --benchmarks "${{ inputs.benchmarks }}" \
@@ -113,8 +114,9 @@ runs:
       id: results
       shell: bash
       run: |
+        export PATH="$HOME/.local/bin:$PATH"
         if [ -f "${{ inputs.output_dir }}/issues.json" ]; then
-          ISSUES_COUNT=$(python3 -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
+          ISSUES_COUNT=$(uv run --directory "${GITHUB_ACTION_PATH}/../.." python -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
           echo "issues_count=$ISSUES_COUNT" >> $GITHUB_OUTPUT
           echo "✅ Audit completed: $ISSUES_COUNT issues generated"
         else
@@ -127,7 +129,8 @@ runs:
       if: inputs.is_comment_event == 'true'
       shell: bash
       run: |
-        python3 -c "
+        export PATH=\"$HOME/.local/bin:$PATH\"
+        uv run --directory \"${GITHUB_ACTION_PATH}/../..\" python -c "
         import os
         from gearbox.core.gh import post_issue_comment, post_review_comment
 

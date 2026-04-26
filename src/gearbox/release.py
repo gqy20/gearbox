@@ -78,6 +78,7 @@ def build_marketplace_bundle(output_dir: Path) -> Path:
         ignore=_ignore_runtime_junk,
     )
     shutil.copy2(project_root / "pyproject.toml", output_dir / "pyproject.toml")
+    shutil.copy2(project_root / "uv.lock", output_dir / "uv.lock")
 
     router_action = project_root / "actions" / "main" / "action.yml"
     router_text = router_action.read_text(encoding="utf-8")

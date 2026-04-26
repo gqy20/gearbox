@@ -13,6 +13,7 @@ def test_build_marketplace_bundle_writes_expected_files(tmp_path: Path) -> None:
     assert (output_dir / "action.yml").exists()
     assert (output_dir / "README.md").exists()
     assert (output_dir / "pyproject.toml").exists()
+    assert (output_dir / "uv.lock").exists()
     assert (output_dir / "actions" / "audit" / "action.yml").exists()
     assert (output_dir / "actions" / "_setup" / "action.yml").exists()
     assert (output_dir / "src" / "gearbox" / "cli.py").exists()
@@ -32,8 +33,12 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     assert "name: 'Gearbox'" in root_action
     assert "uses: ./actions/audit" in root_action
     assert "uses: ./actions/review" in root_action
-    assert "python3 -m pip install" in setup_action
-    assert "${GITHUB_ACTION_PATH}/../.." in setup_action
+    assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in setup_action
+    assert 'uv sync --directory "${GITHUB_ACTION_PATH}/../.."' in setup_action
+    assert "uv tool install semgrep" in setup_action
+    assert "uv tool install deptry" in setup_action
+    assert "python3 -m pip install" not in setup_action
+    assert "pip install deptry" not in setup_action
     assert "# Gearbox Action" in readme
     assert "Marketplace 发布仓" in readme
     assert "- `audit`" in readme

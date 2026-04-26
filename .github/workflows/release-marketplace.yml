@@ -23,16 +23,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v8
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
-      - name: Install Gearbox
-        run: python3 -m pip install --disable-pip-version-check .
+      - name: Sync Gearbox environment
+        run: uv sync
 
       - name: Package Marketplace bundle
-        run: python3 -m gearbox.cli package-marketplace --output-dir ./dist/gearbox-action
+        run: uv run gearbox package-marketplace --output-dir ./dist/gearbox-action
 
       - name: Resolve target branch
         id: target

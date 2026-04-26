@@ -49,13 +49,14 @@ runs:
         if [ -n "$ANTHROPIC_API_KEY" ]; then
           export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
         fi
+        export PATH="$HOME/.local/bin:$PATH"
 
         MODEL_ARG=""
         if [ -n "${{ inputs.model }}" ]; then
           MODEL_ARG="--model ${{ inputs.model }}"
         fi
 
-        python3 -m gearbox.cli agent review \
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." python -m gearbox.cli agent review \
           --repo "${{ inputs.repo }}" \
           --pr "${{ inputs.pr_number }}" \
           --max-turns "${{ inputs.max_turns }}" \

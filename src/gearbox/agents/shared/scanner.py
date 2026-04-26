@@ -41,6 +41,7 @@ class RepoScanResult:
     package_manager: str = ""  # pip/npm/go mod/maven
     has_docker: bool = False
     has_security_config: bool = False
+    tool_statuses: dict[str, str] = field(default_factory=dict)
 
 
 def _run_command(
@@ -82,13 +83,43 @@ def detect_project_type(repo_path: Path) -> tuple[str, str, bool, bool]:
     return "unknown", "", has_docker, False
 
 
-def run_cloc(repo_path: Path) -> dict[str, Any]:
+def _fallback_file_counts(repo_path: Path) -> tuple[int, int]:
+    excluded_dirs = {
+        ".git",
+        "__pycache__",
+        "node_modules",
+        "vendor",
+        "build",
+        "dist",
+        ".venv",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+    total_files = 0
+    total_lines = 0
+
+    for path in repo_path.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part in excluded_dirs for part in path.parts):
+            continue
+        total_files += 1
+        try:
+            total_lines += len(path.read_text(encoding="utf-8", errors="ignore").splitlines())
+        except Exception:
+            continue
+
+    return total_files, total_lines
+
+
+def run_cloc(repo_path: Path) -> tuple[dict[str, Any], str]:
     """执行 cloc 统计代码行数"""
-    returncode, stdout, _ = _run_command(
+    returncode, stdout, stderr = _run_command(
         [
             "cloc",
             "--json",
             "--exclude-dir=node_modules,.git,__pycache__,vendor,build,dist,.venv,.mypy_cache,.ruff_cache",
+            ".",
         ],
         repo_path,
     )
@@ -96,33 +127,41 @@ def run_cloc(repo_path: Path) -> dict[str, Any]:
         try:
             data = json.loads(stdout)
             assert isinstance(data, dict)
-            return data
+            return data, "ok"
         except (json.JSONDecodeError, AssertionError):
-            return {}
-    return {}
+            return {}, "parse_failed"
+    detail = stderr.strip() or "command_failed"
+    return {}, detail
 
 
-def run_semgrep(repo_path: Path) -> list[dict[str, Any]]:
+def run_semgrep(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     """执行 semgrep 扫描"""
     findings: list[dict[str, Any]] = []
+    had_success = False
+    last_error = "command_failed"
     for config in ["auto", "p/security"]:
-        returncode, stdout, _ = _run_command(
+        returncode, stdout, stderr = _run_command(
             ["semgrep", "scan", "--config=" + config, "--json", "--quiet"],
             repo_path,
             timeout=180,
         )
         if returncode == 0:
+            had_success = True
             try:
                 data = json.loads(stdout)
                 findings.extend(data.get("results", []))  # type: ignore[arg-type]
             except json.JSONDecodeError:
-                pass
-    return findings
+                return findings, "parse_failed"
+        else:
+            last_error = stderr.strip() or f"command_failed:{config}"
+    if had_success:
+        return findings, "ok"
+    return findings, last_error
 
 
-def run_trivy(repo_path: Path) -> list[dict[str, Any]]:
+def run_trivy(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     """执行 trivy 扫描"""
-    returncode, stdout, _ = _run_command(
+    returncode, stdout, stderr = _run_command(
         [
             "trivy",
             "fs",
@@ -140,15 +179,16 @@ def run_trivy(repo_path: Path) -> list[dict[str, Any]]:
             data = json.loads(stdout)
             results = data.get("Results", [])
             assert isinstance(results, list)
-            return results
+            return results, "ok"
         except (json.JSONDecodeError, AssertionError):
-            return []
-    return []
+            return [], "parse_failed"
+    detail = stderr.strip() or "command_failed"
+    return [], detail
 
 
-def run_deptry(repo_path: Path) -> list[dict[str, Any]]:
+def run_deptry(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     """执行 deptry 扫描 Python 依赖"""
-    returncode, stdout, _ = _run_command(
+    returncode, stdout, stderr = _run_command(
         ["deptry", ".", "--output-format", "json"],
         repo_path,
     )
@@ -157,15 +197,16 @@ def run_deptry(repo_path: Path) -> list[dict[str, Any]]:
             data = json.loads(stdout)
             issues = data.get("issues", [])
             assert isinstance(issues, list)
-            return issues
+            return issues, "ok"
         except (json.JSONDecodeError, AssertionError):
-            return []
-    return []
+            return [], "parse_failed"
+    detail = stderr.strip() or "command_failed"
+    return [], detail
 
 
-def run_govulncheck(repo_path: Path) -> list[dict[str, Any]]:
+def run_govulncheck(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     """执行 govulncheck 扫描 Go 漏洞"""
-    returncode, stdout, _ = _run_command(
+    returncode, stdout, stderr = _run_command(
         ["govulncheck", "./...", "-json"],
         repo_path,
     )
@@ -174,10 +215,11 @@ def run_govulncheck(repo_path: Path) -> list[dict[str, Any]]:
             data = json.loads(stdout)
             vulns = data.get("vulnerabilities", [])
             assert isinstance(vulns, list)
-            return vulns
+            return vulns, "ok"
         except (json.JSONDecodeError, AssertionError):
-            return []
-    return []
+            return [], "parse_failed"
+    detail = stderr.strip() or "command_failed"
+    return [], detail
 
 
 def scan_repository(repo_path: Path) -> RepoScanResult:
@@ -195,7 +237,8 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
     ) = detect_project_type(repo_path)
 
     # 语言统计（快速，串行无影响）
-    cloc_data = run_cloc(repo_path)
+    cloc_data, cloc_status = run_cloc(repo_path)
+    result.tool_statuses["cloc"] = cloc_status
     if cloc_data.get("CJK", {}).get("nFiles", 0) > 0:
         # 跳过 CJK 统计(第三方库)
         langs = {k: v for k, v in cloc_data.items() if k not in ("CJK", "SUM", "header")}
@@ -210,22 +253,34 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
             + cloc_data["SUM"].get("blank", 0)
             + cloc_data["SUM"].get("comment", 0)
         )
+    else:
+        result.total_files, result.total_lines = _fallback_file_counts(repo_path)
+        result.tool_statuses["cloc"] = f"{cloc_status}+fallback"
 
     # 收集需要并行执行的扫描任务
-    scan_tasks: list[tuple[str, Callable[[], Any]]] = []
+    scan_tasks: list[tuple[str, Callable[[], tuple[Any, str]]]] = []
 
     if result.project_type in ("python", "mixed"):
         scan_tasks.append(("deptry", lambda: run_deptry(repo_path)))
         scan_tasks.append(("trivy", lambda: run_trivy(repo_path)))
+    else:
+        result.tool_statuses["deptry"] = "skipped"
 
     if result.project_type in ("typescript", "mixed"):
         scan_tasks.append(("semgrep", lambda: run_semgrep(repo_path)))
+    else:
+        result.tool_statuses["semgrep"] = "skipped"
 
     if result.project_type == "go":
         scan_tasks.append(("govulncheck", lambda: run_govulncheck(repo_path)))
         scan_tasks.append(("trivy", lambda: run_trivy(repo_path)))
     elif result.project_type == "typescript":
         scan_tasks.append(("trivy", lambda: run_trivy(repo_path)))
+        result.tool_statuses["govulncheck"] = "skipped"
+    else:
+        result.tool_statuses["govulncheck"] = "skipped"
+        if result.project_type not in ("python", "mixed"):
+            result.tool_statuses["trivy"] = "skipped"
 
     # 并行执行 I/O 密集型任务
     if scan_tasks:
@@ -236,7 +291,8 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
             for future in concurrent.futures.as_completed(future_to_tool):
                 tool_name = future_to_tool[future]
                 try:
-                    result_data = future.result()
+                    result_data, status = future.result()
+                    result.tool_statuses[tool_name] = status
                     if tool_name == "deptry":
                         result.deptry_issues = result_data
                         result.deptry_scanned = True
@@ -249,9 +305,8 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
                     elif tool_name == "govulncheck":
                         result.govulncheck_vulns = result_data
                         result.govulncheck_scanned = True
-                except Exception:
-                    # 静默忽略，让 Agent 自行决定是否需要补充
-                    pass
+                except Exception as exc:
+                    result.tool_statuses[tool_name] = f"exception:{exc}"
 
     return result
 
@@ -309,11 +364,13 @@ def format_scan_summary(scan: RepoScanResult) -> str:
             "total_code_issues": len(scan.semgrep_findings),
             "total_dependency_issues": len(scan.deptry_issues),
             "scanned_tools": {
+                "cloc": scan.tool_statuses.get("cloc", "unknown"),
                 "trivy": scan.trivy_scanned,
                 "semgrep": scan.semgrep_scanned,
                 "deptry": scan.deptry_scanned,
                 "govulncheck": scan.govulncheck_scanned,
             },
+            "tool_statuses": scan.tool_statuses,
         },
     }
 

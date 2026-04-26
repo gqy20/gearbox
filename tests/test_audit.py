@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from gearbox.agents.audit import _clone_repository
+from gearbox.agents.shared.scanner import scan_repository
 
 
 def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:
@@ -44,3 +45,22 @@ def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:
         assert (clone_root / ".git").exists()
     finally:
         clone_dir.cleanup()
+
+
+def test_scan_repository_counts_local_python_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[project]\nname = 'demo'\nversion = '0.1.0'\n",
+        encoding="utf-8",
+    )
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    result = scan_repository(repo)
+
+    assert result.project_type == "python"
+    assert result.total_files >= 1
+    assert result.total_lines >= 1
+    assert result.tool_statuses["cloc"] == "ok" or result.tool_statuses["cloc"].endswith(
+        "+fallback"
+    )

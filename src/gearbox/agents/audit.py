@@ -298,34 +298,25 @@ async def run_audit(
                 scan_summary = format_scan_summary(scan_result)
                 click.echo("✅ 扫描完成")
 
-                # 打印扫描摘要
                 click.echo(
                     f"📊 扫描结果: {scan_result.total_files} 文件, "
                     f"{scan_result.total_lines} 行代码, "
                     f"{scan_result.project_type} 项目"
                 )
-                if scan_result.trivy_scanned and scan_result.trivy_vulnerabilities:
-                    crit = [
-                        v
-                        for v in scan_result.trivy_vulnerabilities
-                        if v.get("Severity", "").upper() in ("CRITICAL", "HIGH")
-                    ]
-                    click.echo(
-                        f"🔴 发现 {len(scan_result.trivy_vulnerabilities)} 个漏洞 "
-                        f"(CRITICAL/HIGH: {len(crit)})"
-                    )
-                if scan_result.semgrep_scanned and scan_result.semgrep_findings:
-                    errors = [
-                        f
-                        for f in scan_result.semgrep_findings
-                        if f.get("severity", "").upper() == "ERROR"
-                    ]
-                    click.echo(
-                        f"⚠️  发现 {len(scan_result.semgrep_findings)} 个代码问题 "
-                        f"(ERROR: {len(errors)})"
-                    )
-                if scan_result.deptry_scanned and scan_result.deptry_issues:
-                    click.echo(f"📦 发现 {len(scan_result.deptry_issues)} 个依赖问题")
+                click.echo(
+                    "🧪 工具状态: "
+                    f"cloc={scan_result.tool_statuses.get('cloc', 'unknown')}, "
+                    f"deptry={scan_result.tool_statuses.get('deptry', 'unknown')}, "
+                    f"semgrep={scan_result.tool_statuses.get('semgrep', 'unknown')}, "
+                    f"trivy={scan_result.tool_statuses.get('trivy', 'unknown')}, "
+                    f"govulncheck={scan_result.tool_statuses.get('govulncheck', 'unknown')}"
+                )
+                click.echo(
+                    f"📦 依赖问题: {len(scan_result.deptry_issues)} | "
+                    f"⚠️ 代码问题: {len(scan_result.semgrep_findings)} | "
+                    f"🔴 漏洞: {len(scan_result.trivy_vulnerabilities)} | "
+                    f"🛡️ Go 漏洞: {len(scan_result.govulncheck_vulns)}"
+                )
             except Exception as e:
                 click.echo(f"⚠️ 扫描失败: {e}", err=True)
 

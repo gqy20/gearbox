@@ -1,0 +1,74 @@
+# Dependabot configuration for automatic dependency updates and security scanning
+# See https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+
+updates:
+  # Python dependencies (managed via uv / pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    # Group updates to reduce noise — one PR per update type
+    groups:
+      # Production dependencies: keep together to avoid compatibility issues
+      production-deps:
+        patterns:
+          - "claude-agent-sdk"
+          - "click"
+          - "pydantic"
+          - "tomli*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Dev / tooling dependencies: safe to batch
+      dev-deps:
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "mypy"
+        update-types:
+          - "minor"
+          - "patch"
+    # Ignore major version bumps for production deps — require manual review
+    ignore:
+      - dependency-name: "claude-agent-sdk"
+        update-types: ["version-update:major"]
+      - dependency-name: "pydantic"
+        update-types: ["version-update:major"]
+    labels:
+      - "dependencies"
+      - "python"
+    reviewers:
+      - "gqy20"
+    commit-message:
+      prefix: "deps"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    # Group action updates together
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "gqy20"
+    commit-message:
+      prefix: "ci"

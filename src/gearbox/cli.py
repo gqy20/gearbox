@@ -9,6 +9,15 @@ from pathlib import Path
 import click
 
 from .agents.audit import load_audit_result, promote_audit_outputs, run_audit
+from .agents.backlog import (
+    BacklogItemResult,
+    BacklogResult,
+    github_labels_for_backlog_item,
+    load_backlog_result,
+    parse_issue_numbers,
+    run_backlog_item,
+    write_backlog_result,
+)
 from .agents.implement import (
     load_implement_result,
     run_implement,
@@ -17,15 +26,6 @@ from .agents.implement import (
 from .agents.review import load_review_result, run_review, write_review_result
 from .agents.shared.github_output import format_currency, result_to_github_output
 from .agents.shared.selection import select_best_result
-from .agents.triage import (
-    BacklogResult,
-    TriageResult,
-    github_labels_for_backlog_item,
-    load_backlog_result,
-    parse_issue_numbers,
-    run_triage,
-    write_backlog_result,
-)
 from .config import (
     AGENT_DEFAULTS,
     get_config_path,
@@ -313,7 +313,7 @@ def backlog(
     resolved_model = model or get_anthropic_model()
     items = [
         asyncio.run(
-            run_triage(
+            run_backlog_item(
                 repo,
                 issue_number,
                 model=resolved_model,
@@ -591,7 +591,7 @@ def backlog_select(
         click.echo(f"❌ 未找到任何 backlog 结果: {input_root}", err=True)
         raise click.Abort()
 
-    by_issue: dict[int, list[tuple[str, TriageResult]]] = {}
+    by_issue: dict[int, list[tuple[str, BacklogItemResult]]] = {}
     for name, result_path in candidate_files:
         backlog_result = load_backlog_result(result_path)
         for item in backlog_result.items:
@@ -599,7 +599,7 @@ def backlog_select(
                 raise click.ClickException(f"{result_path} missing issue_number")
             by_issue.setdefault(item.issue_number, []).append((name, item))
 
-    selected_items: list[TriageResult] = []
+    selected_items: list[BacklogItemResult] = []
     for issue_number in sorted(by_issue):
         candidates = by_issue[issue_number]
         names = [name for name, _ in candidates]

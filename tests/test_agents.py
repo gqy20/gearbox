@@ -4,18 +4,18 @@ from dataclasses import dataclass
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
-from gearbox.agents import triage
+from gearbox.agents import backlog
 from gearbox.agents.audit import AuditResult, Issue
+from gearbox.agents.backlog import (
+    BacklogItemResult,
+    BacklogResult,
+    github_labels_for_backlog_item,
+    parse_issue_numbers,
+)
 from gearbox.agents.evaluator import EvaluationResult, build_evaluation_prompt
 from gearbox.agents.implement import ImplementResult
 from gearbox.agents.review import ReviewComment, ReviewResult
 from gearbox.agents.shared.structured import parse_structured_output
-from gearbox.agents.triage import (
-    BacklogResult,
-    TriageResult,
-    github_labels_for_backlog_item,
-    parse_issue_numbers,
-)
 
 
 def _result_message(data: dict) -> ResultMessage:
@@ -63,7 +63,7 @@ class TestStructuredOutputParsing:
         assert result.repo == "owner/repo"
         assert len(result.issues) == 1
 
-    def test_triage_mapping(self) -> None:
+    def test_backlog_item_mapping(self) -> None:
         message = _result_message(
             {
                 "labels": ["bug", "high-priority"],
@@ -74,7 +74,7 @@ class TestStructuredOutputParsing:
                 "ready_to_implement": True,
             }
         )
-        result = parse_structured_output(message, lambda data: TriageResult(**data))
+        result = parse_structured_output(message, lambda data: BacklogItemResult(**data))
         assert result is not None
         assert result.labels == ["bug", "high-priority"]
         assert result.ready_to_implement is True
@@ -98,14 +98,14 @@ class TestStructuredOutputParsing:
             ],
         )
 
-        result = parse_structured_output(message, lambda data: TriageResult(**data))
+        result = parse_structured_output(message, lambda data: BacklogItemResult(**data))
 
         assert result is not None
         assert result.labels == ["enhancement", "ci"]
         assert result.priority == "P2"
 
-    def test_triage_result_maps_metadata_to_github_labels(self) -> None:
-        result = TriageResult(
+    def test_backlog_item_maps_metadata_to_github_labels(self) -> None:
+        result = BacklogItemResult(
             labels=["documentation", "enhancement", "P1"],
             priority="P1",
             complexity="M",
@@ -122,8 +122,8 @@ class TestStructuredOutputParsing:
             "ready-to-implement",
         ]
 
-    def test_triage_result_maps_clarification_status_to_github_label(self) -> None:
-        result = TriageResult(
+    def test_backlog_item_maps_clarification_status_to_github_label(self) -> None:
+        result = BacklogItemResult(
             labels=["question"],
             priority="P2",
             complexity="S",
@@ -145,7 +145,7 @@ class TestStructuredOutputParsing:
     def test_backlog_result_contains_issue_items(self) -> None:
         result = BacklogResult(
             items=[
-                TriageResult(
+                BacklogItemResult(
                     issue_number=5,
                     labels=["enhancement", "ci"],
                     priority="P2",
@@ -159,7 +159,7 @@ class TestStructuredOutputParsing:
 
         assert result.items[0].issue_number == 5
 
-    def test_triage_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
+    def test_backlog_issue_view_keeps_labels_as_single_json_array(self, monkeypatch) -> None:
         captured_cmd: list[str] = []
 
         class FakeCompletedProcess:
@@ -170,9 +170,9 @@ class TestStructuredOutputParsing:
             captured_cmd.extend(cmd)
             return FakeCompletedProcess()
 
-        monkeypatch.setattr(triage.subprocess, "run", fake_run)
+        monkeypatch.setattr(backlog.subprocess, "run", fake_run)
 
-        issue = triage._gh_issue_view("owner/repo", 1)
+        issue = backlog._gh_issue_view("owner/repo", 1)
 
         assert issue["labels"] == ["bug", "docs"]
         assert "{title:.title,body:.body,labels:[.labels[].name],state:.state}" in captured_cmd
@@ -255,8 +255,8 @@ class TestEvaluatorPrompt:
             FakeResult(labels=["bug"], priority="P1"),
             FakeResult(labels=["enhancement"], priority="P2"),
         ]
-        prompt = build_evaluation_prompt(results, "Triage 结果", ["run_0", "run_1"])
-        assert "2 个 Triage 结果" in prompt
+        prompt = build_evaluation_prompt(results, "Backlog 结果", ["run_0", "run_1"])
+        assert "2 个 Backlog 结果" in prompt
         assert "run_0" in prompt
         assert "run_1" in prompt
         assert "bug" in prompt

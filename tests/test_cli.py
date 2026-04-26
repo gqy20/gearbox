@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from gearbox.agents.triage import TriageResult
+from gearbox.agents.backlog import BacklogItemResult
 from gearbox.cli import _candidate_result_files, cli
 from gearbox.core.gh import PostReviewResult
 
@@ -260,9 +260,11 @@ class TestAgentCommand:
     def test_agent_backlog_runs_multiple_issues(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        async def fake_run_triage(repo: str, issue_number: int, **kwargs) -> TriageResult:
+        async def fake_run_backlog_item(
+            repo: str, issue_number: int, **kwargs
+        ) -> BacklogItemResult:
             del repo, kwargs
-            return TriageResult(
+            return BacklogItemResult(
                 issue_number=issue_number,
                 labels=["enhancement"],
                 priority="P2",
@@ -272,7 +274,7 @@ class TestAgentCommand:
                 ready_to_implement=True,
             )
 
-        monkeypatch.setattr("gearbox.cli.run_triage", fake_run_triage)
+        monkeypatch.setattr("gearbox.cli.run_backlog_item", fake_run_backlog_item)
 
         artifact_path = tmp_path / "backlog.json"
         result = runner.invoke(

@@ -2,6 +2,8 @@
 
 from .audit import OUTPUT_SCHEMA as AUDIT_SCHEMA
 from .audit import AuditResult, Issue, run_audit
+from .backlog import OUTPUT_SCHEMA as BACKLOG_SCHEMA
+from .backlog import BacklogItemResult, run_backlog_item
 from .evaluator import EVALUATOR_SCHEMA, EvaluationResult, run_evaluator
 from .implement import OUTPUT_SCHEMA as IMPLEMENT_SCHEMA
 from .implement import ImplementResult, run_implement
@@ -19,8 +21,6 @@ from .shared import (
     to_jsonable,
     write_json_artifact,
 )
-from .triage import OUTPUT_SCHEMA as TRIAGE_SCHEMA
-from .triage import TriageResult, run_triage
 
 __all__ = [
     # Audit
@@ -42,10 +42,10 @@ __all__ = [
     "EvaluationResult",
     "EVALUATOR_SCHEMA",
     "run_evaluator",
-    # Triage
-    "TriageResult",
-    "TRIAGE_SCHEMA",
-    "run_triage",
+    # Backlog
+    "BacklogItemResult",
+    "BACKLOG_SCHEMA",
+    "run_backlog_item",
     # Implement
     "ImplementResult",
     "IMPLEMENT_SCHEMA",

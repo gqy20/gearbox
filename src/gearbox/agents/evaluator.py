@@ -84,7 +84,7 @@ def build_evaluation_prompt(
 
     Args:
         results: 结果列表
-        result_type: 结果类型描述（如 "Audit 结果"、"Triage 结果"）
+        result_type: 结果类型描述（如 "Audit 结果"、"Backlog 结果"）
         result_names: 可选的名称列表（如 ["质量角度", "安全角度"]）
 
     Returns:

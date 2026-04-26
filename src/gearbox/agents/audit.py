@@ -1,8 +1,8 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
-import subprocess
 import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -215,6 +215,10 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 - **代码扫描**: 已通过 cloc/semgrep/trivy/deptry 预扫描，不要重复执行
 - **依赖分析**: 已通过 deptry/govulncheck 预扫描，不要重复执行
 
+## 扫描结果
+
+仓库已经过静态分析（cloc/semgrep/trivy/deptry），结果以 JSON 格式提供在下方。请直接使用这些数据生成改进建议，不要重复执行扫描。
+
 ## 输出格式
 
 请只返回符合 JSON Schema 的结构化结果，不要自己写文件。宿主进程会把你的结果写成：
@@ -293,6 +297,35 @@ async def run_audit(
                 scan_result = scan_repository(clone_root)
                 scan_summary = format_scan_summary(scan_result)
                 click.echo("✅ 扫描完成")
+
+                # 打印扫描摘要
+                click.echo(
+                    f"📊 扫描结果: {scan_result.total_files} 文件, "
+                    f"{scan_result.total_lines} 行代码, "
+                    f"{scan_result.project_type} 项目"
+                )
+                if scan_result.trivy_scanned and scan_result.trivy_vulnerabilities:
+                    crit = [
+                        v
+                        for v in scan_result.trivy_vulnerabilities
+                        if v.get("Severity", "").upper() in ("CRITICAL", "HIGH")
+                    ]
+                    click.echo(
+                        f"🔴 发现 {len(scan_result.trivy_vulnerabilities)} 个漏洞 "
+                        f"(CRITICAL/HIGH: {len(crit)})"
+                    )
+                if scan_result.semgrep_scanned and scan_result.semgrep_findings:
+                    errors = [
+                        f
+                        for f in scan_result.semgrep_findings
+                        if f.get("severity", "").upper() == "ERROR"
+                    ]
+                    click.echo(
+                        f"⚠️  发现 {len(scan_result.semgrep_findings)} 个代码问题 "
+                        f"(ERROR: {len(errors)})"
+                    )
+                if scan_result.deptry_scanned and scan_result.deptry_issues:
+                    click.echo(f"📦 发现 {len(scan_result.deptry_issues)} 个依赖问题")
             except Exception as e:
                 click.echo(f"⚠️ 扫描失败: {e}", err=True)
 
@@ -305,12 +338,9 @@ async def run_audit(
         if scan_summary and enable_prescan:
             resolved_prompt = f"""{resolved_prompt}
 
-## 扫描结果 (来自预扫描)
-
+```json
 {scan_summary}
-
-请基于上述扫描结果，结合对标项目分析，生成针对性的改进建议。
-不要重复执行上述已完成的扫描，直接利用结果进行分析。"""
+```"""
 
         options, sdk_logger = prepare_agent_options(
             ClaudeAgentOptions(

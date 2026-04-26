@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from claude_agent_sdk import (
@@ -27,7 +27,7 @@ _HEARTBEAT_IDLE_THRESHOLD_SECONDS = 20.0
 
 
 def _timestamp() -> str:
-    return datetime.now(UTC).strftime("%H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 
 def _print_line(text: str) -> None:
@@ -38,17 +38,18 @@ def _log(agent: str, stage: str, message: str) -> None:
     _print_line(f"[{_timestamp()}] [{agent}] [{stage}] {message}")
 
 
-def _format_usage(usage: dict[str, int] | None) -> str:
+def _format_usage(usage: Any) -> str:
     if not usage:
         return ""
 
     parts: list[str] = []
-    if usage.get("total_tokens") is not None:
-        parts.append(f"tokens={usage['total_tokens']}")
-    if usage.get("tool_uses") is not None:
-        parts.append(f"tool_uses={usage['tool_uses']}")
-    if usage.get("duration_ms") is not None:
-        parts.append(f"duration_ms={usage['duration_ms']}")
+    if isinstance(usage, dict):
+        if usage.get("total_tokens") is not None:
+            parts.append(f"tokens={usage['total_tokens']}")
+        if usage.get("tool_uses") is not None:
+            parts.append(f"tool_uses={usage['tool_uses']}")
+        if usage.get("duration_ms") is not None:
+            parts.append(f"duration_ms={usage['duration_ms']}")
     return ", ".join(parts)
 
 
@@ -272,12 +273,12 @@ class SdkEventLogger:
             if self._current_block_type == "tool_use":
                 tool_name = _safe_get(event, "content_block", "name")
                 tool_input = _safe_get(event, "content_block", "input")
-                details = _format_tool_input(
+                tool_details = _format_tool_input(
                     str(tool_name or "unknown"),
                     tool_input if isinstance(tool_input, dict) else None,
                 )
-                if details:
-                    self._log("tool-use", f"tool={tool_name or 'unknown'}, {details}")
+                if tool_details:
+                    self._log("tool-use", f"tool={tool_name or 'unknown'}, {tool_details}")
                 else:
                     self._log("tool-use", f"tool={tool_name or 'unknown'}")
                 return

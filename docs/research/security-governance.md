@@ -66,7 +66,7 @@ inputs:
     TODAY=$(date +%Y-%m-%d)
     SPENT=$(cat .github/flywheel-audit/${TODAY}*.json 2>/dev/null \
       | jq -r '[.[].cost_estimated_usd] | add // 0')
-    
+
     if (( $(echo "$SPENT >= $DAILY_LIMIT" | bc -l) )); then
       echo "::error::Daily budget exceeded ($SPENT >= $DAILY_LIMIT)"
       exit 1
@@ -84,7 +84,7 @@ inputs:
       --limit 100 \
       --json databaseId \
       | jq 'length')
-    
+
     if [ "$COUNT" -ge 10 ]; then
       echo "::warning::Rate limit approached ($COUNT executions in last hour)"
       exit 1
@@ -314,9 +314,9 @@ guardrails:
     - "*.pem"              # 不碰私钥
     - "*.key"              # 不碰密钥
     - "secrets/"           # 不碰秘密目录
-  
+
   block_secret_patterns: true   # 检测输出中是否包含疑似 secret
-  
+
   require_confirmation_for:
     - deleting_files
     - modifying_ci_config

@@ -1,27 +1,27 @@
-name: 'Gearbox - Publish'
-description: '根据 issues.json 创建 GitHub Issues'
-author: 'gqy20'
+name: Gearbox - Publish
+description: 根据 issues.json 创建 GitHub Issues
+author: gqy20
 
 inputs:
   input_path:
-    description: 'issues.json 文件路径'
+    description: issues.json 文件路径
     required: true
 
 outputs:
   status:
-    description: '执行状态'
+    description: 执行状态
     value: ${{ steps.publish.outputs.status }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Setup tools
-      uses: ./actions/_setup
+  - name: Setup tools
+    uses: ./actions/_setup
 
-    - name: Publish Issues
-      id: publish
-      shell: bash
-      run: |
-        export PATH="$HOME/.local/bin:$PATH"
-        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox publish-issues --input "${{ inputs.input_path }}"
-        echo "status=success" >> $GITHUB_OUTPUT
+  - name: Publish Issues
+    id: publish
+    shell: bash
+    run: |
+      export PATH="$HOME/.local/bin:$PATH"
+      uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox publish-issues --input "${{ inputs.input_path }}"
+      echo "status=success" >> $GITHUB_OUTPUT

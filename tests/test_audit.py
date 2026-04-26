@@ -1,7 +1,7 @@
 """Tests for audit helpers."""
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from gearbox.agents.audit import _clone_repository
 
@@ -26,7 +26,9 @@ def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:
         text=True,
     )
     (source_repo / "README.md").write_text("hello\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=source_repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "README.md"], cwd=source_repo, check=True, capture_output=True, text=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "init"],
         cwd=source_repo,

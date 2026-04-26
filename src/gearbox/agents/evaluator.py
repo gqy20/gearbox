@@ -104,7 +104,7 @@ def build_evaluation_prompt(
 
 def _format_result_for_prompt(result: Any) -> str:
     """将结果格式化为 prompt 文本"""
-    if is_dataclass(result):
+    if is_dataclass(result) and not isinstance(result, type):
         data = asdict(result)
     elif hasattr(result, "__dict__"):
         data = {
@@ -179,12 +179,15 @@ async def run_evaluator(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if not structured:
-                structured = parse_structured_output(message, lambda data: EvaluationResult(
-                    winner=int(data.get("winner", 0)),
-                    scores={int(k): float(v) for k, v in data.get("scores", {}).items()},
-                    reasoning=data.get("reasoning", ""),
-                    consensus=data.get("consensus", []),
-                ))
+                structured = parse_structured_output(
+                    message,
+                    lambda data: EvaluationResult(
+                        winner=int(data.get("winner", 0)),
+                        scores={int(k): float(v) for k, v in data.get("scores", {}).items()},
+                        reasoning=data.get("reasoning", ""),
+                        consensus=data.get("consensus", []),
+                    ),
+                )
     finally:
         sdk_logger.log_completion()
 

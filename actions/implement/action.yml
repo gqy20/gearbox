@@ -1,76 +1,76 @@
-name: 'Gearbox - Implement'
-description: 'AI 驱动的 Issue → 分支/PR 自动实现'
-author: 'gqy20'
+name: Gearbox - Implement
+description: AI 驱动的 Issue → 分支/PR 自动实现
+author: gqy20
 
 inputs:
   repo:
-    description: '仓库标识 (owner/name)'
+    description: 仓库标识 (owner/name)
     required: true
   issue_number:
-    description: 'Issue 编号'
+    description: Issue 编号
     required: true
     type: number
   base_branch:
-    description: 'PR 目标分支'
+    description: PR 目标分支
     required: false
-    default: 'main'
+    default: main
   max_turns:
-    description: '最大对话轮次'
+    description: 最大对话轮次
     required: false
     default: '20'
   model:
-    description: '使用的模型（可选）'
+    description: 使用的模型（可选）
     required: false
     default: ''
   anthropic_base_url:
-    description: 'Anthropic 兼容接口 Base URL（可选）'
+    description: Anthropic 兼容接口 Base URL（可选）
     required: false
     default: ''
   anthropic_api_key:
-    description: 'Anthropic API Key'
+    description: Anthropic API Key
     required: false
     default: ''
 
 outputs:
   status:
-    description: '执行状态'
+    description: 执行状态
     value: ${{ steps.run.outputs.status }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Setup tools
-      uses: ./actions/_setup
+  - name: Setup tools
+    uses: ./actions/_setup
 
-    - name: Run Implement Agent
-      id: run
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
-      run: |
-        set -e
+  - name: Run Implement Agent
+    id: run
+    shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+    run: |
+      set -e
 
-        if [ -n "$ANTHROPIC_API_KEY" ]; then
-          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
-        fi
-        if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
-          export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
-        fi
-        export PATH="$HOME/.local/bin:$PATH"
+      if [ -n "$ANTHROPIC_API_KEY" ]; then
+        export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+      fi
+      if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+        export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
+      fi
+      export PATH="$HOME/.local/bin:$PATH"
 
-        CMD=(
-          uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement
-          --repo "${{ inputs.repo }}"
-          --issue "${{ inputs.issue_number }}"
-          --base-branch "${{ inputs.base_branch }}"
-          --max-turns "${{ inputs.max_turns }}"
-        )
+      CMD=(
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement
+        --repo "${{ inputs.repo }}"
+        --issue "${{ inputs.issue_number }}"
+        --base-branch "${{ inputs.base_branch }}"
+        --max-turns "${{ inputs.max_turns }}"
+      )
 
-        if [ -n "${{ inputs.model }}" ]; then
-          CMD+=(--model "${{ inputs.model }}")
-        fi
+      if [ -n "${{ inputs.model }}" ]; then
+        CMD+=(--model "${{ inputs.model }}")
+      fi
 
-        "${CMD[@]}"
+      "${CMD[@]}"
 
-        echo "status=success" >> $GITHUB_OUTPUT
+      echo "status=success" >> $GITHUB_OUTPUT

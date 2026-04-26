@@ -6,7 +6,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass
@@ -181,7 +181,9 @@ def run_govulncheck(repo_path: Path) -> list[dict[str, Any]]:
 
 
 def scan_repository(repo_path: Path) -> RepoScanResult:
-    """对仓库执行全量静态分析扫描"""
+    """对仓库执行全量静态分析扫描（并行执行 I/O 密集型工具）"""
+    import concurrent.futures
+
     result = RepoScanResult(repo_path=str(repo_path))
 
     # 检测项目类型
@@ -192,7 +194,7 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
         result.has_security_config,
     ) = detect_project_type(repo_path)
 
-    # 语言统计
+    # 语言统计（快速，串行无影响）
     cloc_data = run_cloc(repo_path)
     if cloc_data.get("CJK", {}).get("nFiles", 0) > 0:
         # 跳过 CJK 统计(第三方库)
@@ -209,102 +211,110 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
             + cloc_data["SUM"].get("comment", 0)
         )
 
-    # 根据项目类型选择性扫描
-    if result.project_type in ("python", "mixed"):
-        result.deptry_issues = run_deptry(repo_path)
-        result.deptry_scanned = True
+    # 收集需要并行执行的扫描任务
+    scan_tasks: list[tuple[str, Callable[[], Any]]] = []
 
-        result.trivy_vulnerabilities = run_trivy(repo_path)
-        result.trivy_scanned = True
+    if result.project_type in ("python", "mixed"):
+        scan_tasks.append(("deptry", lambda: run_deptry(repo_path)))
+        scan_tasks.append(("trivy", lambda: run_trivy(repo_path)))
 
     if result.project_type in ("typescript", "mixed"):
-        result.semgrep_findings = run_semgrep(repo_path)
-        result.semgrep_scanned = True
+        scan_tasks.append(("semgrep", lambda: run_semgrep(repo_path)))
 
     if result.project_type == "go":
-        result.govulncheck_vulns = run_govulncheck(repo_path)
-        result.govulncheck_scanned = True
-
-        result.trivy_vulnerabilities = run_trivy(repo_path)
-        result.trivy_scanned = True
+        scan_tasks.append(("govulncheck", lambda: run_govulncheck(repo_path)))
+        scan_tasks.append(("trivy", lambda: run_trivy(repo_path)))
     elif result.project_type == "typescript":
-        result.trivy_vulnerabilities = run_trivy(repo_path)
-        result.trivy_scanned = True
+        scan_tasks.append(("trivy", lambda: run_trivy(repo_path)))
+
+    # 并行执行 I/O 密集型任务
+    if scan_tasks:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_tool: dict[concurrent.futures.Future, str] = {
+                executor.submit(task[1]): task[0] for task in scan_tasks
+            }
+            for future in concurrent.futures.as_completed(future_to_tool):
+                tool_name = future_to_tool[future]
+                try:
+                    result_data = future.result()
+                    if tool_name == "deptry":
+                        result.deptry_issues = result_data
+                        result.deptry_scanned = True
+                    elif tool_name == "trivy":
+                        result.trivy_vulnerabilities = result_data
+                        result.trivy_scanned = True
+                    elif tool_name == "semgrep":
+                        result.semgrep_findings = result_data
+                        result.semgrep_scanned = True
+                    elif tool_name == "govulncheck":
+                        result.govulncheck_vulns = result_data
+                        result.govulncheck_scanned = True
+                except Exception:
+                    # 静默忽略，让 Agent 自行决定是否需要补充
+                    pass
 
     return result
 
 
 def format_scan_summary(scan: RepoScanResult) -> str:
-    """将扫描结果格式化为 Agent 可读的摘要文本"""
-    lines = ["## 仓库扫描结果摘要\n"]
+    """将扫描结果格式化为 JSON（供 Agent 直接解析）"""
+    import json
 
-    # 基本信息
-    lines.append(f"- **项目类型**: {scan.project_type}")
-    lines.append(f"- **包管理器**: {scan.package_manager}")
-    lines.append(f"- **总文件数**: {scan.total_files}")
-    lines.append(f"- **总代码行数**: {scan.total_lines}")
-    lines.append(f"- **Docker**: {'是' if scan.has_docker else '否'}")
-    lines.append("")
+    payload: dict[str, Any] = {
+        "project_type": scan.project_type,
+        "package_manager": scan.package_manager,
+        "total_files": scan.total_files,
+        "total_lines": scan.total_lines,
+        "has_docker": scan.has_docker,
+        "languages": {
+            lang: {"code": stats.get("code", 0), "files": stats.get("nFiles", 0)}
+            for lang, stats in sorted(
+                scan.languages.items(),
+                key=lambda x: x[1].get("code", 0),
+                reverse=True,
+            )[:10]
+        },
+        "vulnerabilities": [
+            {
+                "id": v.get("VulnerabilityID", ""),
+                "severity": v.get("Severity", ""),
+                "title": v.get("Title", v.get("Description", ""))[:80],
+            }
+            for v in scan.trivy_vulnerabilities[:10]
+        ],
+        "govulncheck_vulns": [
+            {
+                "id": v.get("id", ""),
+                "description": v.get("details", {}).get("description", "")[:80],
+            }
+            for v in scan.govulncheck_vulns[:10]
+        ],
+        "code_issues": [
+            {
+                "severity": f.get("severity", "").upper(),
+                "rule": f.get("check_id", ""),
+                "message": f.get("message", "")[:100],
+            }
+            for f in scan.semgrep_findings[:15]
+        ],
+        "dependency_issues": [
+            {
+                "type": i.get("type", ""),
+                "message": i.get("message", "")[:100],
+            }
+            for i in scan.deptry_issues[:10]
+        ],
+        "_stats": {
+            "total_vulnerabilities": len(scan.trivy_vulnerabilities),
+            "total_code_issues": len(scan.semgrep_findings),
+            "total_dependency_issues": len(scan.deptry_issues),
+            "scanned_tools": {
+                "trivy": scan.trivy_scanned,
+                "semgrep": scan.semgrep_scanned,
+                "deptry": scan.deptry_scanned,
+                "govulncheck": scan.govulncheck_scanned,
+            },
+        },
+    }
 
-    # 语言分布
-    if scan.languages:
-        lines.append("### 语言分布")
-        sorted_langs = sorted(
-            scan.languages.items(),
-            key=lambda x: x[1].get("code", 0),
-            reverse=True,
-        )
-        for lang, stats in sorted_langs[:10]:
-            code = stats.get("code", 0)
-            files = stats.get("nFiles", 0)
-            lines.append(f"- **{lang}**: {code} 行代码, {files} 文件")
-        lines.append("")
-
-    # 安全问题摘要
-    if scan.trivy_scanned and scan.trivy_vulnerabilities:
-        crit_high = [
-            v
-            for v in scan.trivy_vulnerabilities
-            if v.get("Severity", "").upper() in ("CRITICAL", "HIGH")
-        ]
-        lines.append("### 安全漏洞 (trivy)")
-        lines.append(f"- 发现 **{len(scan.trivy_vulnerabilities)}** 个漏洞")
-        lines.append(f"- 其中 CRITICAL/HIGH: **{len(crit_high)}** 个")
-        if crit_high[:3]:
-            lines.append("  主要问题:")
-            for v in crit_high[:3]:
-                lines.append(
-                    f"  - {v.get('VulnerabilityID', '?')}: {v.get('Title', v.get('Description', '?')[:60])}"
-                )
-        lines.append("")
-
-    if scan.govulncheck_scanned and scan.govulncheck_vulns:
-        lines.append("### Go 漏洞 (govulncheck)")
-        lines.append(f"- 发现 **{len(scan.govulncheck_vulns)}** 个已知漏洞")
-        for v in scan.govulncheck_vulns[:3]:
-            lines.append(
-                f"  - {v.get('id', '?')}: {v.get('details', {}).get('description', '?')[:60]}"
-            )
-        lines.append("")
-
-    if scan.semgrep_scanned and scan.semgrep_findings:
-        lines.append("### 代码问题 (semgrep)")
-        lines.append(f"- 发现 **{len(scan.semgrep_findings)}** 个问题")
-        # 按 severity 分类
-        errors = [f for f in scan.semgrep_findings if f.get("severity", "").upper() == "ERROR"]
-        if errors:
-            lines.append(f"- 其中 ERROR 级别: **{len(errors)}** 个")
-        if errors[:3]:
-            lines.append("  主要问题:")
-            for e in errors[:3]:
-                lines.append(f"  - {e.get('check_id', '?')}: {e.get('message', '?')[:60]}")
-        lines.append("")
-
-    if scan.deptry_scanned and scan.deptry_issues:
-        lines.append("### Python 依赖问题 (deptry)")
-        lines.append(f"- 发现 **{len(scan.deptry_issues)}** 个依赖问题")
-        for issue in scan.deptry_issues[:3]:
-            lines.append(f"  - [{issue.get('type', '?')}] {issue.get('message', '?')[:60]}")
-        lines.append("")
-
-    return "\n".join(lines)
+    return json.dumps(payload, ensure_ascii=False, indent=2)

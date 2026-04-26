@@ -26,12 +26,8 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     build_marketplace_bundle(output_dir)
 
     root_action = (output_dir / "action.yml").read_text(encoding="utf-8")
-    setup_action = (output_dir / "actions" / "_setup" / "action.yml").read_text(
-        encoding="utf-8"
-    )
-    audit_action = (output_dir / "actions" / "audit" / "action.yml").read_text(
-        encoding="utf-8"
-    )
+    setup_action = (output_dir / "actions" / "_setup" / "action.yml").read_text(encoding="utf-8")
+    audit_action = (output_dir / "actions" / "audit" / "action.yml").read_text(encoding="utf-8")
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
 
     assert "name: 'Gearbox'" in root_action

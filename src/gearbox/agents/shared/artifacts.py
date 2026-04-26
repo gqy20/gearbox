@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def to_jsonable(value: object) -> object:
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     if isinstance(value, list):
         return [to_jsonable(item) for item in value]
@@ -19,8 +19,12 @@ def to_jsonable(value: object) -> object:
 
 def write_json_artifact(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(
+        json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
-def read_json_artifact(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+def read_json_artifact(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    return data

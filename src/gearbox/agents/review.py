@@ -240,19 +240,19 @@ async def run_review(
             if not structured:
                 structured = parse_structured_output(
                     message,
-                        lambda data: ReviewResult(
-                            verdict=cast(str, data.get("verdict", "Comment Only")),
-                            score=cast(int, data.get("score", 5)),
-                            summary=cast(str, data.get("summary", "")),
-                            comments=[
-                                ReviewComment(
-                                    file=cast(str, comment.get("file", "")),
-                                    line=_coerce_optional_line(comment.get("line")),
-                                    body=cast(str, comment.get("body", "")),
-                                    severity=cast(str, comment.get("severity", "info")),
-                                )
-                                for comment in cast(list[dict[str, object]], data.get("comments", []))
-                            ],
+                    lambda data: ReviewResult(
+                        verdict=cast(str, data.get("verdict", "Comment Only")),
+                        score=cast(int, data.get("score", 5)),
+                        summary=cast(str, data.get("summary", "")),
+                        comments=[
+                            ReviewComment(
+                                file=cast(str, comment.get("file", "")),
+                                line=_coerce_optional_line(comment.get("line")),
+                                body=cast(str, comment.get("body", "")),
+                                severity=cast(str, comment.get("severity", "info")),
+                            )
+                            for comment in cast(list[dict[str, object]], data.get("comments", []))
+                        ],
                     ),
                 )
     finally:

@@ -33,8 +33,7 @@ from .core.gh import (
     post_review_comment,
     prepare_working_branch,
 )
-from .release import build_marketplace_bundle
-from .release import release_notes_for_version
+from .release import build_marketplace_bundle, release_notes_for_version
 
 
 @click.group()
@@ -394,12 +393,8 @@ def implement(
     "--max-turns", default=AGENT_DEFAULTS["max_turns"]["audit"], type=int, help="最大对话轮次"
 )
 @click.option("--system-prompt", default="", help="自定义 System Prompt（可选）")
-@click.option(
-    "--output", default="/tmp/github_output", help="输出文件路径"
-)
-@click.option(
-    "--no-prescan", is_flag=True, help="跳过预扫描步骤（静态分析）"
-)
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+@click.option("--no-prescan", is_flag=True, help="跳过预扫描步骤（静态分析）")
 def audit_repo(
     repo: str,
     benchmarks: str,
@@ -426,9 +421,7 @@ def audit_repo(
             enable_prescan=not no_prescan,
         )
     )
-    click.echo(
-        f"✅ Audit: {len(result.issues)} issues, cost={format_currency(result.cost)}"
-    )
+    click.echo(f"✅ Audit: {len(result.issues)} issues, cost={format_currency(result.cost)}")
 
     result_to_github_output(result, output)
 
@@ -586,7 +579,9 @@ def review_select(
         {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
         for c in winner_result.comments
     ]
-    body = build_review_body(winner_result.verdict, winner_result.score, winner_result.summary, comments)
+    body = build_review_body(
+        winner_result.verdict, winner_result.score, winner_result.summary, comments
+    )
     event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
         winner_result.verdict, "COMMENT"
     )

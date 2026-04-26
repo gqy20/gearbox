@@ -1,24 +1,24 @@
-name: 'Gearbox Examples'
+name: Gearbox Examples
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '运行模式'
+        description: 运行模式
         required: true
-        default: 'action-audit'
+        default: action-audit
         type: choice
         options:
-          - action-audit
-          - reusable-audit
-          - reusable-triage
-          - reusable-review
+        - action-audit
+        - reusable-audit
+        - reusable-triage
+        - reusable-review
       issue_number:
-        description: 'Issue 编号（triage 用）'
+        description: Issue 编号（triage 用）
         required: false
         type: number
       pr_number:
-        description: 'PR 编号（review 用）'
+        description: PR 编号（review 用）
         required: false
         type: number
 
@@ -27,15 +27,15 @@ jobs:
     if: github.event.inputs.mode == 'action-audit'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: ./actions/main
-        with:
-          action: audit
-          repo: ${{ github.repository }}
-          benchmarks: github/copilot
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-          model: ${{ secrets.ANTHROPIC_MODEL }}
+    - uses: actions/checkout@v5
+    - uses: ./actions/main
+      with:
+        action: audit
+        repo: ${{ github.repository }}
+        benchmarks: github/copilot
+        anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+        model: ${{ secrets.ANTHROPIC_MODEL }}
 
   reusable-audit:
     if: github.event.inputs.mode == 'reusable-audit'

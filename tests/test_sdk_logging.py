@@ -104,7 +104,11 @@ class TestSdkEventLogger:
             )
         )
 
-        assert ("audit", "tool-use", "tool=Read, path=tests/test_cli.py, offset=10, limit=50") in entries
+        assert (
+            "audit",
+            "tool-use",
+            "tool=Read, path=tests/test_cli.py, offset=10, limit=50",
+        ) in entries
 
     def test_tool_use_logs_bash_command_summary(
         self,
@@ -128,7 +132,7 @@ class TestSdkEventLogger:
                         "type": "tool_use",
                         "name": "Bash",
                         "input": {
-                            "command": "rg -n \"workflow_call\" .github/workflows",
+                            "command": 'rg -n "workflow_call" .github/workflows',
                         },
                     },
                 },

@@ -1,21 +1,21 @@
-name: 'Gearbox - Triage'
-description: 'AI 驱动的 Issue 自动分类、优先级判断和标签管理'
-author: 'gqy20'
+name: Gearbox - Triage
+description: AI 驱动的 Issue 自动分类、优先级判断和标签管理
+author: gqy20
 
 inputs:
   repo:
-    description: '仓库标识 (owner/name)'
+    description: 仓库标识 (owner/name)
     required: true
   issue_number:
-    description: 'Issue 编号'
+    description: Issue 编号
     required: true
     type: number
   max_turns:
-    description: '最大对话轮次'
+    description: 最大对话轮次
     required: false
     default: '5'
   model:
-    description: '使用的模型（可选）'
+    description: 使用的模型（可选）
     required: false
     default: ''
   artifact_path:
@@ -23,65 +23,65 @@ inputs:
     required: false
     default: ''
   apply_side_effects:
-    description: '是否应用 GitHub 标签/评论副作用'
+    description: 是否应用 GitHub 标签/评论副作用
     required: false
     default: 'true'
   anthropic_base_url:
-    description: 'Anthropic 兼容接口 Base URL（可选）'
+    description: Anthropic 兼容接口 Base URL（可选）
     required: false
     default: ''
   anthropic_api_key:
-    description: 'Anthropic API Key'
+    description: Anthropic API Key
     required: false
     default: ''
 
 outputs:
   status:
-    description: '执行状态'
+    description: 执行状态
     value: ${{ steps.run.outputs.status }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Setup tools
-      uses: ./actions/_setup
+  - name: Setup tools
+    uses: ./actions/_setup
 
-    - name: Run Triage Agent
-      id: run
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
-      run: |
-        set -e
+  - name: Run Triage Agent
+    id: run
+    shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+    run: |
+      set -e
 
-        if [ -n "$ANTHROPIC_API_KEY" ]; then
-          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
-        fi
-        if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
-          export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
-        fi
-        export PATH="$HOME/.local/bin:$PATH"
+      if [ -n "$ANTHROPIC_API_KEY" ]; then
+        export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+      fi
+      if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+        export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
+      fi
+      export PATH="$HOME/.local/bin:$PATH"
 
-        CMD=(
-          uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent triage
-          --repo "${{ inputs.repo }}"
-          --issue "${{ inputs.issue_number }}"
-          --max-turns "${{ inputs.max_turns }}"
-        )
+      CMD=(
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent triage
+        --repo "${{ inputs.repo }}"
+        --issue "${{ inputs.issue_number }}"
+        --max-turns "${{ inputs.max_turns }}"
+      )
 
-        if [ -n "${{ inputs.model }}" ]; then
-          CMD+=(--model "${{ inputs.model }}")
-        fi
-        if [ -n "${{ inputs.artifact_path }}" ]; then
-          CMD+=(--artifact-path "${{ inputs.artifact_path }}")
-        fi
-        if [ "${{ inputs.apply_side_effects }}" = "true" ]; then
-          CMD+=(--apply-side-effects)
-        else
-          CMD+=(--no-apply-side-effects)
-        fi
+      if [ -n "${{ inputs.model }}" ]; then
+        CMD+=(--model "${{ inputs.model }}")
+      fi
+      if [ -n "${{ inputs.artifact_path }}" ]; then
+        CMD+=(--artifact-path "${{ inputs.artifact_path }}")
+      fi
+      if [ "${{ inputs.apply_side_effects }}" = "true" ]; then
+        CMD+=(--apply-side-effects)
+      else
+        CMD+=(--no-apply-side-effects)
+      fi
 
-        "${CMD[@]}"
+      "${CMD[@]}"
 
-        echo "status=success" >> $GITHUB_OUTPUT
+      echo "status=success" >> $GITHUB_OUTPUT

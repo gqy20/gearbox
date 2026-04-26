@@ -167,4 +167,4 @@ class TestEvaluatorPrompt:
         ]
         prompt = build_evaluation_prompt(results, "Audit 审计结果", ["run_0"])
         assert "owner/repo" in prompt
-        assert "\"title\": \"A\"" in prompt
+        assert '"title": "A"' in prompt

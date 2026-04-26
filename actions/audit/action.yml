@@ -1,182 +1,182 @@
-name: 'Gearbox - Audit'
-description: 'AI 驱动的仓库审计 - 发现改进建议'
-author: 'gqy20'
+name: Gearbox - Audit
+description: AI 驱动的仓库审计 - 发现改进建议
+author: gqy20
 
 inputs:
   repo:
-    description: '仓库标识 (owner/name)'
+    description: 仓库标识 (owner/name)
     required: true
   benchmarks:
-    description: '逗号分隔的对标仓库列表（可选）'
+    description: 逗号分隔的对标仓库列表（可选）
     required: false
     default: ''
   output_dir:
-    description: '输出目录'
+    description: 输出目录
     required: false
-    default: './output'
+    default: ./output
   max_turns:
-    description: '最大对话轮次'
+    description: 最大对话轮次
     required: false
     default: '50'
   system_prompt:
-    description: '自定义 System Prompt（可选）'
+    description: 自定义 System Prompt（可选）
     required: false
     default: ''
   model:
-    description: '使用的模型（可选）'
+    description: 使用的模型（可选）
     required: false
     default: ''
   anthropic_base_url:
-    description: 'Anthropic 兼容接口 Base URL（可选）'
+    description: Anthropic 兼容接口 Base URL（可选）
     required: false
     default: ''
   anthropic_api_key:
-    description: 'Anthropic API Key'
+    description: Anthropic API Key
     required: false
     default: ''
   is_comment_event:
-    description: '是否由 issue/PR 触发的评论事件'
+    description: 是否由 issue/PR 触发的评论事件
     required: false
     default: 'false'
   comment_event_type:
-    description: '事件类型 (issue_comment/issues/pull_request_review_comment)'
+    description: 事件类型 (issue_comment/issues/pull_request_review_comment)
     required: false
     default: ''
   issue_number:
-    description: 'Issue 编号（评论事件时）'
+    description: Issue 编号（评论事件时）
     required: false
     default: ''
   pr_number:
-    description: 'PR 编号（评论事件时）'
+    description: PR 编号（评论事件时）
     required: false
     default: ''
 
 outputs:
   issues_count:
-    description: '生成的 Issue 数量'
+    description: 生成的 Issue 数量
     value: ${{ steps.results.outputs.issues_count }}
   status:
-    description: '执行状态'
+    description: 执行状态
     value: ${{ steps.results.outputs.status }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Setup tools
-      uses: ./actions/_setup
+  - name: Setup tools
+    uses: ./actions/_setup
 
-    - name: Check API key
-      if: inputs.anthropic_api_key == ''
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-      run: |
-        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
-          echo "::error::API key required"
-          exit 1
-        fi
+  - name: Check API key
+    if: inputs.anthropic_api_key == ''
+    shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+    run: |
+      if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+        echo "::error::API key required"
+        exit 1
+      fi
 
-    - name: Run Audit Agent
-      id: run
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -e
+  - name: Run Audit Agent
+    id: run
+    shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+      GH_TOKEN: ${{ github.token }}
+    run: |
+      set -e
 
-        echo "::group::[audit] runtime config"
-        echo "repo=${{ inputs.repo }}"
-        echo "output_dir=${{ inputs.output_dir }}"
-        echo "max_turns=${{ inputs.max_turns }}"
-        echo "model=${{ inputs.model || '(default)' }}"
-        echo "clone_strategy=always"
-        if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
-          echo "anthropic_base_url=$ANTHROPIC_BASE_URL_INPUT"
+      echo "::group::[audit] runtime config"
+      echo "repo=${{ inputs.repo }}"
+      echo "output_dir=${{ inputs.output_dir }}"
+      echo "max_turns=${{ inputs.max_turns }}"
+      echo "model=${{ inputs.model || '(default)' }}"
+      echo "clone_strategy=always"
+      if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+        echo "anthropic_base_url=$ANTHROPIC_BASE_URL_INPUT"
+      else
+        echo "anthropic_base_url=(default)"
+      fi
+      echo "::endgroup::"
+
+      if [ -n "$ANTHROPIC_API_KEY" ]; then
+        export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+      fi
+      if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+        export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
+      fi
+      export PATH="$HOME/.local/bin:$PATH"
+
+      CMD=(
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent audit-repo
+        --repo "${{ inputs.repo }}"
+        --output-dir "${{ inputs.output_dir }}"
+        --benchmarks "${{ inputs.benchmarks }}"
+        --max-turns "${{ inputs.max_turns }}"
+      )
+
+      if [ -n "${{ inputs.system_prompt }}" ]; then
+        CMD+=(--system-prompt "${{ inputs.system_prompt }}")
+      fi
+
+      if [ -n "${{ inputs.model }}" ]; then
+        CMD+=(--model "${{ inputs.model }}")
+      fi
+
+      "${CMD[@]}"
+
+  - name: Parse results
+    id: results
+    shell: bash
+    run: |
+      export PATH="$HOME/.local/bin:$PATH"
+      if [ -f "${{ inputs.output_dir }}/issues.json" ]; then
+        ISSUES_COUNT=$(uv run --directory "${GITHUB_ACTION_PATH}/../.." python -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
+        echo "issues_count=$ISSUES_COUNT" >> $GITHUB_OUTPUT
+        echo "✅ Audit completed: $ISSUES_COUNT issues generated"
+        echo "status=success" >> $GITHUB_OUTPUT
+      else
+        echo "::error::No issues.json found"
+        echo "::group::[audit] output dir diagnostics"
+        if [ -d "${{ inputs.output_dir }}" ]; then
+          find "${{ inputs.output_dir }}" -maxdepth 3 -type f | sort || true
         else
-          echo "anthropic_base_url=(default)"
+          echo "output directory does not exist: ${{ inputs.output_dir }}"
         fi
         echo "::endgroup::"
+        exit 1
+      fi
 
-        if [ -n "$ANTHROPIC_API_KEY" ]; then
-          export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
-        fi
-        if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
-          export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL_INPUT"
-        fi
-        export PATH="$HOME/.local/bin:$PATH"
+  - name: Comment results (if triggered by issue/PR)
+    if: inputs.is_comment_event == 'true'
+    shell: bash
+    run: |
+      export PATH=\"$HOME/.local/bin:$PATH\"
+      uv run --directory \"${GITHUB_ACTION_PATH}/../..\" python -c "
+      import os
+      from gearbox.core.gh import post_issue_comment, post_review_comment
 
-        CMD=(
-          uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent audit-repo
-          --repo "${{ inputs.repo }}"
-          --output-dir "${{ inputs.output_dir }}"
-          --benchmarks "${{ inputs.benchmarks }}"
-          --max-turns "${{ inputs.max_turns }}"
-        )
+      repo = os.environ['GITHUB_REPOSITORY']
+      comparison_path = '${{ inputs.output_dir }}/comparison.md'
 
-        if [ -n "${{ inputs.system_prompt }}" ]; then
-          CMD+=(--system-prompt "${{ inputs.system_prompt }}")
-        fi
+      if not os.path.exists(comparison_path):
+        print('⚠️ No comparison.md found, skipping comment')
+        exit(0)
 
-        if [ -n "${{ inputs.model }}" ]; then
-          CMD+=(--model "${{ inputs.model }}")
-        fi
+      with open(comparison_path, 'r') as f:
+        body = f.read()
 
-        "${CMD[@]}"
+      event_type = '${{ inputs.comment_event_type }}'
+      print(f'Event type: {event_type}')
 
-    - name: Parse results
-      id: results
-      shell: bash
-      run: |
-        export PATH="$HOME/.local/bin:$PATH"
-        if [ -f "${{ inputs.output_dir }}/issues.json" ]; then
-          ISSUES_COUNT=$(uv run --directory "${GITHUB_ACTION_PATH}/../.." python -c "import json; print(len(json.load(open('${{ inputs.output_dir }}/issues.json')).get('issues', [])))")
-          echo "issues_count=$ISSUES_COUNT" >> $GITHUB_OUTPUT
-          echo "✅ Audit completed: $ISSUES_COUNT issues generated"
-          echo "status=success" >> $GITHUB_OUTPUT
-        else
-          echo "::error::No issues.json found"
-          echo "::group::[audit] output dir diagnostics"
-          if [ -d "${{ inputs.output_dir }}" ]; then
-            find "${{ inputs.output_dir }}" -maxdepth 3 -type f | sort || true
-          else
-            echo "output directory does not exist: ${{ inputs.output_dir }}"
-          fi
-          echo "::endgroup::"
-          exit 1
-        fi
-
-    - name: Comment results (if triggered by issue/PR)
-      if: inputs.is_comment_event == 'true'
-      shell: bash
-      run: |
-        export PATH=\"$HOME/.local/bin:$PATH\"
-        uv run --directory \"${GITHUB_ACTION_PATH}/../..\" python -c "
-        import os
-        from gearbox.core.gh import post_issue_comment, post_review_comment
-
-        repo = os.environ['GITHUB_REPOSITORY']
-        comparison_path = '${{ inputs.output_dir }}/comparison.md'
-
-        if not os.path.exists(comparison_path):
-          print('⚠️ No comparison.md found, skipping comment')
-          exit(0)
-
-        with open(comparison_path, 'r') as f:
-          body = f.read()
-
-        event_type = '${{ inputs.comment_event_type }}'
-        print(f'Event type: {event_type}')
-
-        if event_type in ('issue_comment', 'issues'):
-          issue_number = int('${{ inputs.issue_number }}')
-          result = post_issue_comment(repo, issue_number, body)
-          print(f'Issue comment: {\"✅\" if result.success else \"❌\"}')
-        elif event_type == 'pull_request_review_comment':
-          pr_number = int('${{ inputs.pr_number }}')
-          result = post_review_comment(repo, pr_number, body)
-          print(f'PR comment: {\"✅\" if result.success else \"❌\"}')
-        "
-      env:
-        GITHUB_REPOSITORY: ${{ github.repository }}
+      if event_type in ('issue_comment', 'issues'):
+        issue_number = int('${{ inputs.issue_number }}')
+        result = post_issue_comment(repo, issue_number, body)
+        print(f'Issue comment: {\"✅\" if result.success else \"❌\"}')
+      elif event_type == 'pull_request_review_comment':
+        pr_number = int('${{ inputs.pr_number }}')
+        result = post_review_comment(repo, pr_number, body)
+        print(f'PR comment: {\"✅\" if result.success else \"❌\"}')
+      "
+    env:
+      GITHUB_REPOSITORY: ${{ github.repository }}

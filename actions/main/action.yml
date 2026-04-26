@@ -1,172 +1,172 @@
-name: 'Gearbox'
-description: 'Unified entrypoint for Gearbox actions'
-author: 'gqy20'
+name: Gearbox
+description: Unified entrypoint for Gearbox actions
+author: gqy20
 
 branding:
-  icon: 'package'
-  color: 'blue'
+  icon: package
+  color: blue
 
 inputs:
   action:
     description: 'Action to run: audit, triage, implement, review, publish'
     required: true
   repo:
-    description: '仓库标识 (owner/name)'
+    description: 仓库标识 (owner/name)
     required: false
     default: ''
   issue_number:
-    description: 'Issue 编号'
+    description: Issue 编号
     required: false
     default: ''
   pr_number:
-    description: 'PR 编号'
+    description: PR 编号
     required: false
     default: ''
   input_path:
-    description: 'issues.json 文件路径'
+    description: issues.json 文件路径
     required: false
     default: ''
   benchmarks:
-    description: '逗号分隔的对标仓库列表（可选）'
+    description: 逗号分隔的对标仓库列表（可选）
     required: false
     default: ''
   is_comment_event:
-    description: '是否由 issue/PR 触发的评论事件'
+    description: 是否由 issue/PR 触发的评论事件
     required: false
     default: 'false'
   comment_event_type:
-    description: '事件类型'
+    description: 事件类型
     required: false
     default: ''
   output_dir:
-    description: '输出目录'
+    description: 输出目录
     required: false
-    default: './output'
+    default: ./output
   system_prompt:
-    description: '自定义 System Prompt（audit 可选）'
+    description: 自定义 System Prompt（audit 可选）
     required: false
     default: ''
   base_branch:
-    description: 'PR 目标分支'
+    description: PR 目标分支
     required: false
-    default: 'main'
+    default: main
   max_turns:
-    description: '最大对话轮次'
+    description: 最大对话轮次
     required: false
     default: '20'
   model:
-    description: '使用的模型（可选）'
+    description: 使用的模型（可选）
     required: false
     default: ''
   anthropic_base_url:
-    description: 'Anthropic 兼容接口 Base URL（可选）'
+    description: Anthropic 兼容接口 Base URL（可选）
     required: false
     default: ''
   anthropic_api_key:
-    description: 'Anthropic API Key'
+    description: Anthropic API Key
     required: false
     default: ''
 
 outputs:
   status:
-    description: '执行状态'
+    description: 执行状态
     value: ${{ steps.outputs.outputs.status }}
   issues_count:
-    description: '生成的 Issue 数量（audit 时）'
+    description: 生成的 Issue 数量（audit 时）
     value: ${{ steps.outputs.outputs.issues_count }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Validate requested action
-      shell: bash
-      run: |
-        case "${{ inputs.action }}" in
-          audit|triage|implement|review|publish) ;;
-          *)
-            echo "::error::Unsupported action '${{ inputs.action }}'"
-            exit 1
-            ;;
-        esac
+  - name: Validate requested action
+    shell: bash
+    run: |
+      case "${{ inputs.action }}" in
+        audit|triage|implement|review|publish) ;;
+        *)
+          echo "::error::Unsupported action '${{ inputs.action }}'"
+          exit 1
+          ;;
+      esac
 
-    - name: Run Audit
-      id: audit
-      if: ${{ inputs.action == 'audit' }}
-      uses: ./actions/audit
-      with:
-        repo: ${{ inputs.repo }}
-        benchmarks: ${{ inputs.benchmarks }}
-        is_comment_event: ${{ inputs.is_comment_event }}
-        comment_event_type: ${{ inputs.comment_event_type }}
-        issue_number: ${{ inputs.issue_number }}
-        pr_number: ${{ inputs.pr_number }}
-        output_dir: ${{ inputs.output_dir }}
-        system_prompt: ${{ inputs.system_prompt }}
-        max_turns: ${{ inputs.max_turns }}
-        model: ${{ inputs.model }}
-        anthropic_base_url: ${{ inputs.anthropic_base_url }}
-        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+  - name: Run Audit
+    id: audit
+    if: ${{ inputs.action == 'audit' }}
+    uses: ./actions/audit
+    with:
+      repo: ${{ inputs.repo }}
+      benchmarks: ${{ inputs.benchmarks }}
+      is_comment_event: ${{ inputs.is_comment_event }}
+      comment_event_type: ${{ inputs.comment_event_type }}
+      issue_number: ${{ inputs.issue_number }}
+      pr_number: ${{ inputs.pr_number }}
+      output_dir: ${{ inputs.output_dir }}
+      system_prompt: ${{ inputs.system_prompt }}
+      max_turns: ${{ inputs.max_turns }}
+      model: ${{ inputs.model }}
+      anthropic_base_url: ${{ inputs.anthropic_base_url }}
+      anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
-    - name: Run Triage
-      id: triage
-      if: ${{ inputs.action == 'triage' }}
-      uses: ./actions/triage
-      with:
-        repo: ${{ inputs.repo }}
-        issue_number: ${{ inputs.issue_number }}
-        max_turns: ${{ inputs.max_turns }}
-        model: ${{ inputs.model }}
-        anthropic_base_url: ${{ inputs.anthropic_base_url }}
-        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+  - name: Run Triage
+    id: triage
+    if: ${{ inputs.action == 'triage' }}
+    uses: ./actions/triage
+    with:
+      repo: ${{ inputs.repo }}
+      issue_number: ${{ inputs.issue_number }}
+      max_turns: ${{ inputs.max_turns }}
+      model: ${{ inputs.model }}
+      anthropic_base_url: ${{ inputs.anthropic_base_url }}
+      anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
-    - name: Run Implement
-      id: implement
-      if: ${{ inputs.action == 'implement' }}
-      uses: ./actions/implement
-      with:
-        repo: ${{ inputs.repo }}
-        issue_number: ${{ inputs.issue_number }}
-        base_branch: ${{ inputs.base_branch }}
-        max_turns: ${{ inputs.max_turns }}
-        model: ${{ inputs.model }}
-        anthropic_base_url: ${{ inputs.anthropic_base_url }}
-        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+  - name: Run Implement
+    id: implement
+    if: ${{ inputs.action == 'implement' }}
+    uses: ./actions/implement
+    with:
+      repo: ${{ inputs.repo }}
+      issue_number: ${{ inputs.issue_number }}
+      base_branch: ${{ inputs.base_branch }}
+      max_turns: ${{ inputs.max_turns }}
+      model: ${{ inputs.model }}
+      anthropic_base_url: ${{ inputs.anthropic_base_url }}
+      anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
-    - name: Run Review
-      id: review
-      if: ${{ inputs.action == 'review' }}
-      uses: ./actions/review
-      with:
-        repo: ${{ inputs.repo }}
-        pr_number: ${{ inputs.pr_number }}
-        max_turns: ${{ inputs.max_turns }}
-        model: ${{ inputs.model }}
-        anthropic_base_url: ${{ inputs.anthropic_base_url }}
-        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+  - name: Run Review
+    id: review
+    if: ${{ inputs.action == 'review' }}
+    uses: ./actions/review
+    with:
+      repo: ${{ inputs.repo }}
+      pr_number: ${{ inputs.pr_number }}
+      max_turns: ${{ inputs.max_turns }}
+      model: ${{ inputs.model }}
+      anthropic_base_url: ${{ inputs.anthropic_base_url }}
+      anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
-    - name: Run Publish
-      id: publish
-      if: ${{ inputs.action == 'publish' }}
-      uses: ./actions/publish
-      with:
-        input_path: ${{ inputs.input_path }}
+  - name: Run Publish
+    id: publish
+    if: ${{ inputs.action == 'publish' }}
+    uses: ./actions/publish
+    with:
+      input_path: ${{ inputs.input_path }}
 
-    - name: Collect outputs
-      id: outputs
-      shell: bash
-      env:
-        AUDIT_STATUS: ${{ steps.audit.outputs.status }}
-        TRIAGE_STATUS: ${{ steps.triage.outputs.status }}
-        IMPLEMENT_STATUS: ${{ steps.implement.outputs.status }}
-        REVIEW_STATUS: ${{ steps.review.outputs.status }}
-        PUBLISH_STATUS: ${{ steps.publish.outputs.status }}
-        AUDIT_ISSUES_COUNT: ${{ steps.audit.outputs.issues_count }}
-      run: |
-        STATUS="$AUDIT_STATUS"
-        if [ -z "$STATUS" ]; then STATUS="$TRIAGE_STATUS"; fi
-        if [ -z "$STATUS" ]; then STATUS="$IMPLEMENT_STATUS"; fi
-        if [ -z "$STATUS" ]; then STATUS="$REVIEW_STATUS"; fi
-        if [ -z "$STATUS" ]; then STATUS="$PUBLISH_STATUS"; fi
+  - name: Collect outputs
+    id: outputs
+    shell: bash
+    env:
+      AUDIT_STATUS: ${{ steps.audit.outputs.status }}
+      TRIAGE_STATUS: ${{ steps.triage.outputs.status }}
+      IMPLEMENT_STATUS: ${{ steps.implement.outputs.status }}
+      REVIEW_STATUS: ${{ steps.review.outputs.status }}
+      PUBLISH_STATUS: ${{ steps.publish.outputs.status }}
+      AUDIT_ISSUES_COUNT: ${{ steps.audit.outputs.issues_count }}
+    run: |
+      STATUS="$AUDIT_STATUS"
+      if [ -z "$STATUS" ]; then STATUS="$TRIAGE_STATUS"; fi
+      if [ -z "$STATUS" ]; then STATUS="$IMPLEMENT_STATUS"; fi
+      if [ -z "$STATUS" ]; then STATUS="$REVIEW_STATUS"; fi
+      if [ -z "$STATUS" ]; then STATUS="$PUBLISH_STATUS"; fi
 
-        echo "status=${STATUS:-success}" >> "$GITHUB_OUTPUT"
-        echo "issues_count=${AUDIT_ISSUES_COUNT:-0}" >> "$GITHUB_OUTPUT"
+      echo "status=${STATUS:-success}" >> "$GITHUB_OUTPUT"
+      echo "issues_count=${AUDIT_ISSUES_COUNT:-0}" >> "$GITHUB_OUTPUT"

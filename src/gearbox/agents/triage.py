@@ -4,7 +4,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # =============================================================================
 # Schema 定义（形式化，代码和文档共用）
@@ -73,12 +73,12 @@ def load_triage_result(path: Path) -> TriageResult:
 
     data = read_json_artifact(path)
     return TriageResult(
-        labels=data.get("labels", []),
-        priority=data.get("priority", "P3"),
-        complexity=data.get("complexity", "M"),
-        needs_clarification=data.get("needs_clarification", False),
-        clarification_question=data.get("clarification_question"),
-        ready_to_implement=data.get("ready_to_implement", False),
+        labels=cast(list[str], data.get("labels", [])),
+        priority=cast(str, data.get("priority", "P3")),
+        complexity=cast(str, data.get("complexity", "M")),
+        needs_clarification=cast(bool, data.get("needs_clarification", False)),
+        clarification_question=cast(str | None, data.get("clarification_question")),
+        ready_to_implement=cast(bool, data.get("ready_to_implement", False)),
     )
 
 
@@ -209,14 +209,17 @@ async def run_triage(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if not structured:
-                structured = parse_structured_output(message, lambda data: TriageResult(
-                    labels=data.get("labels", []),
-                    priority=data.get("priority", "P3"),
-                    complexity=data.get("complexity", "M"),
-                    needs_clarification=data.get("needs_clarification", False),
-                    clarification_question=data.get("clarification_question"),
-                    ready_to_implement=data.get("ready_to_implement", False),
-                ))
+                structured = parse_structured_output(
+                    message,
+                    lambda data: TriageResult(
+                        labels=cast(list[str], data.get("labels", [])),
+                        priority=cast(str, data.get("priority", "P3")),
+                        complexity=cast(str, data.get("complexity", "M")),
+                        needs_clarification=cast(bool, data.get("needs_clarification", False)),
+                        clarification_question=cast(str | None, data.get("clarification_question")),
+                        ready_to_implement=cast(bool, data.get("ready_to_implement", False)),
+                    ),
+                )
     finally:
         sdk_logger.log_completion()
 

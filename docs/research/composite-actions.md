@@ -262,7 +262,7 @@ runs:
       run: |
         EVENT="${{ github.event_name }}"
         ACTION="${{ github.event.action }}"
-        
+
         case "$EVENT" in
           issues)
             if [ "$ACTION" = "opened" ]; then

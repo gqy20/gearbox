@@ -15,7 +15,7 @@ from gearbox.core.gh import (
     prepare_working_branch,
     remove_issue_labels,
 )
-from gearbox.flow import DispatchPlan, build_dispatch_plan
+from gearbox.flow import DispatchPlan, build_dispatch_plan, dispatch_branch_name
 
 
 def _echo_dispatch_plan(plan: DispatchPlan, *, as_json: bool = False) -> None:
@@ -121,6 +121,7 @@ def dispatch_run(
             if not result.ready_for_review or not result.branch_name:
                 raise click.ClickException(f"Issue #{item.issue_number} 未生成可 review 的实现")
 
+            final_branch = dispatch_branch_name(item.issue_number)
             commit_msg = f"feat: {result.summary}\n\nCloses #{item.issue_number}"
             pr_body = (
                 f"## Summary\n\n{result.summary}\n\n"
@@ -129,7 +130,7 @@ def dispatch_run(
             pr_result = finalize_and_create_pr(
                 repo=repo,
                 temp_branch=temp_branch,
-                final_branch=result.branch_name,
+                final_branch=final_branch,
                 commit_message=commit_msg,
                 pr_title=f"feat(#{item.issue_number}): {result.summary}",
                 pr_body=pr_body,

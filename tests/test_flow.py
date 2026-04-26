@@ -1,7 +1,11 @@
 """Tests for deterministic flow orchestration."""
 
 from gearbox.core.gh import IssueSummary
-from gearbox.flow.dispatch import build_dispatch_plan, select_dispatch_items
+from gearbox.flow.dispatch import (
+    build_dispatch_plan,
+    dispatch_branch_name,
+    select_dispatch_items,
+)
 
 
 def _issue(number: int, labels: list[str]) -> IssueSummary:
@@ -29,6 +33,10 @@ def test_select_dispatch_items_filters_blocked_and_ranks_priority_then_complexit
 
     assert [item.issue_number for item in items] == [2, 1, 3]
     assert skipped == 3
+
+
+def test_dispatch_branch_name_is_stable_per_issue() -> None:
+    assert dispatch_branch_name(2) == "gearbox/issue-2"
 
 
 def test_build_dispatch_plan_uses_ready_to_implement_label(monkeypatch) -> None:

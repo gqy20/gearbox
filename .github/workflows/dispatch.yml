@@ -15,6 +15,10 @@ on:
         description: '最多处理多少个 Issue'
         required: false
         default: '1'
+      max_parallel:
+        description: '最多并行处理多少个 Issue'
+        required: false
+        default: '3'
       dry_run:
         description: '是否只输出计划，不创建分支和 PR'
         required: false
@@ -29,10 +33,86 @@ permissions:
   pull-requests: write
 
 jobs:
-  dispatch:
+  plan:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@dispatch') && !github.event.issue.pull_request && github.event.comment.user.id != github.event.installation.id)
+    runs-on: ubuntu-latest
+    outputs:
+      has_items: ${{ steps.plan.outputs.has_items }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      max_parallel: ${{ steps.plan.outputs.max_parallel }}
+      dry_run: ${{ steps.plan.outputs.dry_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Gearbox runtime
+        uses: ./actions/_runtime
+
+      - name: Build dispatch matrix
+        id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+          ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
+          MAX_ITEMS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_items || '1' }}
+          MAX_PARALLEL: ${{ github.event_name == 'workflow_dispatch' && inputs.max_parallel || '1' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || 'true' }}
+        run: |
+          set -e
+          export PATH="$HOME/.local/bin:$PATH"
+
+          CMD=(
+            uv run --directory "$GITHUB_WORKSPACE" gearbox dispatch plan
+            --repo "$REPO"
+            --max-items "$MAX_ITEMS"
+            --json-output
+          )
+
+          if [ -n "$ISSUE_NUMBER" ]; then
+            CMD+=(--issue "$ISSUE_NUMBER")
+          fi
+
+          "${CMD[@]}" > dispatch-plan.json
+          cat dispatch-plan.json
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          with open("dispatch-plan.json", encoding="utf-8") as file:
+              plan = json.load(file)
+
+          include = [
+              {
+                  "issue_number": item["issue_number"],
+                  "title": item["title"],
+                  "priority": item["priority"],
+                  "complexity": item["complexity"],
+              }
+              for item in plan.get("items", [])
+          ]
+
+          max_parallel = int(os.environ["MAX_PARALLEL"])
+          if max_parallel < 1:
+              raise SystemExit("max_parallel must be a positive integer")
+
+          print(f"matrix={json.dumps({'include': include}, ensure_ascii=False)}")
+          print(f"has_items={'true' if include else 'false'}")
+          print(f"max_parallel={max_parallel}")
+          print(f"dry_run={os.environ['DRY_RUN']}")
+          PY
+
+  dispatch:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_items == 'true' }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: Dispatch issue #${{ matrix.issue_number }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,9 +124,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         with:
           repo: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
-          issue_number: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
-          max_items: ${{ github.event_name == 'workflow_dispatch' && inputs.max_items || '1' }}
-          dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || 'true' }}
+          issue_number: ${{ matrix.issue_number }}
+          max_items: '1'
+          dry_run: ${{ needs.plan.outputs.dry_run }}
           model: ${{ secrets.ANTHROPIC_MODEL }}
           anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

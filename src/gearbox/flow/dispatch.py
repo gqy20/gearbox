@@ -11,6 +11,11 @@ COMPLEXITY_ORDER = {"S": 0, "M": 1, "L": 2}
 BLOCKING_LABELS = {"needs-clarification", "in-progress", "has-pr"}
 
 
+def dispatch_branch_name(issue_number: int) -> str:
+    """Return the deterministic implementation branch for an issue."""
+    return f"gearbox/issue-{issue_number}"
+
+
 def _label_value(labels: list[str], allowed: dict[str, int], default: str) -> str:
     label_set = set(labels)
     for label in allowed:

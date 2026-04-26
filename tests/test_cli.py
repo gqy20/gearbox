@@ -495,3 +495,76 @@ class TestDispatchCommand:
 
         assert result.exit_code != 0
         assert events == [("add", ["in-progress"]), ("remove", ["in-progress"])]
+
+    def test_dispatch_run_uses_deterministic_issue_branch(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.agents.implement import ImplementResult
+        from gearbox.core.gh import CreatePrResult, PostReviewResult
+        from gearbox.flow.models import DispatchItem, DispatchPlan
+
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.build_dispatch_plan",
+            lambda *args, **kwargs: DispatchPlan(
+                repo="owner/repo",
+                dry_run=False,
+                skipped_count=0,
+                items=[
+                    DispatchItem(
+                        issue_number=7,
+                        title="Fix CI",
+                        labels=["ready-to-implement", "P1"],
+                        priority="P1",
+                        complexity="S",
+                        url="",
+                        reason="ready-to-implement, priority=P1, complexity=S",
+                    )
+                ],
+            ),
+        )
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.prepare_working_branch",
+            lambda *args, **kwargs: "gearbox/temp-test",
+        )
+
+        async def fake_run_implement(*args, **kwargs) -> ImplementResult:
+            del args, kwargs
+            return ImplementResult(
+                branch_name="feat/issue-7",
+                summary="Fix CI",
+                files_changed=["ci.yml"],
+                pr_url=None,
+                ready_for_review=True,
+            )
+
+        captured: dict[str, str] = {}
+
+        def fake_finalize_and_create_pr(**kwargs) -> CreatePrResult:
+            captured.update({key: str(value) for key, value in kwargs.items()})
+            return CreatePrResult(True, "https://github.com/owner/repo/pull/7")
+
+        monkeypatch.setattr("gearbox.commands.dispatch.run_implement", fake_run_implement)
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.finalize_and_create_pr",
+            fake_finalize_and_create_pr,
+        )
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.add_issue_labels",
+            lambda *args, **kwargs: PostReviewResult(True),
+        )
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.remove_issue_labels",
+            lambda *args, **kwargs: PostReviewResult(True),
+        )
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.post_issue_comment",
+            lambda *args, **kwargs: PostReviewResult(True),
+        )
+
+        result = runner.invoke(
+            cli,
+            ["dispatch", "run", "--repo", "owner/repo", "--issue", "7", "--no-dry-run"],
+        )
+
+        assert result.exit_code == 0
+        assert captured["final_branch"] == "gearbox/issue-7"

@@ -2,6 +2,10 @@ name: 'Gearbox'
 description: 'Unified entrypoint for Gearbox actions'
 author: 'gqy20'
 
+branding:
+  icon: 'package'
+  color: 'blue'
+
 inputs:
   action:
     description: 'Action to run: audit, triage, implement, review, publish'

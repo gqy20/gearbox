@@ -68,6 +68,7 @@ jobs:
           TARGET_BRANCH: ${{ needs.bundle.outputs.target_branch }}
           GH_PAT: ${{ secrets.GH_PAT }}
           RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
 
@@ -94,3 +95,17 @@ jobs:
 
           git commit -m "release: sync ${RELEASE_TAG}"
           git push origin "${TARGET_BRANCH}"
+
+          if [ "${RELEASE_REF_TYPE}" != "tag" ]; then
+            echo "Skip tag sync for ref type: ${RELEASE_REF_TYPE}"
+            exit 0
+          fi
+
+          git tag -fa "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
+          git push origin "refs/tags/${RELEASE_TAG}" --force
+
+          MAJOR_TAG="$(printf '%s' "${RELEASE_TAG}" | sed -E 's/^(v[0-9]+).*/\1/')"
+          if [ -n "${MAJOR_TAG}" ] && [ "${MAJOR_TAG}" != "${RELEASE_TAG}" ]; then
+            git tag -fa "${MAJOR_TAG}" -m "Release ${MAJOR_TAG}"
+            git push origin "refs/tags/${MAJOR_TAG}" --force
+          fi

@@ -1,7 +1,6 @@
 """Review Agent — PR 自动 Code Review"""
 
 import json
-import re
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -100,37 +99,6 @@ def _gh_pr_diff(repo: str, pr_number: int) -> str:
 
 
 # =============================================================================
-# 结果解析
-# =============================================================================
-
-
-def _parse_result(text: str) -> ReviewResult | None:
-    """从 Agent 输出解析 ReviewResult"""
-    try:
-        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-        if not match:
-            return None
-        data = json.loads(match.group(1))
-        comments = [
-            ReviewComment(
-                file=c.get("file", ""),
-                line=c.get("line"),
-                body=c.get("body", ""),
-                severity=c.get("severity", "info"),
-            )
-            for c in data.get("comments", [])
-        ]
-        return ReviewResult(
-            verdict=data.get("verdict", "Comment Only"),
-            score=int(data.get("score", 5)),
-            summary=data.get("summary", ""),
-            comments=comments,
-        )
-    except (json.JSONDecodeError, KeyError, ValueError):
-        return None
-
-
-# =============================================================================
 # Prompt
 # =============================================================================
 
@@ -191,11 +159,7 @@ async def run_review(
     from claude_agent_sdk import ClaudeAgentOptions, query
 
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import (
-        append_assistant_text,
-        json_schema_output,
-        parse_structured_output,
-    )
+    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
 
     project_root = Path(__file__).resolve().parents[3]
     pr_info = _gh_pr_view(repo, pr_number)
@@ -233,13 +197,11 @@ async def run_review(
         cwd=str(project_root),
     )
 
-    result_text = ""
     structured: ReviewResult | None = None
 
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            result_text = append_assistant_text(result_text, message)
             if not structured:
                 structured = parse_structured_output(
                     message,
@@ -258,22 +220,10 @@ async def run_review(
                         ],
                     ),
                 )
-
-            parsed = _parse_result(result_text)
-            if parsed and not structured:
-                structured = parsed
     finally:
         sdk_logger.log_completion()
 
     if structured is None:
-        structured = _parse_result(result_text)
-
-    if structured is None:
-        structured = ReviewResult(
-            verdict="Comment Only",
-            score=5,
-            summary="Review completed with parsing issues",
-            comments=[],
-        )
+        raise RuntimeError("Review agent did not return structured output")
 
     return structured

@@ -1,7 +1,6 @@
 """Implement Agent — Issue → 分支/PR"""
 
 import json
-import re
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -86,29 +85,6 @@ def _gh_pr_view(repo: str, pr_number: int) -> Any:
 
 
 # =============================================================================
-# 结果解析
-# =============================================================================
-
-
-def _parse_result(text: str) -> ImplementResult | None:
-    """从 Agent 输出解析 ImplementResult"""
-    try:
-        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-        if not match:
-            return None
-        data = json.loads(match.group(1))
-        return ImplementResult(
-            branch_name=data.get("branch_name", ""),
-            summary=data.get("summary", ""),
-            files_changed=data.get("files_changed", []),
-            pr_url=data.get("pr_url"),
-            ready_for_review=data.get("ready_for_review", False),
-        )
-    except (json.JSONDecodeError, KeyError):
-        return None
-
-
-# =============================================================================
 # Prompt
 # =============================================================================
 
@@ -168,11 +144,7 @@ async def run_implement(
     from claude_agent_sdk import ClaudeAgentOptions, query
 
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import (
-        append_assistant_text,
-        json_schema_output,
-        parse_structured_output,
-    )
+    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
 
     project_root = Path(__file__).resolve().parents[3]
     issue = _gh_issue_view(repo, issue_number)
@@ -210,13 +182,11 @@ async def run_implement(
         cwd=str(project_root),
     )
 
-    result_text = ""
     structured: ImplementResult | None = None
 
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            result_text = append_assistant_text(result_text, message)
             if not structured:
                 structured = parse_structured_output(
                     message,
@@ -228,25 +198,10 @@ async def run_implement(
                         ready_for_review=data.get("ready_for_review", False),
                     ),
                 )
-
-            # 尝试解析中间结果（Agent 可能分多次输出）
-            parsed = _parse_result(result_text)
-            if parsed and not structured:
-                structured = parsed
     finally:
         sdk_logger.log_completion()
 
-    # 最终解析
     if structured is None:
-        structured = _parse_result(result_text)
-
-    if structured is None:
-        structured = ImplementResult(
-            branch_name="",
-            summary="实现失败或超时",
-            files_changed=[],
-            pr_url=None,
-            ready_for_review=False,
-        )
+        raise RuntimeError("Implement agent did not return structured output")
 
     return structured

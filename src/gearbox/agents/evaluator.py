@@ -1,7 +1,6 @@
 """Evaluator Agent — 通用评估器，评判多个结果的优劣"""
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -118,33 +117,6 @@ def _format_result_for_prompt(result: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
-def _parse_evaluation_result(text: str) -> EvaluationResult | None:
-    """从文本解析评估结果"""
-    try:
-        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-        if not match:
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
-
-        if not match:
-            return None
-
-        data = json.loads(match.group(1))
-
-        # 转换 scores 的 key 为 int
-        scores: dict[int, float] = {}
-        for k, v in data.get("scores", {}).items():
-            scores[int(k)] = float(v)
-
-        return EvaluationResult(
-            winner=int(data.get("winner", 0)),
-            scores=scores,
-            reasoning=data.get("reasoning", ""),
-            consensus=data.get("consensus", []),
-        )
-    except (json.JSONDecodeError, KeyError, ValueError):
-        return None
-
-
 # =============================================================================
 # 运行评估
 # =============================================================================
@@ -177,11 +149,7 @@ async def run_evaluator(
     )
 
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import (
-        append_assistant_text,
-        json_schema_output,
-        parse_structured_output,
-    )
+    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
     from gearbox.config import get_anthropic_model
 
     model = model or get_anthropic_model()
@@ -204,13 +172,11 @@ async def run_evaluator(
         cwd="(sdk default)",
     )
 
-    result_text = ""
     structured: EvaluationResult | None = None
 
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            result_text = append_assistant_text(result_text, message)
             if not structured:
                 structured = parse_structured_output(message, lambda data: EvaluationResult(
                     winner=int(data.get("winner", 0)),
@@ -222,15 +188,6 @@ async def run_evaluator(
         sdk_logger.log_completion()
 
     if structured is None:
-        structured = _parse_evaluation_result(result_text)
-
-    if structured is None:
-        # 兜底：返回评分最高的结果
-        structured = EvaluationResult(
-            winner=0,
-            scores={i: 0.5 for i in range(len(results))},
-            reasoning="解析失败，使用默认结果",
-            consensus=[],
-        )
+        raise RuntimeError("Evaluator agent did not return structured output")
 
     return structured

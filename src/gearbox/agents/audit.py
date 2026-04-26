@@ -1,7 +1,6 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
-import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,46 +68,6 @@ class AuditResult:
     benchmarks: list[str] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     cost: float | None = None
-
-
-# =============================================================================
-# 结果解析
-# =============================================================================
-
-
-def _parse_result(text: str) -> AuditResult | None:
-    """从 Agent 输出解析 AuditResult"""
-    try:
-        match = re.search(r"```json\s*(\{.*?)\s*```", text, re.DOTALL)
-        if not match:
-            return None
-
-        data = json.loads(match.group(1))
-        issues_data = data.get("issues", [])
-
-        if "file_content" in data:
-            file_content = data["file_content"]
-            if "issues" in file_content:
-                issues_data = file_content["issues"]
-
-        issues = [
-            Issue(
-                title=i.get("title", ""),
-                body=i.get("body", ""),
-                labels=i.get("labels", "enhancement"),
-            )
-            for i in issues_data
-        ]
-
-        return AuditResult(
-            repo=data.get("repo", ""),
-            profile=data.get("profile", {}),
-            comparison_markdown=data.get("comparison_markdown", ""),
-            benchmarks=data.get("benchmarks", []),
-            issues=issues,
-        )
-    except (json.JSONDecodeError, KeyError):
-        return None
 
 
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
@@ -208,7 +167,6 @@ async def run_audit(
 
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.structured import (
-        append_assistant_text,
         json_schema_output,
         parse_structured_output,
     )
@@ -256,14 +214,12 @@ async def run_audit(
 
 请返回完整的结构化审计结果。"""
 
-    result_text = ""
     structured: AuditResult | None = None
     total_cost: float | None = None
 
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            result_text = append_assistant_text(result_text, message)
             total_cost = getattr(message, "total_cost_usd", total_cost)
             if not structured:
                 structured = parse_structured_output(message, lambda data: AuditResult(
@@ -281,20 +237,11 @@ async def run_audit(
                     ],
                 ))
 
-            parsed = _parse_result(result_text)
-            if parsed and not structured:
-                structured = parsed
     finally:
         sdk_logger.log_completion()
 
     if structured is None:
-        structured = _parse_result(result_text)
-
-    if structured is None:
-        structured = AuditResult(
-            repo=repo,
-            issues=[],
-        )
+        raise RuntimeError("Audit agent did not return structured output")
     structured.cost = total_cost
     _write_audit_outputs(structured, Path(output_dir))
 

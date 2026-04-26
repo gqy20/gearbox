@@ -1,7 +1,6 @@
 """Triage Agent — Issue 自动分类、优先级判断和标签管理"""
 
 import json
-import re
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -81,31 +80,6 @@ def _gh_issue_view(repo: str, issue_number: int) -> Any:
 
 
 # =============================================================================
-# 结果解析
-# =============================================================================
-
-
-def _parse_result(text: str) -> TriageResult | None:
-    """从 Agent 输出文本中解析结构化结果"""
-    try:
-        # 查找 ```json ... ``` 块
-        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-        if not match:
-            return None
-        data = json.loads(match.group(1))
-        return TriageResult(
-            labels=data.get("labels", []),
-            priority=data.get("priority", "P3"),
-            complexity=data.get("complexity", "M"),
-            needs_clarification=data.get("needs_clarification", False),
-            clarification_question=data.get("clarification_question"),
-            ready_to_implement=data.get("ready_to_implement", False),
-        )
-    except (json.JSONDecodeError, KeyError):
-        return None
-
-
-# =============================================================================
 # Prompt 模板
 # =============================================================================
 
@@ -171,11 +145,7 @@ async def run_triage(
     from claude_agent_sdk import ClaudeAgentOptions, query
 
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import (
-        append_assistant_text,
-        json_schema_output,
-        parse_structured_output,
-    )
+    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
 
     project_root = Path(__file__).resolve().parents[3]
     issue = _gh_issue_view(repo, issue_number)
@@ -212,13 +182,11 @@ async def run_triage(
         cwd=str(project_root),
     )
 
-    result_text = ""
     structured: TriageResult | None = None
 
     try:
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
-            result_text = append_assistant_text(result_text, message)
             if not structured:
                 structured = parse_structured_output(message, lambda data: TriageResult(
                     labels=data.get("labels", []),
@@ -232,16 +200,6 @@ async def run_triage(
         sdk_logger.log_completion()
 
     if structured is None:
-        structured = _parse_result(result_text)
-
-    if structured is None:
-        structured = TriageResult(
-            labels=[],
-            priority="P3",
-            complexity="M",
-            needs_clarification=True,
-            clarification_question="无法自动分类，请手动检查此 Issue",
-            ready_to_implement=False,
-        )
+        raise RuntimeError("Triage agent did not return structured output")
 
     return structured

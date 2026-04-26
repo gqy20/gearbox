@@ -2,9 +2,9 @@
 
 import os
 
-from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk import ClaudeAgentOptions, StreamEvent
 
-from gearbox.agents.shared.runtime import prepare_agent_options
+from gearbox.agents.shared.runtime import SdkEventLogger, prepare_agent_options
 
 
 class TestPrepareSdkOptions:
@@ -23,6 +23,42 @@ class TestPrepareSdkOptions:
             assert prepared.env["ANTHROPIC_AUTH_TOKEN"] == "sk-test-auth"
             assert prepared.env["ANTHROPIC_BASE_URL"] == "https://proxy.example.com/anthropic"
             assert prepared.stderr is not None
+            assert prepared.include_partial_messages is True
         finally:
             del os.environ["ANTHROPIC_AUTH_TOKEN"]
             del os.environ["ANTHROPIC_BASE_URL"]
+
+
+class TestSdkEventLogger:
+    def test_stream_event_partial_text_is_humanized(
+        self,
+        monkeypatch,
+    ) -> None:
+        entries: list[tuple[str, str, str]] = []
+
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime._log",
+            lambda agent, stage, message: entries.append((agent, stage, message)),
+        )
+
+        logger = SdkEventLogger("audit")
+        logger.handle_message(
+            StreamEvent(
+                uuid="u1",
+                session_id="s1",
+                event={
+                    "type": "content_block_delta",
+                    "delta": {"text": "Inspecting repository..."},
+                },
+            )
+        )
+        logger.handle_message(
+            StreamEvent(
+                uuid="u2",
+                session_id="s1",
+                event={"type": "content_block_stop"},
+            )
+        )
+
+        assert any(stage == "assistant-partial" for _, stage, _ in entries)
+        assert any("Inspecting repository" in message for _, _, message in entries)

@@ -26,15 +26,6 @@ inputs:
     description: Current repository (github.repository)
     required: false
     default: ''
-  bot_logins:
-    description: Comma-separated bot login names to skip
-    required: false
-    default: github-actions[bot],copilot-pull-request-reviewer,dependabot[bot]
-  installation_id:
-    description: github.event.installation.id
-    required: false
-    default: ''
-
 outputs:
   target_repo:
     description: Resolved target repository
@@ -62,20 +53,13 @@ runs:
       WORKFLOW_ISSUE: ${{ inputs.workflow_issue_number }}
       TARGET_REPO: ${{ inputs.target_repo }}
       DEFAULT_REPO: ${{ inputs.default_repo }}
-      INSTALLATION_ID: ${{ inputs.installation_id }}
     run: |
       set -euo pipefail
 
-      TARGET_REPO="$DEFAULT_REPO"
+      TARGET_REPO="${TARGET_REPO:-$DEFAULT_REPO}"
       ISSUE_NUMBER=''
       SKIP='false'
       SKIP_REASON=''
-
-      if [ -n "$TARGET_REPO" ]; then
-        : # explicit override, keep as-is
-      elif [ -n "$DEFAULT_REPO" ]; then
-        TARGET_REPO="$DEFAULT_REPO"
-      fi
 
       if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
         if [ -n "$WORKFLOW_ISSUE" ]; then

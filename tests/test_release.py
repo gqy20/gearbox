@@ -134,6 +134,35 @@ def test_cleanup_action_and_workflow_are_conservative() -> None:
     assert "issues: write" in workflow
 
 
+def test_matrix_action_exposes_step_output_and_local_callers_checkout_first() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    matrix_action = (root / "actions" / "matrix" / "action.yml").read_text(encoding="utf-8")
+    local_matrix_workflows = [
+        root / ".github" / "workflows" / "audit.yml",
+        root / ".github" / "workflows" / "backlog.yml",
+        root / ".github" / "workflows" / "reusable-implement.yml",
+    ]
+
+    assert "value: ${{ steps.build.outputs.matrix_json }}" in matrix_action
+
+    for workflow_path in local_matrix_workflows:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        matrix_use = workflow.index("uses: ./actions/matrix")
+        checkout_use = workflow.index("uses: actions/checkout")
+        assert checkout_use < matrix_use
+
+
+def test_workflow_entry_keeps_target_repo_override_and_has_no_dead_inputs() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    action = (root / "actions" / "workflow-entry" / "action.yml").read_text(encoding="utf-8")
+
+    assert 'TARGET_REPO="${TARGET_REPO:-$DEFAULT_REPO}"' in action
+    assert "bot_logins:" not in action
+    assert "installation_id:" not in action
+
+
 def test_reusable_implement_pushes_candidates_without_creating_prs() -> None:
     root = Path(__file__).resolve().parents[1]
 

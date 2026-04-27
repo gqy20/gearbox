@@ -14,6 +14,7 @@ inputs:
 outputs:
   matrix_json:
     description: JSON matrix for use with matrix ${{ fromJSON(...) }}
+    value: ${{ steps.build.outputs.matrix_json }}
 
 runs:
   using: composite

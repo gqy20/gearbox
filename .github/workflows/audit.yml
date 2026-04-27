@@ -64,6 +64,9 @@ jobs:
             echo "repo=${{ inputs.target_repo }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Build matrix
         id: matrix
         uses: ./actions/matrix

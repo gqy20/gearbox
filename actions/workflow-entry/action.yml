@@ -1,0 +1,126 @@
+name: Gearbox - Workflow Entry
+description: Parse GitHub event context and resolve target repo / issue number for workflow orchestration
+author: gqy20
+
+inputs:
+  event_name:
+    description: github.event_name
+    required: true
+  comment_body:
+    description: github.event.comment.body (for issue_comment events)
+    required: false
+    default: ''
+  head_ref:
+    description: github.event.pull_request.head.ref (for pull_request events)
+    required: false
+    default: ''
+  workflow_issue_number:
+    description: Issue number from workflow_dispatch inputs
+    required: false
+    default: ''
+  target_repo:
+    description: Target repo override or empty for current repo
+    required: false
+    default: ''
+  default_repo:
+    description: Current repository (github.repository)
+    required: false
+    default: ''
+  bot_logins:
+    description: Comma-separated bot login names to skip
+    required: false
+    default: github-actions[bot],copilot-pull-request-reviewer,dependabot[bot]
+  installation_id:
+    description: github.event.installation.id
+    required: false
+    default: ''
+
+outputs:
+  target_repo:
+    description: Resolved target repository
+    value: ${{ steps.resolve.outputs.target_repo }}
+  issue_number:
+    description: Resolved issue number (empty if not applicable)
+    value: ${{ steps.resolve.outputs.issue_number }}
+  skip:
+    description: true if this workflow should skip execution
+    value: ${{ steps.resolve.outputs.skip }}
+  skip_reason:
+    description: Human-readable reason for skip (empty if not skipping)
+    value: ${{ steps.resolve.outputs.skip_reason }}
+
+runs:
+  using: composite
+  steps:
+  - name: Resolve target and issue
+    id: resolve
+    shell: bash
+    env:
+      EVENT_NAME: ${{ inputs.event_name }}
+      COMMENT_BODY: ${{ inputs.comment_body }}
+      HEAD_REF: ${{ inputs.head_ref }}
+      WORKFLOW_ISSUE: ${{ inputs.workflow_issue_number }}
+      TARGET_REPO: ${{ inputs.target_repo }}
+      DEFAULT_REPO: ${{ inputs.default_repo }}
+      INSTALLATION_ID: ${{ inputs.installation_id }}
+    run: |
+      set -euo pipefail
+
+      TARGET_REPO="$DEFAULT_REPO"
+      ISSUE_NUMBER=''
+      SKIP='false'
+      SKIP_REASON=''
+
+      if [ -n "$TARGET_REPO" ]; then
+        : # explicit override, keep as-is
+      elif [ -n "$DEFAULT_REPO" ]; then
+        TARGET_REPO="$DEFAULT_REPO"
+      fi
+
+      if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+        if [ -n "$WORKFLOW_ISSUE" ]; then
+          ISSUE_NUMBER="$WORKFLOW_ISSUE"
+        fi
+
+      elif [ "$EVENT_NAME" = "pull_request" ]; then
+        if [ -n "$HEAD_REF" ]; then
+          if [[ "$HEAD_REF" =~ ^feat/issue-([0-9]+)-run-[0-9]+$ ]]; then
+            ISSUE_NUMBER="${BASH_REMATCH[1]}"
+          else
+            SKIP='true'
+            SKIP_REASON="Head ref does not match Gearbox candidate branch pattern: $HEAD_REF"
+          fi
+        else
+          SKIP='true'
+          SKIP_REASON="PR closed but no head.ref found"
+        fi
+
+      elif [ "$EVENT_NAME" = "issue_comment" ]; then
+        # Parse @mention from comment body (for @audit, @backlog, @dispatch)
+        if [ -z "$COMMENT_BODY" ]; then
+          SKIP='true'
+          SKIP_REASON="issue_comment event with no body"
+        else
+          # Check for any @mention (will be filtered at workflow level via if condition)
+          if [[ "$COMMENT_BODY" =~ ^[[:space:]]*@([a-zA-Z0-9][-a-zA-Z0-9]*) ]]; then
+            # Non-empty mention found; issue_number comes from the issue context
+            # (set by GitHub Actions automatically via github.event.issue.number)
+            : # issue_number remains empty here; caller uses github.event.issue.number
+          else
+            SKIP='true'
+            SKIP_REASON="Comment body contains no @mention: $COMMENT_BODY"
+          fi
+        fi
+
+      elif [ "$EVENT_NAME" = "schedule" ]; then
+        : # scheduled runs always execute (no issue context)
+
+      else
+        SKIP='true'
+        SKIP_REASON="Unsupported event type: $EVENT_NAME"
+      fi
+
+      echo "target_repo=$TARGET_REPO" >> "$GITHUB_OUTPUT"
+      echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+      echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+      echo "skip_reason=$SKIP_REASON" >> "$GITHUB_OUTPUT"

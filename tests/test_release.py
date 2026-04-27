@@ -20,6 +20,8 @@ def test_build_marketplace_bundle_writes_expected_files(tmp_path: Path) -> None:
     assert (output_dir / "actions" / "dispatch" / "action.yml").exists()
     assert (output_dir / "actions" / "_runtime" / "action.yml").exists()
     assert (output_dir / "actions" / "_setup" / "action.yml").exists()
+    assert (output_dir / "actions" / "workflow-entry" / "action.yml").exists()
+    assert (output_dir / "actions" / "matrix" / "action.yml").exists()
     assert (output_dir / "src" / "gearbox" / "cli.py").exists()
 
 
@@ -110,6 +112,9 @@ def test_cleanup_action_and_workflow_are_conservative() -> None:
 
     action = (root / "actions" / "cleanup" / "action.yml").read_text(encoding="utf-8")
     workflow = (root / ".github" / "workflows" / "cleanup.yml").read_text(encoding="utf-8")
+    workflow_entry = (root / "actions" / "workflow-entry" / "action.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert "gearbox cleanup" in action
     assert "--dry-run" in action
@@ -120,7 +125,8 @@ def test_cleanup_action_and_workflow_are_conservative() -> None:
     assert "types: [closed]" in workflow
     assert "workflow_dispatch:" in workflow
     assert "protect_open_prs:" in workflow
-    assert r"^feat/issue-([0-9]+)-run-[0-9]+$" in workflow
+    # Branch naming pattern is now in workflow-entry action
+    assert r"^feat/issue-([0-9]+)-run-[0-9]+$" in workflow_entry
     assert r"^gearbox/issue-([0-9]+)$" not in workflow
     assert "github.event.pull_request.merged == false" in workflow
     assert "cleanup-restore-unmerged-pr" in workflow

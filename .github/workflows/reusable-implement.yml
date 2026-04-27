@@ -40,33 +40,20 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.matrix.outputs.json }}
+      matrix_json: ${{ steps.matrix.outputs.matrix_json }}
     steps:
       - name: Build matrix
         id: matrix
-        shell: bash
-        env:
-          COUNT: ${{ inputs.parallel_runs }}
-        run: |
-          if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then
-            echo "::error::parallel_runs must be a positive integer"
-            exit 1
-          fi
-
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import os
-
-          count = int(os.environ["COUNT"])
-          print(f"json={json.dumps({'run_id': list(range(count))})}")
-          PY
+        uses: ./actions/matrix
+        with:
+          count: ${{ inputs.parallel_runs }}
 
   implement-run:
     needs: plan
     continue-on-error: true
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_json) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

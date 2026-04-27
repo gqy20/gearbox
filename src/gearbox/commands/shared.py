@@ -1,10 +1,13 @@
 """Shared helpers for CLI command modules."""
 
 from pathlib import Path
+from typing import Any, Callable
 
 import click
 
 from gearbox.agents.backlog import github_labels_for_backlog_item
+from gearbox.agents.shared.github_output import result_to_github_output
+from gearbox.agents.shared.selection import select_best_result
 from gearbox.core.gh import (
     post_issue_comment,
     replace_managed_issue_labels,
@@ -47,3 +50,38 @@ def _apply_backlog_item(repo: str, result: object) -> None:
         )
         if not comment_result.success:
             click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
+
+
+async def _select_single(
+    candidates: list[tuple[str, Any]],
+    result_type: str,
+    *,
+    model: str,
+    max_turns: int,
+    winner_callback: Callable[[Any, str], None] | None = None,
+    output: str = "/tmp/github_output",
+) -> tuple[Any, str]:
+    """Run selection from pre-loaded candidates, handle winner, write GitHub output.
+
+    Returns (winner_result, winner_name).
+    """
+    if not candidates:
+        raise click.ClickException("No candidates found")
+
+    results = [r for _, r in candidates]
+    names = [n for n, _ in candidates]
+
+    winner_index, winner_result = await select_best_result(
+        results,
+        result_type=result_type,
+        result_names=names,
+        model=model,
+        max_turns=max_turns,
+    )
+    winner_name = names[winner_index]
+
+    if winner_callback:
+        winner_callback(winner_result, winner_name)
+
+    result_to_github_output(winner_result, output)
+    return winner_result, winner_name

@@ -1,0 +1,58 @@
+name: Gearbox - Matrix Builder
+description: Build GitHub Actions matrix from count and optional issue list
+author: gqy20
+
+inputs:
+  count:
+    description: Number of parallel runs (positive integer)
+    required: true
+  issues:
+    description: Optional comma/space-separated issue numbers for cross-product
+    required: false
+    default: ''
+
+outputs:
+  matrix_json:
+    description: JSON matrix for use with matrix ${{ fromJSON(...) }}
+
+runs:
+  using: composite
+  steps:
+  - name: Build matrix
+    id: build
+    shell: bash
+    env:
+      COUNT: ${{ inputs.count }}
+      ISSUES: ${{ inputs.issues }}
+    run: |
+      set -euo pipefail
+
+      if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then
+        echo "::error::count must be a positive integer, got: $COUNT"
+        exit 1
+      fi
+
+      python3 - <<'PY' >> "$GITHUB_OUTPUT"
+      import json
+      import os
+      import re
+
+      count = int(os.environ["COUNT"])
+      issues_raw = os.environ.get("ISSUES", "").strip()
+
+      if issues_raw:
+          issues = [int(part) for part in re.split(r"[\s,]+", issues_raw) if part]
+          if not issues:
+              raise SystemExit("issues is non-empty but no valid numbers found")
+          matrix = {
+              "include": [
+                  {"issue_number": issue, "run_id": run_id}
+                  for issue in issues
+                  for run_id in range(count)
+              ]
+          }
+      else:
+          matrix = {"run_id": list(range(count))}
+
+      print(f"matrix_json={json.dumps(matrix)}")
+      PY

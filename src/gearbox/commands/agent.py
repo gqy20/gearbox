@@ -3,10 +3,11 @@
 import asyncio
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import click
 
-from gearbox.agents.audit import load_audit_result, promote_audit_outputs, run_audit
+from gearbox.agents.audit import AuditResult, load_audit_result, promote_audit_outputs, run_audit
 from gearbox.agents.backlog import (
     BacklogItemResult,
     BacklogResult,
@@ -20,7 +21,7 @@ from gearbox.agents.implement import (
     run_implement,
     write_implement_result,
 )
-from gearbox.agents.review import load_review_result, run_review, write_review_result
+from gearbox.agents.review import ReviewResult, load_review_result, run_review, write_review_result
 from gearbox.agents.shared.github_output import format_currency, result_to_github_output
 from gearbox.agents.shared.selection import select_best_result
 from gearbox.config import AGENT_DEFAULTS
@@ -33,7 +34,7 @@ from gearbox.core.gh import (
     prepare_working_branch,
 )
 
-from .shared import _apply_backlog_item, _candidate_result_files
+from .shared import _apply_backlog_item, _candidate_result_files, _select_single
 
 
 def _with_branch_suffix(branch_name: str, suffix: str) -> str:
@@ -313,41 +314,33 @@ def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, o
         click.echo(f"❌ 目录不存在: {input_root}", err=True)
         raise click.Abort()
 
-    candidate_dirs = sorted(path for path in root.iterdir() if path.is_dir())
-    if not candidate_dirs:
-        click.echo(f"❌ 未找到任何 audit 结果目录: {input_root}", err=True)
-        raise click.Abort()
-
-    results = []
-    names = []
-    valid_dirs: list[Path] = []
-
-    for run_dir in candidate_dirs:
+    # Load results with per-directory error handling (audit stores artifacts in subdirs)
+    candidates: list[tuple[str, object]] = []
+    for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         try:
-            results.append(load_audit_result(run_dir))
-            names.append(run_dir.name)
-            valid_dirs.append(run_dir)
+            candidates.append((run_dir.name, load_audit_result(run_dir)))
         except FileNotFoundError as exc:
             click.echo(f"⚠️ 跳过无效结果目录 {run_dir.name}: {exc}")
 
-    if not results:
+    if not candidates:
         click.echo("❌ 没有可用于聚合的 audit 结果", err=True)
         raise click.Abort()
 
-    winner_index, winner_result = asyncio.run(
-        select_best_result(
-            results,
+    def promote_winner(result: object, winner_name: str) -> None:
+        typed = cast(AuditResult, result)
+        winner_dir = next(p for p in root.iterdir() if p.name == winner_name)
+        promote_audit_outputs(winner_dir, Path(output_dir))
+        click.echo(f"✅ Selected audit result: winner={winner_name}, issues={len(typed.issues)}")
+
+    asyncio.run(
+        _select_single(
+            candidates,
             result_type="Audit 审计结果",
-            result_names=names,
             model=model or "",
             max_turns=max_turns,
+            winner_callback=promote_winner,
+            output=output,
         )
-    )
-    winner_dir = valid_dirs[winner_index]
-    promote_audit_outputs(winner_dir, Path(output_dir))
-    result_to_github_output(winner_result, output)
-    click.echo(
-        f"✅ Selected audit result: winner={winner_dir.name}, issues={len(winner_result.issues)}"
     )
 
 
@@ -431,44 +424,35 @@ def review_select(
         click.echo(f"❌ 未找到任何 review 结果: {input_root}", err=True)
         raise click.Abort()
 
-    results = []
-    names = []
-    for name, result_path in candidate_files:
-        results.append(load_review_result(result_path))
-        names.append(name)
+    candidates = [(name, load_review_result(path)) for name, path in candidate_files]
 
-    if not results:
-        click.echo("❌ 没有可用于聚合的 review 结果", err=True)
-        raise click.Abort()
+    def post_winner(result: object, winner_name: str) -> None:
+        typed = cast(ReviewResult, result)
+        comments = [
+            {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
+            for c in typed.comments
+        ]
+        body = build_review_body(typed.verdict, typed.score, typed.summary, comments)
+        event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
+            typed.verdict, "COMMENT"
+        )
+        review_result = post_review_comment(repo, pr, body, event)
+        if not review_result.success:
+            raise click.ClickException(f"发布 Review 失败: {review_result.url}")
+        if artifact_path:
+            write_review_result(typed, Path(artifact_path))
+        click.echo(f"✅ Selected review result: winner={winner_name}")
 
-    winner_index, winner_result = asyncio.run(
-        select_best_result(
-            results,
+    asyncio.run(
+        _select_single(
+            candidates,
             result_type="Review 审查结果",
-            result_names=names,
             model=model or "",
             max_turns=max_turns,
+            winner_callback=post_winner,
+            output=output,
         )
     )
-    if artifact_path:
-        write_review_result(winner_result, Path(artifact_path))
-
-    comments = [
-        {"file": c.file, "line": c.line, "body": c.body, "severity": c.severity}
-        for c in winner_result.comments
-    ]
-    body = build_review_body(
-        winner_result.verdict, winner_result.score, winner_result.summary, comments
-    )
-    event = {"LGTM": "APPROVE", "Request Changes": "REQUEST_CHANGES"}.get(
-        winner_result.verdict, "COMMENT"
-    )
-    review_result = post_review_comment(repo, pr, body, event)
-    if not review_result.success:
-        raise click.ClickException(f"发布 Review 失败: {review_result.url}")
-
-    result_to_github_output(winner_result, output)
-    click.echo(f"✅ Selected review result: winner={names[winner_index]}")
 
 
 @agent.command(name="implement-select")
@@ -501,27 +485,19 @@ def implement_select(
         click.echo(f"❌ 未找到任何 implement 结果: {input_root}", err=True)
         raise click.Abort()
 
-    results = []
-    names = []
-    for name, result_path in candidate_files:
-        results.append(load_implement_result(result_path))
-        names.append(name)
+    candidates = [(name, load_implement_result(path)) for name, path in candidate_files]
 
-    if not results:
-        click.echo("❌ 没有可用于聚合的 implement 结果", err=True)
-        raise click.Abort()
-
-    winner_index, winner_result = asyncio.run(
-        select_best_result(
-            results,
+    winner_result, winner_name = asyncio.run(
+        _select_single(
+            candidates,
             result_type="Implement 实现结果",
-            result_names=names,
             model=resolved_model,
             max_turns=max_turns,
+            output=output,
         )
     )
 
-    click.echo(f"✅ Selected implement result: winner={names[winner_index]}")
+    click.echo(f"✅ Selected implement result: winner={winner_name}")
     click.echo(f"   branch={winner_result.branch_name}, files={len(winner_result.files_changed)}")
 
     if artifact_path:
@@ -546,4 +522,5 @@ def implement_select(
         else:
             click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
 
+    # Re-write output after pr_url may have been updated
     result_to_github_output(winner_result, output)

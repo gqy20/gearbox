@@ -34,7 +34,7 @@ jobs:
     outputs:
       repo: ${{ steps.target.outputs.repo }}
       issues: ${{ steps.target.outputs.issues }}
-      matrix: ${{ steps.matrix.outputs.json }}
+      matrix_json: ${{ steps.matrix.outputs.matrix_json }}
     steps:
       - name: Determine target
         id: target
@@ -54,34 +54,10 @@ jobs:
 
       - name: Build matrix
         id: matrix
-        shell: bash
-        env:
-          COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
-          ISSUES: ${{ steps.target.outputs.issues }}
-        run: |
-          if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then
-            echo "::error::parallel_runs must be a positive integer"
-            exit 1
-          fi
-
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import os
-          import re
-
-          count = int(os.environ["COUNT"])
-          issues = [int(part) for part in re.split(r"[\s,]+", os.environ["ISSUES"].strip()) if part]
-          if not issues:
-              raise SystemExit("issues must not be empty")
-          matrix = {
-              "include": [
-                  {"issue_number": issue, "run_id": run_id}
-                  for issue in issues
-                  for run_id in range(count)
-              ]
-          }
-          print(f"json={json.dumps(matrix)}")
-          PY
+        uses: ./actions/matrix
+        with:
+          count: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
+          issues: ${{ steps.target.outputs.issues }}
 
   backlog-run:
     needs: plan
@@ -89,7 +65,7 @@ jobs:
     continue-on-error: true
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_json) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

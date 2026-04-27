@@ -308,6 +308,9 @@ def test_dispatch_workflow_uses_parallel_implement_aggregation() -> None:
         "if: ${{ needs.plan.outputs.has_items == 'true' "
         "&& needs.plan.outputs.dry_run == 'false' }}" in workflow
     )
+    assert "mark-has-pr:" in workflow
+    assert "needs.implement.result == 'success'" in workflow
+    assert "--add-label has-pr" in workflow
     assert "uses: ./actions/dispatch" not in workflow
 
 

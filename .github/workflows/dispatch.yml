@@ -114,3 +114,28 @@ jobs:
       base_branch: main
       parallel_runs: ${{ needs.plan.outputs.max_parallel }}
     secrets: inherit
+
+  mark-has-pr:
+    needs: [plan, implement]
+    if: ${{ always() && needs.plan.result == 'success' && needs.implement.result == 'success' && needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      REPO: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+      MATRIX: ${{ needs.plan.outputs.matrix }}
+    steps:
+      - name: Mark dispatched issues
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' | while read -r issue; do
+          import json
+          import os
+
+          matrix = json.loads(os.environ["MATRIX"])
+          for item in matrix.get("include", []):
+              print(item["issue_number"])
+          PY
+            gh issue edit "$issue" --repo "$REPO" --add-label has-pr
+          done

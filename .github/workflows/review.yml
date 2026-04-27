@@ -17,7 +17,7 @@ on:
         default: '3'
   pull_request:
     types: [opened, synchronize, reopened]
-  pull_request_review_comment:
+  issue_comment:
     types: [created]
 
 permissions:
@@ -29,10 +29,10 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'pull_request') ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@review') && github.event.comment.user.id != github.event.installation.id)
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@review') && github.event.comment.user.login != 'github-actions[bot]' && github.event.comment.user.login != 'copilot-pull-request-reviewer' && github.event.comment.user.login != 'dependabot[bot]' && github.event.comment.user.id != github.event.installation.id)
     uses: ./.github/workflows/reusable-review.yml
     with:
       repo: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
-      pr_number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+      pr_number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number || github.event.issue.number }}
       parallel_runs: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
     secrets: inherit

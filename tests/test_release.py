@@ -126,6 +126,32 @@ def test_issue_command_workflows_do_not_subscribe_to_all_issue_changes() -> None
         assert "issue_comment:" in workflow
 
 
+def test_review_and_audit_commands_do_not_listen_to_inline_review_comments() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    for workflow_name in ["review.yml", "audit.yml"]:
+        workflow = (root / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+        assert "pull_request_review_comment:" not in workflow
+        assert "github.event_name == 'pull_request_review_comment'" not in workflow
+        assert "issue_comment:" in workflow
+        assert "copilot-pull-request-reviewer" in workflow
+        assert "github-actions[bot]" in workflow
+        assert "dependabot[bot]" in workflow
+
+
+def test_review_command_requires_pr_conversation_comment() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "review.yml").read_text(encoding="utf-8")
+
+    assert "github.event.issue.pull_request" in workflow
+    assert "contains(github.event.comment.body, '@review')" in workflow
+    assert (
+        "pr_number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || "
+        "github.event.pull_request.number || github.event.issue.number }}" in workflow
+    )
+
+
 def test_reusable_workflow_aggregators_use_action_source() -> None:
     root = Path(__file__).resolve().parents[1]
 

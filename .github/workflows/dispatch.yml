@@ -112,8 +112,8 @@ jobs:
           PY
 
   implement:
-    needs: plan
-    if: ${{ needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' }}
+    needs: [plan, mark-in-progress]
+    if: ${{ needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' && needs.mark-in-progress.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -125,6 +125,31 @@ jobs:
       base_branch: main
       parallel_runs: ${{ needs.plan.outputs.max_parallel }}
     secrets: inherit
+
+  mark-in-progress:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      REPO: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+      MATRIX: ${{ needs.plan.outputs.matrix }}
+    steps:
+      - name: Mark dispatched issues in progress
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' | while read -r issue; do
+          import json
+          import os
+
+          matrix = json.loads(os.environ["MATRIX"])
+          for item in matrix.get("include", []):
+              print(item["issue_number"])
+          PY
+            gh issue edit "$issue" --repo "$REPO" --add-label in-progress --remove-label ready-to-implement
+          done
 
   mark-has-pr:
     needs: [plan, implement]
@@ -148,5 +173,65 @@ jobs:
           for item in matrix.get("include", []):
               print(item["issue_number"])
           PY
-            gh issue edit "$issue" --repo "$REPO" --add-label has-pr
+            gh issue edit "$issue" --repo "$REPO" --add-label has-pr --remove-label in-progress
+          done
+
+  enable-auto-merge:
+    needs: [plan, implement, mark-has-pr]
+    if: ${{ always() && needs.plan.result == 'success' && needs.implement.result == 'success' && needs.mark-has-pr.result == 'success' && needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      REPO: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+      MATRIX: ${{ needs.plan.outputs.matrix }}
+    steps:
+      - name: Enable auto-merge for created PRs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' | while read -r issue; do
+          import json
+          import os
+
+          matrix = json.loads(os.environ["MATRIX"])
+          for item in matrix.get("include", []):
+              print(item["issue_number"])
+          PY
+            pr_number="$(gh pr list --repo "$REPO" --state open --search "Closes #$issue" --json number --jq '.[0].number // ""')"
+            if [ -z "$pr_number" ]; then
+              gh issue comment "$issue" --repo "$REPO" --body "⚠️ Gearbox dispatch completed, but no open PR was found for auto-merge."
+              continue
+            fi
+            if ! gh pr merge "$pr_number" --repo "$REPO" --auto --squash; then
+              gh issue comment "$issue" --repo "$REPO" --body "⚠️ Gearbox created PR #$pr_number, but auto-merge could not be enabled. Please check repository auto-merge settings and branch protections."
+            fi
+          done
+
+  restore-failed-issues:
+    needs: [plan, mark-in-progress, implement]
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' && (needs.mark-in-progress.result != 'success' || needs.implement.result != 'success') }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      REPO: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+      MATRIX: ${{ needs.plan.outputs.matrix }}
+      IMPLEMENT_RESULT: ${{ needs.implement.result }}
+    steps:
+      - name: Restore failed dispatch issues
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' | while read -r issue; do
+          import json
+          import os
+
+          matrix = json.loads(os.environ["MATRIX"])
+          for item in matrix.get("include", []):
+              print(item["issue_number"])
+          PY
+            gh issue edit "$issue" --repo "$REPO" --remove-label in-progress || true
+            gh issue edit "$issue" --repo "$REPO" --add-label ready-to-implement
+            gh issue comment "$issue" --repo "$REPO" --body "⚠️ Gearbox dispatch failed (implement result: $IMPLEMENT_RESULT). 已恢复为 ready-to-implement，可在修复后再次 dispatch。"
           done

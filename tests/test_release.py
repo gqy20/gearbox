@@ -326,6 +326,30 @@ def test_dispatch_workflow_uses_parallel_implement_aggregation() -> None:
     assert "uses: ./actions/dispatch" not in workflow
 
 
+def test_dispatch_workflow_restores_issue_on_implement_failure() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "dispatch.yml").read_text(encoding="utf-8")
+
+    assert "restore-failed-issues:" in workflow
+    assert "needs.implement.result != 'success'" in workflow
+    assert "--remove-label in-progress" in workflow
+    assert "--add-label ready-to-implement" in workflow
+    assert "Gearbox dispatch failed" in workflow
+
+
+def test_dispatch_workflow_enables_auto_merge_after_pr_creation() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "dispatch.yml").read_text(encoding="utf-8")
+
+    assert "enable-auto-merge:" in workflow
+    assert "gh pr list" in workflow
+    assert "gh pr merge" in workflow
+    assert "--auto" in workflow
+    assert "--squash" in workflow
+
+
 def test_dispatch_schedule_runs_p0_first_lane() -> None:
     root = Path(__file__).resolve().parents[1]
 

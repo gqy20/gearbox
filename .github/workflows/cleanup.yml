@@ -1,0 +1,59 @@
+name: Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue 编号
+        required: true
+        type: number
+      dry_run:
+        description: 是否只输出计划，不删除分支
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Resolve issue number
+        id: issue
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ISSUE: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || '' }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ISSUE="$INPUT_ISSUE"
+          elif [[ "$HEAD_REF" =~ ^feat/issue-([0-9]+)-run-[0-9]+$ ]]; then
+            ISSUE="${BASH_REMATCH[1]}"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No Gearbox candidate issue found for head ref: $HEAD_REF"
+            exit 0
+          fi
+
+          echo "issue_number=$ISSUE" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Run Cleanup
+        if: steps.issue.outputs.skip != 'true'
+        uses: ./actions/cleanup
+        with:
+          repo: ${{ github.repository }}
+          issue_number: ${{ steps.issue.outputs.issue_number }}
+          dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}

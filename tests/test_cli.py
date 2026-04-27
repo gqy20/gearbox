@@ -781,3 +781,79 @@ class TestDispatchCommand:
 
         assert result.exit_code == 0
         assert captured["final_branch"] == "gearbox/issue-7"
+
+
+class TestCleanupCommand:
+    """测试 cleanup 命令。"""
+
+    def test_cleanup_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["cleanup", "--help"])
+
+        assert result.exit_code == 0
+        assert "--repo" in result.output
+        assert "--issue" in result.output
+        assert "--dry-run" in result.output
+
+    def test_cleanup_defaults_to_dry_run(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.cleanup import CleanupPlan
+
+        captured: dict[str, object] = {}
+
+        def fake_cleanup_candidate_branches(
+            repo: str, issue_number: int, *, dry_run: bool
+        ) -> CleanupPlan:
+            captured.update({"repo": repo, "issue": issue_number, "dry_run": dry_run})
+            return CleanupPlan(
+                repo=repo,
+                issue_number=issue_number,
+                dry_run=dry_run,
+                candidate_branches=["feat/issue-13-run-0"],
+                deleted_branches=[],
+            )
+
+        monkeypatch.setattr(
+            "gearbox.commands.cleanup.cleanup_candidate_branches",
+            fake_cleanup_candidate_branches,
+        )
+
+        result = runner.invoke(cli, ["cleanup", "--repo", "owner/repo", "--issue", "13"])
+
+        assert result.exit_code == 0
+        assert captured == {"repo": "owner/repo", "issue": 13, "dry_run": True}
+        assert "DRY-RUN" in result.output
+        assert "feat/issue-13-run-0" in result.output
+
+    def test_cleanup_can_delete_candidates(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.cleanup import CleanupPlan
+
+        captured: dict[str, object] = {}
+
+        def fake_cleanup_candidate_branches(
+            repo: str, issue_number: int, *, dry_run: bool
+        ) -> CleanupPlan:
+            captured.update({"repo": repo, "issue": issue_number, "dry_run": dry_run})
+            return CleanupPlan(
+                repo=repo,
+                issue_number=issue_number,
+                dry_run=dry_run,
+                candidate_branches=["feat/issue-13-run-0"],
+                deleted_branches=["feat/issue-13-run-0"],
+            )
+
+        monkeypatch.setattr(
+            "gearbox.commands.cleanup.cleanup_candidate_branches",
+            fake_cleanup_candidate_branches,
+        )
+
+        result = runner.invoke(
+            cli,
+            ["cleanup", "--repo", "owner/repo", "--issue", "13", "--no-dry-run"],
+        )
+
+        assert result.exit_code == 0
+        assert captured == {"repo": "owner/repo", "issue": 13, "dry_run": False}
+        assert "Deleted" in result.output

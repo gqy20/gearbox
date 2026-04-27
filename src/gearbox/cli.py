@@ -3,6 +3,7 @@
 import click
 
 from gearbox.commands.agent import agent
+from gearbox.commands.cleanup import cleanup
 from gearbox.commands.config import config
 from gearbox.commands.dispatch import dispatch
 from gearbox.commands.root import audit, package_marketplace, publish_issues, release_notes
@@ -20,6 +21,7 @@ cli.add_command(publish_issues)
 cli.add_command(package_marketplace)
 cli.add_command(release_notes)
 cli.add_command(agent)
+cli.add_command(cleanup)
 cli.add_command(dispatch)
 cli.add_command(config)
 

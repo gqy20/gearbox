@@ -16,6 +16,7 @@ def test_build_marketplace_bundle_writes_expected_files(tmp_path: Path) -> None:
     assert (output_dir / "pyproject.toml").exists()
     assert (output_dir / "uv.lock").exists()
     assert (output_dir / "actions" / "audit" / "action.yml").exists()
+    assert (output_dir / "actions" / "cleanup" / "action.yml").exists()
     assert (output_dir / "actions" / "dispatch" / "action.yml").exists()
     assert (output_dir / "actions" / "_runtime" / "action.yml").exists()
     assert (output_dir / "actions" / "_setup" / "action.yml").exists()
@@ -38,6 +39,7 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
 
     assert "name: Gearbox AI Flywheel" in root_action
     assert "uses: ./actions/audit" in root_action
+    assert "uses: ./actions/cleanup" in root_action
     assert "uses: ./actions/dispatch" in root_action
     assert "uses: ./actions/review" in root_action
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in runtime_action
@@ -101,6 +103,22 @@ def test_implement_action_uses_explicit_branch_and_pr_controls() -> None:
     assert "--candidate-branch-suffix" in implement_action
     assert "apply_side_effects" not in implement_action
     assert "--apply-side-effects" not in implement_action
+
+
+def test_cleanup_action_and_workflow_are_conservative() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    action = (root / "actions" / "cleanup" / "action.yml").read_text(encoding="utf-8")
+    workflow = (root / ".github" / "workflows" / "cleanup.yml").read_text(encoding="utf-8")
+
+    assert "gearbox cleanup" in action
+    assert "--dry-run" in action
+    assert "--no-dry-run" in action
+    assert "pull_request:" in workflow
+    assert "types: [closed]" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert r"^feat/issue-([0-9]+)-run-[0-9]+$" in workflow
+    assert "contents: write" in workflow
 
 
 def test_reusable_implement_pushes_candidates_without_creating_prs() -> None:
@@ -238,7 +256,7 @@ def test_build_marketplace_bundle_readme_tracks_router_actions(tmp_path: Path) -
 
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
 
-    expected_actions = ["audit", "backlog", "dispatch", "implement", "review", "publish"]
+    expected_actions = ["audit", "backlog", "cleanup", "dispatch", "implement", "review", "publish"]
     for action in expected_actions:
         assert f"- `{action}`" in readme
 

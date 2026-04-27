@@ -1,5 +1,5 @@
 name: Gearbox AI Flywheel
-description: Unified AI automation entrypoint for repository audit, backlog, review, implementation, and publishing
+description: Unified AI automation entrypoint for repository audit, backlog, cleanup, review, implementation, and publishing
 author: gqy20
 
 branding:
@@ -8,7 +8,7 @@ branding:
 
 inputs:
   action:
-    description: 'Action to run: audit, backlog, dispatch, implement, review, publish'
+    description: 'Action to run: audit, backlog, cleanup, dispatch, implement, review, publish'
     required: true
   repo:
     description: 仓库标识 (owner/name)
@@ -26,6 +26,10 @@ inputs:
     description: PR 编号
     required: false
     default: ''
+  cleanup_dry_run:
+    description: cleanup 是否只输出计划，不删除分支
+    required: false
+    default: 'true'
   input_path:
     description: issues.json 文件路径
     required: false
@@ -94,7 +98,7 @@ runs:
     shell: bash
     run: |
       case "${{ inputs.action }}" in
-        audit|backlog|dispatch|implement|review|publish) ;;
+        audit|backlog|cleanup|dispatch|implement|review|publish) ;;
         *)
           echo "::error::Unsupported action '${{ inputs.action }}'"
           exit 1
@@ -144,6 +148,15 @@ runs:
       anthropic_base_url: ${{ inputs.anthropic_base_url }}
       anthropic_api_key: ${{ inputs.anthropic_api_key }}
 
+  - name: Run Cleanup
+    id: cleanup
+    if: ${{ inputs.action == 'cleanup' }}
+    uses: ./actions/cleanup
+    with:
+      repo: ${{ inputs.repo }}
+      issue_number: ${{ inputs.issue_number }}
+      dry_run: ${{ inputs.cleanup_dry_run }}
+
   - name: Run Dispatch
     id: dispatch
     if: ${{ inputs.action == 'dispatch' }}
@@ -184,6 +197,7 @@ runs:
     env:
       AUDIT_STATUS: ${{ steps.audit.outputs.status }}
       BACKLOG_STATUS: ${{ steps.backlog.outputs.status }}
+      CLEANUP_STATUS: ${{ steps.cleanup.outputs.status }}
       IMPLEMENT_STATUS: ${{ steps.implement.outputs.status }}
       DISPATCH_STATUS: ${{ steps.dispatch.outputs.status }}
       REVIEW_STATUS: ${{ steps.review.outputs.status }}
@@ -192,6 +206,7 @@ runs:
     run: |
       STATUS="$AUDIT_STATUS"
       if [ -z "$STATUS" ]; then STATUS="$BACKLOG_STATUS"; fi
+      if [ -z "$STATUS" ]; then STATUS="$CLEANUP_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$IMPLEMENT_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$DISPATCH_STATUS"; fi
       if [ -z "$STATUS" ]; then STATUS="$REVIEW_STATUS"; fi

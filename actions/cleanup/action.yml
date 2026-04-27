@@ -1,0 +1,51 @@
+name: Gearbox - Cleanup
+description: 清理 Gearbox 为指定 Issue 创建的候选分支
+author: gqy20
+
+inputs:
+  repo:
+    description: 仓库标识 (owner/name)
+    required: true
+  issue_number:
+    description: Issue 编号
+    required: true
+  dry_run:
+    description: 是否只输出计划，不删除分支
+    required: false
+    default: 'true'
+
+outputs:
+  status:
+    description: 执行状态
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+  - name: Setup Gearbox runtime
+    uses: ./actions/_runtime
+
+  - name: Run Cleanup
+    id: run
+    shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+    run: |
+      set -e
+      export PATH="$HOME/.local/bin:$PATH"
+
+      CMD=(
+        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox cleanup
+        --repo "${{ inputs.repo }}"
+        --issue "${{ inputs.issue_number }}"
+      )
+
+      if [ "${{ inputs.dry_run }}" = "true" ]; then
+        CMD+=(--dry-run)
+      else
+        CMD+=(--no-dry-run)
+      fi
+
+      "${CMD[@]}"
+
+      echo "status=success" >> "$GITHUB_OUTPUT"

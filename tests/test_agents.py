@@ -70,8 +70,6 @@ class TestStructuredOutputParsing:
                 "labels": ["bug", "high-priority"],
                 "priority": "P1",
                 "complexity": "M",
-                "needs_clarification": False,
-                "clarification_question": None,
                 "ready_to_implement": True,
             }
         )
@@ -91,8 +89,6 @@ class TestStructuredOutputParsing:
                         "labels": ["enhancement", "ci"],
                         "priority": "P2",
                         "complexity": "S",
-                        "needs_clarification": False,
-                        "clarification_question": None,
                         "ready_to_implement": True,
                     },
                 )
@@ -110,8 +106,6 @@ class TestStructuredOutputParsing:
             labels=["documentation", "enhancement", "P1"],
             priority="P1",
             complexity="M",
-            needs_clarification=False,
-            clarification_question=None,
             ready_to_implement=True,
         )
 
@@ -128,8 +122,6 @@ class TestStructuredOutputParsing:
             labels=["question"],
             priority="P2",
             complexity="S",
-            needs_clarification=True,
-            clarification_question="请补充复现步骤",
             ready_to_implement=False,
         )
 
@@ -137,7 +129,6 @@ class TestStructuredOutputParsing:
             "question",
             "P2",
             "complexity:S",
-            "needs-clarification",
         ]
 
     def test_parse_issue_numbers(self) -> None:
@@ -151,8 +142,6 @@ class TestStructuredOutputParsing:
                     labels=["enhancement", "ci"],
                     priority="P2",
                     complexity="S",
-                    needs_clarification=False,
-                    clarification_question=None,
                     ready_to_implement=True,
                 )
             ]

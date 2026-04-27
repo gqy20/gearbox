@@ -82,7 +82,7 @@ jobs:
           uv run --directory "$GEARBOX_ACTION_ROOT" gearbox backlog plan \
             --repo "${{ steps.target.outputs.repo }}" \
             --max-items 5 \
-            --since-days 2 \
+            --since-days "${{ inputs.since_days || '2' }}" \
             --json-output > backlog-plan.json
 
           python3 - <<'PY' >> "$GITHUB_OUTPUT"

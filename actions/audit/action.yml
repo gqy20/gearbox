@@ -39,7 +39,7 @@ inputs:
     required: false
     default: 'false'
   comment_event_type:
-    description: 事件类型 (issue_comment/issues/pull_request_review_comment)
+    description: 事件类型 (issue_comment)
     required: false
     default: ''
   issue_number:
@@ -169,14 +169,13 @@ runs:
       OUTPUT_DIR: ${{ inputs.output_dir }}
       COMMENT_EVENT_TYPE: ${{ inputs.comment_event_type }}
       ISSUE_NUMBER: ${{ inputs.issue_number }}
-      PR_NUMBER: ${{ inputs.pr_number }}
     run: |
       export PATH="$HOME/.local/bin:$PATH"
       uv run --directory "${GITHUB_ACTION_PATH}/../.." python <<'PY'
       import os
       from pathlib import Path
 
-      from gearbox.core.gh import post_issue_comment, post_review_comment
+      from gearbox.core.gh import post_issue_comment
 
       repo = os.environ["GITHUB_REPOSITORY"]
       output_dir = Path(os.environ["OUTPUT_DIR"])
@@ -192,14 +191,10 @@ runs:
       event_type = os.environ["COMMENT_EVENT_TYPE"]
       print(f"Event type: {event_type}")
 
-      if event_type in ("issue_comment", "issues"):
+      if event_type == "issue_comment":
           issue_number = int(os.environ["ISSUE_NUMBER"])
           result = post_issue_comment(repo, issue_number, body)
           print(f"Issue comment: {'✅' if result.success else '❌'}")
-      elif event_type == "pull_request_review_comment":
-          pr_number = int(os.environ["PR_NUMBER"])
-          result = post_review_comment(repo, pr_number, body)
-          print(f"PR comment: {'✅' if result.success else '❌'}")
       else:
           print(f"⚠️ Unsupported comment event type: {event_type}")
       PY

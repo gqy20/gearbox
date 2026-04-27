@@ -80,7 +80,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
           model: ${{ secrets.ANTHROPIC_MODEL }}
-          is_comment_event: ${{ github.event_name == 'issue_comment' || github.event_name == 'issues' || github.event_name == 'pull_request_review_comment' }}
+          is_comment_event: ${{ github.event_name == 'issue_comment' }}
           comment_event_type: ${{ github.event_name }}
           issue_number: ${{ github.event.issue.number }}
           pr_number: ${{ github.event.pull_request.number }}

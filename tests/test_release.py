@@ -164,6 +164,19 @@ def test_review_and_audit_commands_do_not_listen_to_inline_review_comments() -> 
         assert "dependabot[bot]" in workflow
 
 
+def test_audit_action_does_not_support_removed_comment_events() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    action = (root / "actions" / "audit" / "action.yml").read_text(encoding="utf-8")
+    reusable = (root / ".github" / "workflows" / "reusable-audit.yml").read_text(encoding="utf-8")
+
+    assert "pull_request_review_comment" not in action
+    assert 'event_type in ("issue_comment", "issues")' not in action
+    assert 'event_type == "pull_request_review_comment"' not in action
+    assert "github.event_name == 'issues'" not in reusable
+    assert "github.event_name == 'pull_request_review_comment'" not in reusable
+
+
 def test_review_command_requires_pr_conversation_comment() -> None:
     root = Path(__file__).resolve().parents[1]
 

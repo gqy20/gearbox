@@ -12,12 +12,8 @@ from gearbox.core.gh import (
 
 
 def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
-    """Return result.json files from both flat and per-artifact layouts."""
+    """Return result.json files from downloaded per-artifact directories."""
     candidates: list[tuple[str, Path]] = []
-    flat_result = input_root / "result.json"
-    if flat_result.exists():
-        candidates.append((input_root.name, flat_result))
-
     if input_root.exists():
         for run_dir in sorted(path for path in input_root.iterdir() if path.is_dir()):
             result_path = run_dir / "result.json"
@@ -27,9 +23,9 @@ def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
     return candidates
 
 
-def _apply_backlog_item(repo: str, result: object, fallback_issue: int | None = None) -> None:
+def _apply_backlog_item(repo: str, result: object) -> None:
     """Apply one backlog classification item to GitHub with idempotent managed labels."""
-    issue_number = getattr(result, "issue_number", None) or fallback_issue
+    issue_number = getattr(result, "issue_number", None)
     if issue_number is None:
         raise click.ClickException("backlog item missing issue_number")
 

@@ -44,14 +44,14 @@ class TestVersionAndHelp:
 
 
 class TestResultFileDiscovery:
-    """测试 artifact 下载后的 result.json 布局兼容。"""
+    """测试 artifact 下载后的 result.json 布局。"""
 
-    def test_candidate_result_files_supports_flat_layout(self, tmp_path: Path) -> None:
+    def test_candidate_result_files_ignores_flat_layout(self, tmp_path: Path) -> None:
         (tmp_path / "result.json").write_text("{}", encoding="utf-8")
 
         candidates = _candidate_result_files(tmp_path)
 
-        assert candidates == [(tmp_path.name, tmp_path / "result.json")]
+        assert candidates == []
 
     def test_candidate_result_files_supports_per_artifact_layout(self, tmp_path: Path) -> None:
         run_dir = tmp_path / "backlog-results-issue-1-run-0"

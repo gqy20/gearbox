@@ -45,7 +45,6 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup Gearbox runtime
-        if: github.event_name == 'schedule'
         uses: ./actions/_runtime
 
       - name: Determine target

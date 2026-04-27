@@ -50,13 +50,7 @@ def _apply_backlog_item_with_comments(repo: str, result: object, *, comment_mode
     if comment_mode == "never":
         return
 
-    needs_clarification = bool(getattr(result, "needs_clarification", False))
-    clarification_question = getattr(result, "clarification_question", None)
     ready_to_implement = bool(getattr(result, "ready_to_implement", False))
-    if needs_clarification and clarification_question:
-        comment_result = post_issue_comment(repo, issue_number, f"👋 {clarification_question}")
-        if not comment_result.success:
-            click.echo(f"⚠️ 发布评论失败: {comment_result.url}", err=True)
     if ready_to_implement:
         comment_result = post_issue_comment(
             repo, issue_number, "✅ 此 Issue 分类完成，标记为 ready-to-implement"

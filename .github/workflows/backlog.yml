@@ -15,6 +15,10 @@ on:
         description: '并行执行次数（workflow 编排层配置）'
         required: false
         default: '3'
+      since_days:
+        description: '超过多少天未更新分类标签则重新评估'
+        required: false
+        default: '2'
   schedule:
     - cron: '15 */2 * * *'
   issue_comment:
@@ -78,6 +82,7 @@ jobs:
           uv run --directory "$GEARBOX_ACTION_ROOT" gearbox backlog plan \
             --repo "${{ steps.target.outputs.repo }}" \
             --max-items 5 \
+            --since-days 2 \
             --json-output > backlog-plan.json
 
           python3 - <<'PY' >> "$GITHUB_OUTPUT"

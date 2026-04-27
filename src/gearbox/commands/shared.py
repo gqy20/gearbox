@@ -36,7 +36,11 @@ def _apply_backlog_item(repo: str, result: object) -> None:
 
 
 def _apply_backlog_item_with_comments(repo: str, result: object, *, comment_mode: str) -> None:
-    """Apply backlog labels and optionally publish classification comments."""
+    """Apply backlog labels and optionally publish classification comments.
+
+    comment_mode:
+      - auto:   更新标签 + 发布 ready-to-implement 评论
+      - never:  仅更新标签，不发布任何评论（适用于 schedule 静默运行）"""
     issue_number = getattr(result, "issue_number", None)
     if issue_number is None:
         raise click.ClickException("backlog item missing issue_number")

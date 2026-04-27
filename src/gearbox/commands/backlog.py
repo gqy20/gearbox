@@ -31,11 +31,12 @@ def backlog() -> None:
 @backlog.command("plan")
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--max-items", default=5, type=int, help="最多选择多少个 Issue")
+@click.option("--since-days", default=2, type=int, help="超过多少天未更新分类标签则重新评估")
 @click.option("--json-output", is_flag=True, help="输出 JSON 计划")
-def backlog_plan(repo: str, max_items: int, json_output: bool) -> None:
+def backlog_plan(repo: str, max_items: int, since_days: int, json_output: bool) -> None:
     """只生成 backlog 分类计划，不调用 Agent。"""
     try:
-        plan = build_backlog_plan(repo, max_items=max_items)
+        plan = build_backlog_plan(repo, max_items=max_items, since_days=since_days)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

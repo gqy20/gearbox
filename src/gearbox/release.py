@@ -60,7 +60,7 @@ Gearbox 的 Marketplace 发布仓。
 
 这个仓库由主开发仓 `gqy20/gearbox` 自动导出，用于提供稳定、轻量的 GitHub Action 对外入口。
 
-## 用法
+## 快速开始
 
 ```yaml
 - uses: gqy20/gearbox-action@v1
@@ -72,7 +72,68 @@ Gearbox 的 Marketplace 发布仓。
 
 这是推荐给大多数用户的接入方式。action 会负责准备运行环境、克隆目标仓库、执行扫描并调用 Gearbox Agent。
 
-需要真正的 matrix 并行、artifact 聚合和多实例选优时，请参考主开发仓中的 workflow 编排，或使用保留的 reusable workflow 模板：
+## 评论触发
+
+在 Issue 或 PR 评论中输入触发词，避免一次评论误触发多个流程：
+
+- `@audit`：触发仓库审计
+- `@backlog`：触发当前 Issue 分类
+- `@dispatch`：从当前 Issue 或 ready backlog 触发实现计划
+- `@review`：触发 PR 审查
+
+## 主要动作示例
+
+### audit — 仓库审计
+
+```yaml
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: audit
+    repo: owner/repo
+    anthropic_api_key: ${{{{ secrets.ANTHROPIC_AUTH_TOKEN }}}}
+```
+
+### backlog — Issue 分类
+
+统一的 backlog 入口会根据 `issues` 数量自动选择行为：1 个 issue 时执行快速分类，多个 issue 时执行批量分类并逐个写回标签/评论。
+
+Backlog 会写入 `P0`-`P3`（优先级）、`complexity:S/M/L`（复杂度）和 `ready-to-implement`（状态）标签。若仓库还没有这些标签，运行时会先自动创建。
+
+```yaml
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: backlog
+    repo: owner/repo
+    issues: '2,5,6'
+    anthropic_api_key: ${{{{ secrets.ANTHROPIC_AUTH_TOKEN }}}}
+```
+
+### dispatch — 实现计划
+
+默认 dry-run，只输出计划；设置 `dry_run: 'false'` 才会创建 PR。
+
+```yaml
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: dispatch
+    repo: owner/repo
+    max_items: '1'
+    dry_run: 'true'
+    anthropic_api_key: ${{{{ secrets.ANTHROPIC_AUTH_TOKEN }}}}
+```
+
+## 配置
+
+| Secret / Variable | 必须 | 说明 |
+| --- | --- | --- |
+| `ANTHROPIC_AUTH_TOKEN` | 是 | LLM Provider API Key |
+| `ANTHROPIC_BASE_URL` | 否 | 自定义兼容网关地址 |
+| `GH_PAT` | 否 | 跨仓库写入、创建 Issue 时使用 |
+| `ANTHROPIC_MODEL` | 否 | 默认 `glm-5-turbo` |
+
+## 高级编排
+
+需要 matrix 并行、artifact 聚合或多实例选优时，请参考主开发仓的 workflow 编排：
 
 ```yaml
 jobs:
@@ -88,6 +149,14 @@ jobs:
 ## 支持的动作
 
 {action_lines}
+
+## 审计可观测性
+
+audit action 输出三个层级日志：
+
+- **运行配置**：模型、base URL、最大轮次、工作目录
+- **静态扫描**：文件数、代码行数、工具状态（cloc、deptry、semgrep、trivy 等）
+- **Agent 事件**：thinking 摘要、工具调用（Read、Bash 等）、token 消耗
 
 ## 发布说明
 

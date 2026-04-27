@@ -1,6 +1,7 @@
 """Tests for deterministic flow orchestration."""
 
 from gearbox.core.gh import IssueSummary
+from gearbox.flow.backlog import build_backlog_plan, select_backlog_items
 from gearbox.flow.dispatch import (
     build_dispatch_plan,
     dispatch_branch_name,
@@ -55,3 +56,40 @@ def test_build_dispatch_plan_uses_ready_to_implement_label(monkeypatch) -> None:
     assert captured["repo"] == "owner/repo"
     assert captured["labels"] == ["ready-to-implement"]
     assert [item.issue_number for item in plan.items] == [7]
+
+
+def test_select_backlog_items_filters_already_triaged_and_blocked() -> None:
+    items, skipped = select_backlog_items(
+        [
+            _issue(1, []),
+            _issue(2, ["ready-to-implement"]),
+            _issue(3, ["needs-clarification"]),
+            _issue(4, ["in-progress"]),
+            _issue(5, ["has-pr"]),
+            _issue(6, ["P1", "complexity:S"]),
+            _issue(7, ["bug"]),
+        ],
+        max_items=3,
+    )
+
+    assert [item.issue_number for item in items] == [1, 7]
+    assert skipped == 5
+
+
+def test_build_backlog_plan_lists_open_issues_without_label_filter(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_list_open_issues(repo: str, labels: list[str] | None = None, limit: int = 100):
+        captured["repo"] = repo
+        captured["labels"] = labels
+        captured["limit"] = limit
+        return [_issue(9, [])]
+
+    monkeypatch.setattr("gearbox.flow.backlog.list_open_issues", fake_list_open_issues)
+
+    plan = build_backlog_plan("owner/repo", max_items=5)
+
+    assert captured["repo"] == "owner/repo"
+    assert captured["labels"] is None
+    assert captured["limit"] == 100
+    assert [item.issue_number for item in plan.items] == [9]

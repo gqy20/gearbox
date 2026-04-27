@@ -27,7 +27,7 @@ on:
         type: boolean
 
   schedule:
-    - cron: '0 1 * * 1'
+    - cron: '0 * * * *'
 
   issue_comment:
     types: [created]

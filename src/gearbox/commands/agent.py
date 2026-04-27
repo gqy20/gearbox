@@ -34,7 +34,12 @@ from gearbox.core.gh import (
     prepare_working_branch,
 )
 
-from .shared import _apply_backlog_item, _candidate_result_files, _select_single
+from .shared import (
+    _apply_backlog_item,
+    _apply_backlog_item_with_comments,
+    _candidate_result_files,
+    _select_single,
+)
 
 
 def _with_branch_suffix(branch_name: str, suffix: str) -> str:
@@ -350,6 +355,12 @@ def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, o
 @click.option("--model", default="", help="用于评估多个结果的模型")
 @click.option("--max-turns", default=29, type=int, help="Evaluator 最大对话轮次")
 @click.option("--artifact-path", default="", help="可选: 写出胜出结果 artifact")
+@click.option(
+    "--comment-mode",
+    type=click.Choice(["auto", "never"]),
+    default="auto",
+    help="应用 backlog 结果时是否发布评论",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def backlog_select(
     input_root: str,
@@ -357,6 +368,7 @@ def backlog_select(
     model: str,
     max_turns: int,
     artifact_path: str,
+    comment_mode: str,
     output: str,
 ) -> None:
     """聚合多个 backlog 结果并按 issue 只应用一次 GitHub 副作用。"""
@@ -389,7 +401,7 @@ def backlog_select(
             )
         )
         selected_items.append(winner_result)
-        _apply_backlog_item(repo, winner_result)
+        _apply_backlog_item_with_comments(repo, winner_result, comment_mode=comment_mode)
         click.echo(
             f"✅ Selected backlog result: issue={issue_number}, winner={names[winner_index]}"
         )

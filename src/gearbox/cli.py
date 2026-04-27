@@ -3,6 +3,7 @@
 import click
 
 from gearbox.commands.agent import agent
+from gearbox.commands.backlog import backlog
 from gearbox.commands.cleanup import cleanup, cleanup_restore_unmerged_pr
 from gearbox.commands.config import config
 from gearbox.commands.dispatch import dispatch
@@ -21,6 +22,7 @@ cli.add_command(publish_issues)
 cli.add_command(package_marketplace)
 cli.add_command(release_notes)
 cli.add_command(agent)
+cli.add_command(backlog)
 cli.add_command(cleanup)
 cli.add_command(cleanup_restore_unmerged_pr)
 cli.add_command(dispatch)

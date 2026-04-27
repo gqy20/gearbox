@@ -202,6 +202,18 @@ def test_issue_command_workflows_do_not_subscribe_to_all_issue_changes() -> None
         assert "issue_comment:" in workflow
 
 
+def test_backlog_schedule_uses_quiet_planning_mode() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "backlog.yml").read_text(encoding="utf-8")
+
+    assert "schedule:" in workflow
+    assert "cron: '15 17 * * *'" in workflow
+    assert "gearbox backlog plan" in workflow
+    assert "--comment-mode" in workflow
+    assert "needs.plan.outputs.comment_mode" in workflow
+
+
 def test_review_and_audit_commands_do_not_listen_to_inline_review_comments() -> None:
     root = Path(__file__).resolve().parents[1]
 

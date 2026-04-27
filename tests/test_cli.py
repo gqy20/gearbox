@@ -359,6 +359,85 @@ class TestAgentCommand:
             (5, ["enhancement", "P2", "complexity:S", "ready-to-implement"]),
         ]
 
+    def test_agent_backlog_select_can_disable_comments(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        run_dir = tmp_path / "backlog-results-issue-2-run-0"
+        run_dir.mkdir()
+        (run_dir / "result.json").write_text(
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "issue_number": 2,
+                            "labels": ["enhancement"],
+                            "priority": "P2",
+                            "complexity": "S",
+                            "needs_clarification": False,
+                            "clarification_question": None,
+                            "ready_to_implement": True,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        comments: list[tuple[object, ...]] = []
+
+        monkeypatch.setattr(
+            "gearbox.commands.shared.replace_managed_issue_labels",
+            lambda *args, **kwargs: PostReviewResult(True),
+        )
+        monkeypatch.setattr(
+            "gearbox.commands.shared.post_issue_comment",
+            lambda *args, **kwargs: comments.append(args) or PostReviewResult(True),
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "backlog-select",
+                "--input-root",
+                str(tmp_path),
+                "--repo",
+                "owner/repo",
+                "--comment-mode",
+                "never",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert comments == []
+
+    def test_backlog_plan_outputs_selected_issue(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.flow.models import BacklogPlan, BacklogPlanItem
+
+        monkeypatch.setattr(
+            "gearbox.commands.backlog.build_backlog_plan",
+            lambda *args, **kwargs: BacklogPlan(
+                repo="owner/repo",
+                skipped_count=1,
+                items=[
+                    BacklogPlanItem(
+                        issue_number=7,
+                        title="Clarify API",
+                        labels=[],
+                        url="https://github.com/owner/repo/issues/7",
+                        reason="unclassified",
+                    )
+                ],
+            ),
+        )
+
+        result = runner.invoke(cli, ["backlog", "plan", "--repo", "owner/repo"])
+
+        assert result.exit_code == 0
+        assert "#7 Clarify API" in result.output
+
     def test_agent_review_select_fails_when_posting_review_fails(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

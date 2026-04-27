@@ -32,14 +32,23 @@ def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
 
 def _apply_backlog_item(repo: str, result: object) -> None:
     """Apply one backlog classification item to GitHub with idempotent managed labels."""
+    _apply_backlog_item_with_comments(repo, result, comment_mode="auto")
+
+
+def _apply_backlog_item_with_comments(repo: str, result: object, *, comment_mode: str) -> None:
+    """Apply backlog labels and optionally publish classification comments."""
     issue_number = getattr(result, "issue_number", None)
     if issue_number is None:
         raise click.ClickException("backlog item missing issue_number")
+    if comment_mode not in {"auto", "never"}:
+        raise click.ClickException("comment_mode must be one of: auto, never")
 
     labels = github_labels_for_backlog_item(result)  # type: ignore[arg-type]
     label_result = replace_managed_issue_labels(repo, issue_number, labels)
     if not label_result.success:
         click.echo(f"⚠️ 添加标签失败: {label_result.url}", err=True)
+    if comment_mode == "never":
+        return
 
     needs_clarification = bool(getattr(result, "needs_clarification", False))
     clarification_question = getattr(result, "clarification_question", None)

@@ -20,3 +20,19 @@ class DispatchPlan:
     items: list[DispatchItem]
     skipped_count: int
     dry_run: bool
+
+
+@dataclass
+class BacklogPlanItem:
+    issue_number: int
+    title: str
+    labels: list[str]
+    url: str
+    reason: str
+
+
+@dataclass
+class BacklogPlan:
+    repo: str
+    items: list[BacklogPlanItem]
+    skipped_count: int

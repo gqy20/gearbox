@@ -14,6 +14,8 @@ on:
         description: '并行执行次数（workflow 编排层配置）'
         required: false
         default: '3'
+  schedule:
+    - cron: '15 17 * * *'
   issue_comment:
     types: [created]
 
@@ -29,13 +31,22 @@ jobs:
   plan:
     if: |
       (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'schedule') ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@backlog') && github.event.comment.user.id != github.event.installation.id)
     runs-on: ubuntu-latest
     outputs:
       repo: ${{ steps.target.outputs.repo }}
-      issues: ${{ steps.target.outputs.issues }}
+      issues: ${{ steps.issues.outputs.issues }}
       matrix_json: ${{ steps.matrix.outputs.matrix_json }}
+      comment_mode: ${{ steps.target.outputs.comment_mode }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Gearbox runtime
+        if: github.event_name == 'schedule'
+        uses: ./actions/_runtime
+
       - name: Determine target
         id: target
         shell: bash
@@ -46,21 +57,58 @@ jobs:
             else
               echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
             fi
-            echo "issues=${{ inputs.issues }}" >> "$GITHUB_OUTPUT"
+            echo "comment_mode=auto" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+            echo "comment_mode=never" >> "$GITHUB_OUTPUT"
           else
             echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
-            echo "issues=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "comment_mode=auto" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Plan scheduled backlog issues
+        id: scheduled
+        if: github.event_name == 'schedule'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+
+          uv run --directory "$GEARBOX_ACTION_ROOT" gearbox backlog plan \
+            --repo "${{ steps.target.outputs.repo }}" \
+            --max-items 5 \
+            --json-output > backlog-plan.json
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          with open("backlog-plan.json", encoding="utf-8") as fh:
+              plan = json.load(fh)
+
+          issues = [str(item["issue_number"]) for item in plan.get("items", [])]
+          print(f"issues={','.join(issues)}")
+          PY
+
+      - name: Resolve issue list
+        id: issues
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "issues=${{ inputs.issues }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "issues=${{ steps.scheduled.outputs.issues }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "issues=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build matrix
         id: matrix
         uses: ./actions/matrix
         with:
           count: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
-          issues: ${{ steps.target.outputs.issues }}
+          issues: ${{ steps.issues.outputs.issues }}
 
   backlog-run:
     needs: plan
@@ -131,6 +179,7 @@ jobs:
             --input-root "$GITHUB_WORKSPACE/backlog-runs"
             --repo "${{ needs.plan.outputs.repo }}"
             --artifact-path "$GITHUB_WORKSPACE/backlog-output/result.json"
+            --comment-mode "${{ needs.plan.outputs.comment_mode }}"
             --max-turns 29
           )
 

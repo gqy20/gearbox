@@ -93,6 +93,7 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
         "benchmarks": result.benchmarks,
         "issues": [
             {
+                "repo": result.repo,
                 "title": issue.title,
                 "body": issue.body,
                 "labels": issue.labels,

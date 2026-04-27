@@ -149,7 +149,7 @@ def review(
         )
         review_result = post_review_comment(repo, pr, body, event)
         if not review_result.success:
-            click.echo(f"⚠️ 发布 Review 失败: {review_result.url}", err=True)
+            raise click.ClickException(f"发布 Review 失败: {review_result.url}")
 
     result_to_github_output(result, output)
     click.echo(f"✅ Review: verdict={result.verdict}, score={result.score}")
@@ -445,7 +445,7 @@ def review_select(
     )
     review_result = post_review_comment(repo, pr, body, event)
     if not review_result.success:
-        click.echo(f"⚠️ 发布 Review 失败: {review_result.url}", err=True)
+        raise click.ClickException(f"发布 Review 失败: {review_result.url}")
 
     result_to_github_output(winner_result, output)
     click.echo(f"✅ Selected review result: winner={names[winner_index]}")

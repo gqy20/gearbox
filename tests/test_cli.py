@@ -353,6 +353,62 @@ class TestAgentCommand:
             (5, ["enhancement", "P2", "complexity:S", "ready-to-implement"]),
         ]
 
+    def test_agent_review_select_fails_when_posting_review_fails(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        run_dir = tmp_path / "review-results-run-0"
+        run_dir.mkdir()
+        (run_dir / "result.json").write_text(
+            json.dumps(
+                {
+                    "verdict": "LGTM",
+                    "score": 8,
+                    "summary": "Looks good",
+                    "comments": [
+                        {
+                            "file": ".github/dependabot.yml",
+                            "line": 1,
+                            "body": "Reviewed.",
+                            "severity": "info",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        async def fake_select_best_result(*args, **kwargs):
+            del args, kwargs
+            from gearbox.agents.review import load_review_result
+
+            return 0, load_review_result(run_dir / "result.json")
+
+        monkeypatch.setattr("gearbox.commands.agent.select_best_result", fake_select_best_result)
+        monkeypatch.setattr(
+            "gearbox.commands.agent.post_review_comment",
+            lambda *args, **kwargs: PostReviewResult(False, "unknown flag: --event"),
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "review-select",
+                "--input-root",
+                str(tmp_path),
+                "--repo",
+                "owner/repo",
+                "--pr",
+                "8",
+                "--output",
+                str(tmp_path / "github_output"),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "发布 Review 失败" in result.output
+        assert "unknown flag: --event" in result.output
+
     def test_agent_review_requires_args(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "review"])
         assert result.exit_code != 0

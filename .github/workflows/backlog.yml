@@ -8,8 +8,9 @@ on:
         required: false
         default: ''
       issues:
-        description: '逗号或空格分隔的 Issue 编号；数量决定单 issue 或 backlog 批量处理'
-        required: true
+        description: '逗号或空格分隔的 Issue 编号；留空则自动 plan'
+        required: false
+        default: ''
       parallel_runs:
         description: '并行执行次数（workflow 编排层配置）'
         required: false

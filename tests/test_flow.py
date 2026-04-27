@@ -88,8 +88,17 @@ def test_build_dispatch_plan_can_filter_allowed_priorities(monkeypatch) -> None:
     assert [item.issue_number for item in plan.items] == [8]
 
 
-def test_select_backlog_items_filters_already_triaged_and_blocked() -> None:
+def test_select_backlog_items_filters_already_triaged_and_blocked(monkeypatch) -> None:
+    from gearbox.core.gh import LabelEvent
+
+    monkeypatch.setattr(
+        "gearbox.flow.backlog.get_issue_label_events",
+        lambda repo, issue_number, labels, since_days=2: [
+            LabelEvent(label="P1", event="labeled", created_at="2026-04-27T12:00:00Z")
+        ],
+    )
     items, skipped = select_backlog_items(
+        "owner/repo",
         [
             _issue(1, []),
             _issue(2, ["ready-to-implement"]),

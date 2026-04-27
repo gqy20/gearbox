@@ -253,6 +253,51 @@ def get_issue_labels(repo: str, issue_number: int) -> list[str]:
         return []
 
 
+@dataclass
+class LabelEvent:
+    label: str
+    event: str  # "labeled" or "unlabeled"
+    created_at: str
+
+
+def get_issue_label_events(
+    repo: str,
+    issue_number: int,
+    labels: set[str],
+    since_days: int = 2,
+) -> list[LabelEvent]:
+    """获取指定标签在近 N 天内的变更事件（labeled/unlabeled）。"""
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/{issue_number}/timeline",
+                "--jq",
+                '.[] | select(.event == "labeled" or .event == "unlabeled") | {event: .event, label: .label.name, created_at: .created_at}',
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        events: list[LabelEvent] = []
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            obj = json.loads(line)
+            if obj["label"] in labels:
+                events.append(
+                    LabelEvent(
+                        label=obj["label"],
+                        event=obj["event"],
+                        created_at=obj["created_at"],
+                    )
+                )
+        return events
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return []
+
+
 def list_open_issues(
     repo: str, labels: list[str] | None = None, limit: int = 100
 ) -> list[IssueSummary]:

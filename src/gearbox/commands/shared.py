@@ -15,8 +15,12 @@ from gearbox.core.gh import (
 
 
 def _candidate_result_files(input_root: Path) -> list[tuple[str, Path]]:
-    """Return result.json files from downloaded per-artifact directories."""
+    """Return result.json files from GitHub artifact download layouts."""
     candidates: list[tuple[str, Path]] = []
+    flat_result = input_root / "result.json"
+    if flat_result.exists():
+        candidates.append((input_root.name, flat_result))
+
     if input_root.exists():
         for run_dir in sorted(path for path in input_root.iterdir() if path.is_dir()):
             result_path = run_dir / "result.json"

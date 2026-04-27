@@ -5,6 +5,69 @@
 版本号使用与发布流程一致的 `vX.Y.Z` tag。每次发布到
 `gearbox-action` 时，会自动提取对应版本段落作为 Release Notes。
 
+## [Unreleased]
+
+### 新增
+
+- Audit Agent 在分析前通过 `gh issue list` 拉取仓库已有 open Issues，
+  注入提示词并要求聚焦发现全新问题，避免重复已有工作。
+- Backlog 分类提示词包含所有 open Issues 摘要，让 Agent 了解全局上下文，
+  做相对优先级判断（P2 vs P3）。
+- Backlog 鼓励 Agent 在分类前用 Read/Bash 工具分析源码，结合代码上下文
+  判断问题本质和修复复杂度，并增加 max_turns 到 30。
+- Backlog 支持"分类标签过期重新评估"：P0-P3 / complexity:S/M/L 标签
+  超过 `--since-days`（默认 2 天）未更新时，Issue 重新成为 backlog 候选。
+- Backlog workflow_dispatch 支持空 issues 输入触发自动 plan。
+- `parse_issue_numbers` 增强：支持 `#` 前缀（`#12`、`#12, #13`），
+  空白输入返回空列表，非法 token 抛出含具体 token 的 ValueError。
+- 所有 Agent 新增 `failure_reason` 字段，失败时必须返回原因，不再静默失败；
+  Implement Agent 新增 3 次同测试失败自动停止约束。
+- Implement Agent 要求 TDD 工作流（先写测试再实现）和 ready_for_review
+  前置条件（测试通过 + lint 通过）。
+- Review Agent 要求测试覆盖率，缺失测试必须标记为 warning。
+- Evaluator 每条评分结果须包含明确理由说明。
+- 新增 `agents/shared/prompt_helpers.py`，提供 `format_issues_summary()`
+  格式化 issue 列表为 Markdown prompt 上下文，audit 和 backlog 共用。
+- README"快速开始"与"当前架构"之间新增"本地验证"小节，
+  含 pytest / ruff check / mypy 三个基本检查命令。
+- `--since-days` CLI 选项透传到 `build_backlog_plan`，支持配置重新分类阈值。
+- `since_days` 作为 workflow_dispatch input 暴露给用户。
+
+### 变更
+
+- Audit Agent cwd 改为目标仓库克隆目录，不再错误指向 gearbox 自身源码。
+- Backlog Agent cwd 改为目标仓库克隆目录，使源码分析工具（Read/Bash）
+  分析的是正确仓库而非 gearbox 自身。
+- `clone_repository()` 从 audit.py 提取到 `agents/shared/git.py`，
+  audit、backlog 共用同一克隆逻辑。
+- Audit 使用共享的 `IssueSummary` 数据模型和 `format_issues_summary()`
+  格式化提示词上下文。
+- Backlog 使用共享的 `format_issues_summary()` 格式化所有 open issues。
+- Backlog cron 调度从每天改为每 2 小时，与 audit 每小时调度保持一致节奏。
+- `comment_mode=never` 的语义明确：仅抑制评论，标签更新不受影响。
+
+### 修复
+
+- 修复 matrix 表达式优先级：YAML 中 `&&` 优先级高于 `||`，
+  导致 parallel_runs='1' 时总是走到错误分支。
+- 修复 backlog workflow_dispatch issues 为必填导致无法触发自动 plan 的问题。
+- 修复 plan job 中 `Setup Gearbox runtime` step 仅在 schedule 触发时运行，
+  导致 workflow_dispatch 触发时 `GEARBOX_ACTION_ROOT` 未定义。
+- 修复 backlog cron 测试间隔与 2 小时 schedule 不匹配。
+- 修复 audit 发布时每个 issue 缺少 repo 字段导致所有 issues 在发布时被跳过。
+- 修复 `needs_clarification` / `clarification_question` 死代码：
+  schema 中已移除但 `commands/shared.py` 中仍有读取逻辑，现已清理。
+- 修复 cleanup workflow 不识别 `gearbox/issue-N` 分支模式，导致相关 issue
+  的 `has-pr` 标签无法清除的问题。
+- 修复 audit 生成的 issues 标签（如 security、high、critical）被
+  `VALID_ISSUE_LABELS` 过滤导致无法创建的问题。
+
+### 重构
+
+- 将 `clone_repository()` 提取为共享模块，backlog 不再复用错误的项目根路径。
+- 新增 `agents/shared/prompt_helpers.py` 作为共享 prompt 工具模块。
+- Backlog Agent prompt 中内联的 SYSTEM_PROMPT 说明文字移入各 agent 文件。
+
 ## [v1.1.5] - 2026-04-27
 
 ### 新增

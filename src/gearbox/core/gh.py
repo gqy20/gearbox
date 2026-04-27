@@ -579,6 +579,12 @@ def configure_authenticated_origin(repo: str) -> None:
     if not token:
         return
 
+    # actions/checkout injects an extraheader for github.token that overrides
+    # origin credentials. Remove it so PAT scopes on GH_TOKEN are honored.
+    subprocess.run(
+        ["git", "config", "--unset-all", "http.https://github.com/.extraheader"],
+        check=False,
+    )
     subprocess.run(
         [
             "git",

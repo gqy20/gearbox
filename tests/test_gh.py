@@ -77,6 +77,41 @@ class TestPostReviewComment:
         assert "--event" not in captured
 
 
+class TestConfigureAuthenticatedOrigin:
+    """测试 Git push 认证配置。"""
+
+    def test_uses_pat_origin_and_removes_checkout_extraheader(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setenv("GH_TOKEN", "pat-token")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        configure_authenticated_origin("owner/repo")
+
+        assert commands == [
+            [
+                "git",
+                "config",
+                "--unset-all",
+                "http.https://github.com/.extraheader",
+            ],
+            [
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                "https://x-access-token:pat-token@github.com/owner/repo.git",
+            ],
+        ]
+
+
 class TestAddIssueLabels:
     """测试 add_issue_labels"""
 

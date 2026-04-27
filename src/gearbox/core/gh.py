@@ -646,6 +646,7 @@ def write_outputs(
 
 
 VALID_ISSUE_LABELS = {
+    # GitHub defaults
     "bug",
     "documentation",
     "duplicate",
@@ -655,6 +656,29 @@ VALID_ISSUE_LABELS = {
     "invalid",
     "question",
     "wontfix",
+    # Priority
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    # Complexity
+    "complexity:S",
+    "complexity:M",
+    "complexity:L",
+    # Status
+    "ready-to-implement",
+    "in-progress",
+    "needs-clarification",
+    "has-pr",
+    # Categories
+    "security",
+    "ci",
+    # Audit priority
+    "critical",
+    "high",
+    "medium",
+    "low",
 }
 
 

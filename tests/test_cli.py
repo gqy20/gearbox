@@ -780,7 +780,7 @@ class TestDispatchCommand:
         )
 
         assert result.exit_code == 0
-        assert captured["final_branch"] == "gearbox/issue-7"
+        assert captured["final_branch"] == "feat/issue-7-run-0"
 
 
 class TestCleanupCommand:

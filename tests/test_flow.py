@@ -36,7 +36,7 @@ def test_select_dispatch_items_filters_blocked_and_ranks_priority_then_complexit
 
 
 def test_dispatch_branch_name_is_stable_per_issue() -> None:
-    assert dispatch_branch_name(2) == "gearbox/issue-2"
+    assert dispatch_branch_name(2) == "feat/issue-2-run-0"
 
 
 def test_build_dispatch_plan_uses_ready_to_implement_label(monkeypatch) -> None:

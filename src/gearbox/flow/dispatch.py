@@ -13,7 +13,7 @@ BLOCKING_LABELS = {"needs-clarification", "in-progress", "has-pr"}
 
 def dispatch_branch_name(issue_number: int) -> str:
     """Return the deterministic implementation branch for an issue."""
-    return f"gearbox/issue-{issue_number}"
+    return f"feat/issue-{issue_number}-run-0"
 
 
 def _label_value(labels: list[str], allowed: dict[str, int], default: str) -> str:

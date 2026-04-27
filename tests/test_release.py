@@ -121,7 +121,7 @@ def test_cleanup_action_and_workflow_are_conservative() -> None:
     assert "workflow_dispatch:" in workflow
     assert "protect_open_prs:" in workflow
     assert r"^feat/issue-([0-9]+)-run-[0-9]+$" in workflow
-    assert r"^gearbox/issue-([0-9]+)$" in workflow
+    assert r"^gearbox/issue-([0-9]+)$" not in workflow
     assert "github.event.pull_request.merged == false" in workflow
     assert "cleanup-restore-unmerged-pr" in workflow
     assert "contents: write" in workflow

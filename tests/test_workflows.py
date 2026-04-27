@@ -195,7 +195,7 @@ class TestBacklogWorkflow:
         workflow = (root / ".github" / "workflows" / "backlog.yml").read_text(encoding="utf-8")
 
         assert "schedule:" in workflow
-        assert "cron: '15 17 * * *'" in workflow
+        assert "cron: '15 */2 * * *'" in workflow
         assert "gearbox backlog plan" in workflow
         assert "--comment-mode" in workflow
         assert "needs.plan.outputs.comment_mode" in workflow

@@ -13,6 +13,10 @@ inputs:
     description: 是否只输出计划，不删除分支
     required: false
     default: 'true'
+  protect_open_prs:
+    description: 是否保护仍被 open PR 使用的候选分支
+    required: false
+    default: 'true'
 
 outputs:
   status:
@@ -44,6 +48,12 @@ runs:
         CMD+=(--dry-run)
       else
         CMD+=(--no-dry-run)
+      fi
+
+      if [ "${{ inputs.protect_open_prs }}" = "true" ]; then
+        CMD+=(--protect-open-prs)
+      else
+        CMD+=(--no-protect-open-prs)
       fi
 
       "${CMD[@]}"

@@ -802,9 +802,20 @@ class TestCleanupCommand:
         captured: dict[str, object] = {}
 
         def fake_cleanup_candidate_branches(
-            repo: str, issue_number: int, *, dry_run: bool
+            repo: str,
+            issue_number: int,
+            *,
+            dry_run: bool,
+            protect_open_prs: bool,
         ) -> CleanupPlan:
-            captured.update({"repo": repo, "issue": issue_number, "dry_run": dry_run})
+            captured.update(
+                {
+                    "repo": repo,
+                    "issue": issue_number,
+                    "dry_run": dry_run,
+                    "protect_open_prs": protect_open_prs,
+                }
+            )
             return CleanupPlan(
                 repo=repo,
                 issue_number=issue_number,
@@ -821,7 +832,12 @@ class TestCleanupCommand:
         result = runner.invoke(cli, ["cleanup", "--repo", "owner/repo", "--issue", "13"])
 
         assert result.exit_code == 0
-        assert captured == {"repo": "owner/repo", "issue": 13, "dry_run": True}
+        assert captured == {
+            "repo": "owner/repo",
+            "issue": 13,
+            "dry_run": True,
+            "protect_open_prs": True,
+        }
         assert "DRY-RUN" in result.output
         assert "feat/issue-13-run-0" in result.output
 
@@ -833,9 +849,20 @@ class TestCleanupCommand:
         captured: dict[str, object] = {}
 
         def fake_cleanup_candidate_branches(
-            repo: str, issue_number: int, *, dry_run: bool
+            repo: str,
+            issue_number: int,
+            *,
+            dry_run: bool,
+            protect_open_prs: bool,
         ) -> CleanupPlan:
-            captured.update({"repo": repo, "issue": issue_number, "dry_run": dry_run})
+            captured.update(
+                {
+                    "repo": repo,
+                    "issue": issue_number,
+                    "dry_run": dry_run,
+                    "protect_open_prs": protect_open_prs,
+                }
+            )
             return CleanupPlan(
                 repo=repo,
                 issue_number=issue_number,
@@ -855,5 +882,61 @@ class TestCleanupCommand:
         )
 
         assert result.exit_code == 0
-        assert captured == {"repo": "owner/repo", "issue": 13, "dry_run": False}
+        assert captured == {
+            "repo": "owner/repo",
+            "issue": 13,
+            "dry_run": False,
+            "protect_open_prs": True,
+        }
         assert "Deleted" in result.output
+
+    def test_cleanup_can_force_delete_open_pr_heads(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.cleanup import CleanupPlan
+
+        captured: dict[str, object] = {}
+
+        def fake_cleanup_candidate_branches(
+            repo: str,
+            issue_number: int,
+            *,
+            dry_run: bool,
+            protect_open_prs: bool,
+        ) -> CleanupPlan:
+            captured.update(
+                {
+                    "repo": repo,
+                    "issue": issue_number,
+                    "dry_run": dry_run,
+                    "protect_open_prs": protect_open_prs,
+                }
+            )
+            return CleanupPlan(
+                repo=repo,
+                issue_number=issue_number,
+                dry_run=dry_run,
+                candidate_branches=["feat/issue-13-run-0"],
+                deleted_branches=["feat/issue-13-run-0"],
+            )
+
+        monkeypatch.setattr(
+            "gearbox.commands.cleanup.cleanup_candidate_branches",
+            fake_cleanup_candidate_branches,
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "cleanup",
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "13",
+                "--no-dry-run",
+                "--no-protect-open-prs",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["protect_open_prs"] is False

@@ -12,6 +12,11 @@ on:
         required: false
         default: true
         type: boolean
+      protect_open_prs:
+        description: 是否保护仍被 open PR 使用的候选分支
+        required: false
+        default: true
+        type: boolean
   pull_request:
     types: [closed]
 
@@ -57,3 +62,4 @@ jobs:
           repo: ${{ github.repository }}
           issue_number: ${{ steps.issue.outputs.issue_number }}
           dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          protect_open_prs: ${{ github.event_name == 'workflow_dispatch' && inputs.protect_open_prs || 'true' }}

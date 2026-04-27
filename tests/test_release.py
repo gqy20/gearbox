@@ -114,9 +114,12 @@ def test_cleanup_action_and_workflow_are_conservative() -> None:
     assert "gearbox cleanup" in action
     assert "--dry-run" in action
     assert "--no-dry-run" in action
+    assert "--protect-open-prs" in action
+    assert "--no-protect-open-prs" in action
     assert "pull_request:" in workflow
     assert "types: [closed]" in workflow
     assert "workflow_dispatch:" in workflow
+    assert "protect_open_prs:" in workflow
     assert r"^feat/issue-([0-9]+)-run-[0-9]+$" in workflow
     assert "contents: write" in workflow
 

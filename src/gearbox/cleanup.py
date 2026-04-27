@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -16,6 +16,7 @@ class CleanupPlan:
     dry_run: bool
     candidate_branches: list[str]
     deleted_branches: list[str]
+    skipped_branches: list[str] = field(default_factory=list)
 
 
 def candidate_branch_prefix(issue_number: int) -> str:
@@ -53,6 +54,30 @@ def list_candidate_branches(repo: str, issue_number: int) -> list[str]:
     return sorted(branches)
 
 
+def list_open_pr_head_branches(repo: str) -> set[str]:
+    """List branch names currently used as heads of open pull requests."""
+    result = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "open",
+            "--json",
+            "headRefName",
+            "--limit",
+            "1000",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    prs = json.loads(result.stdout or "[]")
+    return {item["headRefName"] for item in prs if item.get("headRefName")}
+
+
 def delete_branch(repo: str, branch: str) -> None:
     """Delete a branch ref through GitHub's API."""
     subprocess.run(
@@ -67,12 +92,22 @@ def delete_branch(repo: str, branch: str) -> None:
     )
 
 
-def cleanup_candidate_branches(repo: str, issue_number: int, *, dry_run: bool) -> CleanupPlan:
+def cleanup_candidate_branches(
+    repo: str,
+    issue_number: int,
+    *,
+    dry_run: bool,
+    protect_open_prs: bool = True,
+) -> CleanupPlan:
     """Plan or delete candidate branches for one issue."""
     branches = list_candidate_branches(repo, issue_number)
+    protected_branches = list_open_pr_head_branches(repo) if protect_open_prs else set()
     deleted: list[str] = []
+    skipped = sorted(branch for branch in branches if branch in protected_branches)
     if not dry_run:
         for branch in branches:
+            if branch in protected_branches:
+                continue
             delete_branch(repo, branch)
             deleted.append(branch)
 
@@ -82,4 +117,5 @@ def cleanup_candidate_branches(repo: str, issue_number: int, *, dry_run: bool) -
         dry_run=dry_run,
         candidate_branches=branches,
         deleted_branches=deleted,
+        skipped_branches=skipped,
     )

@@ -21,7 +21,12 @@ def _echo_plan(plan: CleanupPlan, *, json_output: bool) -> None:
 
     click.echo("Candidate branches:")
     for branch in plan.candidate_branches:
-        marker = "Deleted" if branch in plan.deleted_branches else "Would delete"
+        if branch in plan.skipped_branches:
+            marker = "Skipped (open PR head)"
+        elif branch in plan.deleted_branches:
+            marker = "Deleted"
+        else:
+            marker = "Would delete"
         click.echo(f"- {marker}: {branch}")
 
 
@@ -34,7 +39,23 @@ def _echo_plan(plan: CleanupPlan, *, json_output: bool) -> None:
     help="只输出清理计划，不删除分支（默认开启）",
 )
 @click.option("--json-output", is_flag=True, help="输出 JSON 结果")
-def cleanup(repo: str, issue_number: int, dry_run: bool, json_output: bool) -> None:
+@click.option(
+    "--protect-open-prs/--no-protect-open-prs",
+    default=True,
+    help="保护仍被 open PR 使用的候选分支（默认开启）",
+)
+def cleanup(
+    repo: str,
+    issue_number: int,
+    dry_run: bool,
+    json_output: bool,
+    protect_open_prs: bool,
+) -> None:
     """清理 Gearbox 为指定 Issue 创建的候选分支。"""
-    plan = cleanup_candidate_branches(repo, issue_number, dry_run=dry_run)
+    plan = cleanup_candidate_branches(
+        repo,
+        issue_number,
+        dry_run=dry_run,
+        protect_open_prs=protect_open_prs,
+    )
     _echo_plan(plan, json_output=json_output)

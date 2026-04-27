@@ -30,6 +30,10 @@ inputs:
     description: cleanup 是否只输出计划，不删除分支
     required: false
     default: 'true'
+  cleanup_protect_open_prs:
+    description: cleanup 是否保护仍被 open PR 使用的候选分支
+    required: false
+    default: 'true'
   input_path:
     description: issues.json 文件路径
     required: false
@@ -156,6 +160,7 @@ runs:
       repo: ${{ inputs.repo }}
       issue_number: ${{ inputs.issue_number }}
       dry_run: ${{ inputs.cleanup_dry_run }}
+      protect_open_prs: ${{ inputs.cleanup_protect_open_prs }}
 
   - name: Run Dispatch
     id: dispatch

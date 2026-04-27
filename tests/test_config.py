@@ -48,7 +48,7 @@ class TestSaveConfig:
 
         path = get_config_path()
         assert path.exists()
-        with open(path, "r") as f:
+        with open(path) as f:
             content = f.read()
             assert "test_key" in content
 
@@ -155,7 +155,7 @@ class TestProviders:
         assert "anthropic" in PROVIDERS
 
     def test_provider_has_base_url_and_model(self) -> None:
-        for name, config in PROVIDERS.items():
+        for _name, config in PROVIDERS.items():
             assert "base_url" in config
             assert "model" in config
             assert isinstance(config["base_url"], str)

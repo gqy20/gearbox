@@ -44,10 +44,7 @@ def release_notes_for_version(version: str, changelog_text: str | None = None) -
         raise ValueError(f"Version entry not found in CHANGELOG.md: {normalized_version}")
 
     next_heading = source.find("\n## [", start + len(heading))
-    if next_heading == -1:
-        section = source[start:]
-    else:
-        section = source[start:next_heading]
+    section = source[start:] if next_heading == -1 else source[start:next_heading]
 
     return section.strip() + "\n"
 

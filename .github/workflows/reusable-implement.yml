@@ -85,7 +85,9 @@ jobs:
           anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           artifact_path: ./implement-output/result.json
-          apply_side_effects: 'false'
+          push_candidate_branch: 'true'
+          create_pr: 'false'
+          candidate_branch_suffix: run-${{ matrix.run_id }}
 
       - name: Upload run results
         if: always()

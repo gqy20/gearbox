@@ -36,6 +36,14 @@ from gearbox.core.gh import (
 from .shared import _apply_backlog_item, _candidate_result_files
 
 
+def _with_branch_suffix(branch_name: str, suffix: str) -> str:
+    """Append a sanitized suffix to keep parallel candidate branches distinct."""
+    clean_suffix = suffix.strip().strip("/")
+    if not clean_suffix:
+        return branch_name
+    return f"{branch_name}-{clean_suffix}"
+
+
 @click.group()
 def agent() -> None:
     """运行 Agent (Audit/Backlog/Review/Implement)"""
@@ -165,10 +173,16 @@ def review(
 )
 @click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
 @click.option(
-    "--apply-side-effects/--no-apply-side-effects",
-    default=False,
-    help="是否创建分支/PR（并行时建议关闭）",
+    "--push-candidate-branch/--no-push-candidate-branch",
+    default=True,
+    help="是否推送候选实现分支（并行实现时开启，最终聚合时从候选分支中择优）",
 )
+@click.option(
+    "--create-pr/--no-create-pr",
+    default=False,
+    help="是否创建 PR（通常只应由聚合阶段或单路实现开启）",
+)
+@click.option("--candidate-branch-suffix", default="", help="候选分支后缀，用于并行实现隔离")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement(
     repo: str,
@@ -177,7 +191,9 @@ def implement(
     base_branch: str,
     max_turns: int,
     artifact_path: str,
-    apply_side_effects: bool,
+    push_candidate_branch: bool,
+    create_pr: bool,
+    candidate_branch_suffix: str,
     output: str,
 ) -> None:
     """运行 Implement Agent - 实现 Issue 并创建 PR"""
@@ -198,7 +214,7 @@ def implement(
             )
         )
 
-        if apply_side_effects and result.ready_for_review and result.branch_name:
+        if create_pr and result.ready_for_review and result.branch_name:
             commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
             pr_body = f"## Summary\n\n{result.summary}\n\nCloses #{issue}"
             pr_result = finalize_and_create_pr(
@@ -215,12 +231,14 @@ def implement(
                 click.echo(f"✅ PR created: {pr_result.pr_url}")
             else:
                 click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
-        elif result.ready_for_review and result.branch_name:
+        elif push_candidate_branch and result.ready_for_review and result.branch_name:
+            candidate_branch = _with_branch_suffix(result.branch_name, candidate_branch_suffix)
+            result.branch_name = candidate_branch
             commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
             pushed = finalize_and_push(
                 repo=repo,
                 temp_branch=temp_branch,
-                final_branch=result.branch_name,
+                final_branch=candidate_branch,
                 commit_message=commit_msg,
                 files=result.files_changed,
             )

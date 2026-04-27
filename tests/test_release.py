@@ -88,6 +88,34 @@ def test_implement_action_runs_agent_from_checked_out_workspace() -> None:
     )
 
 
+def test_implement_action_uses_explicit_branch_and_pr_controls() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    implement_action = (root / "actions" / "implement" / "action.yml").read_text(encoding="utf-8")
+
+    assert "push_candidate_branch:" in implement_action
+    assert "create_pr:" in implement_action
+    assert "candidate_branch_suffix:" in implement_action
+    assert "--push-candidate-branch" in implement_action
+    assert "--create-pr" in implement_action
+    assert "--candidate-branch-suffix" in implement_action
+    assert "apply_side_effects" not in implement_action
+    assert "--apply-side-effects" not in implement_action
+
+
+def test_reusable_implement_pushes_candidates_without_creating_prs() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "reusable-implement.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "push_candidate_branch: 'true'" in workflow
+    assert "create_pr: 'false'" in workflow
+    assert "candidate_branch_suffix: run-${{ matrix.run_id }}" in workflow
+    assert "apply_side_effects" not in workflow
+
+
 def test_issue_command_workflows_do_not_subscribe_to_all_issue_changes() -> None:
     root = Path(__file__).resolve().parents[1]
 

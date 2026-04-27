@@ -34,10 +34,18 @@ inputs:
     description: '可选: 写出结构化结果 artifact'
     required: false
     default: ./implement-output/result.json
-  apply_side_effects:
-    description: 是否创建分支/PR（并行时建议关闭）
+  push_candidate_branch:
+    description: 是否推送候选实现分支
+    required: false
+    default: 'true'
+  create_pr:
+    description: 是否创建 PR（通常只由聚合阶段或单路实现开启）
     required: false
     default: 'false'
+  candidate_branch_suffix:
+    description: 候选分支后缀，用于并行实现隔离
+    required: false
+    default: ''
 
 outputs:
   status:
@@ -67,8 +75,8 @@ runs:
       fi
       export PATH="$HOME/.local/bin:$PATH"
 
-      if [ "${{ inputs.apply_side_effects }}" = "true" ] && [ -z "${GH_TOKEN:-}" ]; then
-        echo "::error::GH_TOKEN is required when apply_side_effects=true. Pass secrets.GH_PAT so Gearbox can push branches and create PRs."
+      if { [ "${{ inputs.push_candidate_branch }}" = "true" ] || [ "${{ inputs.create_pr }}" = "true" ]; } && [ -z "${GH_TOKEN:-}" ]; then
+        echo "::error::GH_TOKEN is required when push_candidate_branch=true or create_pr=true. Pass secrets.GH_PAT so Gearbox can push branches or create PRs."
         exit 1
       fi
 
@@ -98,10 +106,20 @@ runs:
         CMD+=(--model "${{ inputs.model }}")
       fi
 
-      if [ "${{ inputs.apply_side_effects }}" = "true" ]; then
-        CMD+=(--apply-side-effects)
+      if [ "${{ inputs.push_candidate_branch }}" = "true" ]; then
+        CMD+=(--push-candidate-branch)
       else
-        CMD+=(--no-apply-side-effects)
+        CMD+=(--no-push-candidate-branch)
+      fi
+
+      if [ "${{ inputs.create_pr }}" = "true" ]; then
+        CMD+=(--create-pr)
+      else
+        CMD+=(--no-create-pr)
+      fi
+
+      if [ -n "${{ inputs.candidate_branch_suffix }}" ]; then
+        CMD+=(--candidate-branch-suffix "${{ inputs.candidate_branch_suffix }}")
       fi
 
       "${CMD[@]}"

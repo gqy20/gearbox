@@ -219,6 +219,10 @@ class TestAgentCommand:
         assert "--repo" in result.output
         assert "--issue" in result.output
         assert "--base-branch" in result.output
+        assert "--push-candidate-branch" in result.output
+        assert "--create-pr" in result.output
+        assert "--candidate-branch-suffix" in result.output
+        assert "--apply-side-effects" not in result.output
 
     def test_agent_audit_repo_help(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "audit-repo", "--help"])
@@ -463,6 +467,112 @@ class TestAgentCommand:
         assert data["branch_name"] == ""
         assert data["ready_for_review"] is False
         assert "No changes to push" in result.output
+
+    def test_agent_implement_pushes_candidate_branch_with_suffix(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from gearbox.agents.implement import ImplementResult
+
+        monkeypatch.setattr(
+            "gearbox.commands.agent.prepare_working_branch",
+            lambda *args, **kwargs: "gearbox/temp-test",
+        )
+
+        async def fake_run_implement(*args, **kwargs) -> ImplementResult:
+            del args, kwargs
+            return ImplementResult(
+                branch_name="feat/issue-7",
+                summary="Fix docs",
+                files_changed=["README.md"],
+                pr_url=None,
+                ready_for_review=True,
+            )
+
+        captured: dict[str, str] = {}
+
+        def fake_finalize_and_push(**kwargs) -> bool:
+            captured.update({key: str(value) for key, value in kwargs.items()})
+            return True
+
+        monkeypatch.setattr("gearbox.commands.agent.run_implement", fake_run_implement)
+        monkeypatch.setattr("gearbox.commands.agent.finalize_and_push", fake_finalize_and_push)
+
+        artifact_path = tmp_path / "result.json"
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "implement",
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "7",
+                "--candidate-branch-suffix",
+                "run-2",
+                "--artifact-path",
+                str(artifact_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["final_branch"] == "feat/issue-7-run-2"
+        data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        assert data["branch_name"] == "feat/issue-7-run-2"
+        assert data["ready_for_review"] is True
+
+    def test_agent_implement_create_pr_does_not_push_extra_candidate_branch(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.agents.implement import ImplementResult
+        from gearbox.core.gh import CreatePrResult
+
+        monkeypatch.setattr(
+            "gearbox.commands.agent.prepare_working_branch",
+            lambda *args, **kwargs: "gearbox/temp-test",
+        )
+
+        async def fake_run_implement(*args, **kwargs) -> ImplementResult:
+            del args, kwargs
+            return ImplementResult(
+                branch_name="feat/issue-7",
+                summary="Fix docs",
+                files_changed=["README.md"],
+                pr_url=None,
+                ready_for_review=True,
+            )
+
+        captured: dict[str, str] = {}
+
+        def fake_finalize_and_create_pr(**kwargs) -> CreatePrResult:
+            captured.update({key: str(value) for key, value in kwargs.items()})
+            return CreatePrResult(True, "https://github.com/owner/repo/pull/7")
+
+        def fail_finalize_and_push(**kwargs) -> bool:
+            raise AssertionError(f"unexpected candidate branch push: {kwargs}")
+
+        monkeypatch.setattr("gearbox.commands.agent.run_implement", fake_run_implement)
+        monkeypatch.setattr(
+            "gearbox.commands.agent.finalize_and_create_pr",
+            fake_finalize_and_create_pr,
+        )
+        monkeypatch.setattr("gearbox.commands.agent.finalize_and_push", fail_finalize_and_push)
+
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "implement",
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "7",
+                "--create-pr",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["final_branch"] == "feat/issue-7"
+        assert "PR created" in result.output
 
     def test_agent_audit_repo_requires_repo(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "audit-repo"])

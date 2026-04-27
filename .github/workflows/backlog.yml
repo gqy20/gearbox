@@ -14,8 +14,6 @@ on:
         description: '并行执行次数（workflow 编排层配置）'
         required: false
         default: '3'
-  issues:
-    types: [opened, labeled]
   issue_comment:
     types: [created]
 
@@ -23,11 +21,14 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   plan:
     if: |
       (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@backlog')) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@backlog') && github.event.comment.user.id != github.event.installation.id)
     runs-on: ubuntu-latest
     outputs:

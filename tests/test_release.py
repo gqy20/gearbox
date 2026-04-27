@@ -74,6 +74,30 @@ def test_composite_actions_write_outputs_to_workspace() -> None:
     assert 'OUTPUT_DIR="${GITHUB_WORKSPACE}/' in audit_action
 
 
+def test_implement_action_runs_agent_from_checked_out_workspace() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    implement_action = (root / "actions" / "implement" / "action.yml").read_text(encoding="utf-8")
+
+    assert (
+        'uv run --project "${GITHUB_ACTION_PATH}/../.." '
+        '--directory "$GITHUB_WORKSPACE" gearbox agent implement'
+    ) in implement_action
+    assert 'uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement' not in (
+        implement_action
+    )
+
+
+def test_issue_command_workflows_do_not_subscribe_to_all_issue_changes() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    for workflow_name in ["audit.yml", "backlog.yml"]:
+        workflow = (root / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+        assert "\n  issues:\n    types:" not in workflow
+        assert "github.event_name == 'issues'" not in workflow
+        assert "issue_comment:" in workflow
+
+
 def test_reusable_workflow_aggregators_use_action_source() -> None:
     root = Path(__file__).resolve().parents[1]
 

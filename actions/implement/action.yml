@@ -83,7 +83,7 @@ runs:
       fi
 
       CMD=(
-        uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox agent implement
+        uv run --project "${GITHUB_ACTION_PATH}/../.." --directory "$GITHUB_WORKSPACE" gearbox agent implement
         --repo "${{ inputs.repo }}"
         --issue "${{ inputs.issue_number }}"
         --base-branch "${{ inputs.base_branch }}"

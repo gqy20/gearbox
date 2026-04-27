@@ -34,6 +34,14 @@ OUTPUT_SCHEMA: dict[str, Any] = {
             "type": "boolean",
             "description": "是否已提交并准备好等待 review",
         },
+        "failure_reason": {
+            "type": ["string", "null"],
+            "description": "无法完成时的原因说明（阻塞点、分析失败等）",
+        },
+        "blocked_reason": {
+            "type": ["string", "null"],
+            "description": "如果实现被阻塞，填写具体原因",
+        },
     },
     "required": ["branch_name", "summary", "files_changed", "ready_for_review"],
 }
@@ -52,6 +60,8 @@ class ImplementResult:
     files_changed: list[str]
     pr_url: str | None
     ready_for_review: bool
+    failure_reason: str | None = None
+    blocked_reason: str | None = None
 
 
 def write_implement_result(result: ImplementResult, output_path: Path) -> None:
@@ -72,6 +82,8 @@ def load_implement_result(path: Path) -> ImplementResult:
         files_changed=cast(list[str], data.get("files_changed", [])),
         pr_url=cast(str | None, data.get("pr_url")),
         ready_for_review=cast(bool, data.get("ready_for_review", False)),
+        failure_reason=cast(str | None, data.get("failure_reason")),
+        blocked_reason=cast(str | None, data.get("blocked_reason")),
     )
 
 
@@ -126,6 +138,8 @@ SYSTEM_PROMPT = """你是代码实现专家。请根据 Issue 描述实现代码
 - `ready_for_review=true` 的前提是：测试必须全部通过，lint 必须干净
 - 如果测试无法编写（例如被测代码是纯脚本），跳过此步骤但需在 summary 中说明原因
 - **不要**先实现后补测试——顺序必须是：测试（失败）→ 实现（通过）→ 检查
+- **失败循环约束**：同一测试连续失败超过 3 次，必须停下来分析原因，将 `blocked_reason` 填入返回结果，**不要**继续盲目重试
+- **无法完成**：如果遇到无法解决的阻塞（需求不清、依赖缺失、技术不可行），设置 `ready_for_review=false` 并在 `failure_reason` 中说明原因，**不要**假装完成了
 
 ## 安全约束
 
@@ -144,7 +158,8 @@ pr_url 请返回 null，外层编排器创建 PR 后会回填。
 
 - branch_name 必须以 feat/ 或 gearbox/ 开头
 - files_changed 列出所有修改文件
-- ready_for_review=true 表示工作区修改完成并已通过检查"""
+- ready_for_review=true 表示工作区修改完成并已通过检查
+- 如果无法完成，failure_reason 或 blocked_reason 必须有值"""
 
 
 async def run_implement(
@@ -225,6 +240,8 @@ async def run_implement(
                         files_changed=data.get("files_changed", []),
                         pr_url=data.get("pr_url"),
                         ready_for_review=data.get("ready_for_review", False),
+                        failure_reason=data.get("failure_reason"),
+                        blocked_reason=data.get("blocked_reason"),
                     ),
                 )
                 if parsed is not None:

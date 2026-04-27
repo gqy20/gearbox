@@ -45,6 +45,10 @@ OUTPUT_SCHEMA: dict[str, Any] = {
             },
             "description": "改进建议列表",
         },
+        "failure_reason": {
+            "type": ["string", "null"],
+            "description": "无法完成审计时的原因说明",
+        },
     },
     "required": ["repo", "profile", "comparison_markdown", "issues"],
 }
@@ -76,6 +80,7 @@ class AuditResult:
     benchmarks: list[str] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     cost: float | None = None
+    failure_reason: str | None = None
 
 
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
@@ -234,7 +239,8 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 - 精选最重要的改进项
 - 不要尝试创建 GitHub Issue
 - `comparison_markdown` 必须是完整 Markdown
-- `issues` 里的每条记录都要可直接写入 `issues.json`"""
+- `issues` 里的每条记录都要可直接写入 `issues.json`
+- 如果无法完成审计，在 `failure_reason` 中说明原因"""
 
 
 async def run_audit(
@@ -396,6 +402,7 @@ async def run_audit(
                                 )
                                 for item in data.get("issues", [])
                             ],
+                            failure_reason=data.get("failure_reason"),
                         ),
                     )
                     if parsed is not None:

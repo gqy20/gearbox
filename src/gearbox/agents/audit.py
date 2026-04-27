@@ -11,6 +11,8 @@ from typing import Any
 
 import click
 
+from gearbox.core.gh import IssueSummary
+
 # =============================================================================
 # Schema 定义
 # =============================================================================
@@ -142,62 +144,6 @@ def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
             }
         )
     )
-
-
-@dataclass
-class ExistingIssue:
-    """仓库中已存在的 Issue 摘要"""
-
-    number: int
-    title: str
-    labels: list[str]
-
-
-def _fetch_existing_issues(repo: str) -> list[ExistingIssue]:
-    """获取仓库中所有 open 的 Issue（轻量：只取 number, title, labels）。"""
-    try:
-        result = subprocess.run(
-            [
-                "gh",
-                "issue",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "open",
-                "--limit",
-                "200",
-                "--json",
-                "number,title,labels",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return []
-        items = json.loads(result.stdout)
-        return [
-            ExistingIssue(
-                number=item["number"],
-                title=item["title"],
-                labels=[lb["name"] for lb in item.get("labels", [])],
-            )
-            for item in items
-        ]
-    except Exception:
-        return []
-
-
-def _format_existing_issues(issues: list[ExistingIssue]) -> str:
-    """格式化为 prompt 片段。"""
-    if not issues:
-        return "（无可用 Issue 数据）"
-    lines = []
-    for iss in issues:
-        labels_str = ", ".join(iss.labels) if iss.labels else "无标签"
-        lines.append(f"  - #{iss.number}: [{labels_str}] {iss.title}")
-    return "\n".join(lines)
 
 
 def _clone_repository(repo: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
@@ -398,15 +344,18 @@ async def run_audit(
             if benchmarks:
                 click.echo(f"📦 使用缓存的对标仓库: {len(benchmarks)} 个")
 
-        existing_issues: list[ExistingIssue] = []
+        existing_issues: list[IssueSummary] = []
         existing_issues_str = ""
         # 仅远程仓库需要拉取已有 Issues，本地路径不具备 GitHub 上下文
         if "/" in repo:
-            existing_issues = _fetch_existing_issues(repo)
+            from gearbox.agents.shared.prompt_helpers import format_issues_summary
+            from gearbox.core.gh import list_open_issues
+
+            existing_issues = list_open_issues(repo, limit=200)
             if existing_issues:
                 click.echo(f"📋 已有 open Issues: {len(existing_issues)} 个")
-                existing_issues_str = (
-                    f"\n\n## 仓库已有 Open Issues\n\n{_format_existing_issues(existing_issues)}"
+                existing_issues_str = format_issues_summary(
+                    existing_issues, header="仓库已有 Open Issues"
                 )
 
         prompt_parts = []

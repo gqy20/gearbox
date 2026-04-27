@@ -1,0 +1,86 @@
+site_name: Gearbox 文档
+site_description: AI 驱动的 GitHub 仓库自动化飞轮系统
+site_author: gqy20
+repo_name: gqy20/gearbox
+repo_url: https://github.com/gqy20/gearbox
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - scheme: slate
+      primary: blue grey
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - search.highlight
+    - search.share
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - 安装与配置: getting-started.md
+      - 基本用法: usage.md
+  - 架构设计:
+      - 整体架构: index.md
+      - Action 清单: index.md#action-清单
+      - 调用方式: index.md#调用方式
+      - 审计流程: index.md#审计执行流程
+      - 扫描工具: index.md#扫描工具
+      - 日志与可观测性: index.md#日志与可观测性
+  - 开发指南:
+      - 项目结构: index.md#项目结构概览
+      - 开发环境: development.md
+      - 测试: development.md#测试
+      - 代码风格: development.md#代码风格
+  - GitHub Actions:
+      - 内部入口: github-actions.md
+      - Marketplace 接入: github-actions.md#marketplace-轻量接入
+      - 高级编排: github-actions.md#高级-matrix-编排
+      - 配置密钥: github-actions.md#配置-secrets--variables
+  - 发布:
+      - Marketplace 发布: index.md#发布
+      - 版本说明: changelog.md
+  - 路线图: roadmap.md
+  - 调研文档:
+      - 架构设计调研: research/architecture.md
+      - Claude Code Actions: research/claude-code-actions.md
+      - Composite Actions: research/composite-actions.md
+      - 飞轮 Workflow: research/flywheel-workflow.md
+      - 安全与治理: research/security-governance.md
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true

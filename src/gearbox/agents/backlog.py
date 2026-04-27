@@ -72,8 +72,30 @@ class BacklogResult:
 
 
 def parse_issue_numbers(value: str) -> list[int]:
-    """Parse comma/space separated issue numbers."""
-    numbers = [int(part) for part in re.split(r"[\s,]+", value.strip()) if part]
+    """Parse comma/space separated issue numbers, supporting ``#`` prefix.
+
+    Accepts inputs like ``#12``, ``#12, #13``, ``12 #13,14``.
+    Returns an empty list for blank input.
+    Raises :class:`ValueError` with a helpful message when a token
+    cannot be parsed as an issue number.
+    """
+    stripped = value.strip()
+    if not stripped:
+        return []
+
+    raw_tokens: list[str] = re.split(r"[\s,]+", stripped)
+    tokens = [t for t in raw_tokens if t]
+
+    numbers: list[int] = []
+    for token in tokens:
+        cleaned = token.lstrip("#")
+        try:
+            numbers.append(int(cleaned))
+        except ValueError as exc:
+            raise ValueError(
+                f"无法解析 issue 编号: '{token}' (非法 token)"
+            ) from exc
+
     return list(dict.fromkeys(numbers))
 
 

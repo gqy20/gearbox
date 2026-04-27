@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
 from gearbox.agents import backlog, implement
@@ -142,6 +143,26 @@ class TestStructuredOutputParsing:
 
     def test_parse_issue_numbers(self) -> None:
         assert parse_issue_numbers("2, 5 6") == [2, 5, 6]
+
+    def test_parse_issue_numbers_hash_prefix(self) -> None:
+        assert parse_issue_numbers("#12") == [12]
+        assert parse_issue_numbers("#12, #13") == [12, 13]
+        assert parse_issue_numbers("12 #13,14") == [12, 13, 14]
+
+    def test_parse_issue_numbers_empty_input(self) -> None:
+        assert parse_issue_numbers("") == []
+        assert parse_issue_numbers("   ") == []
+
+    def test_parse_issue_numbers_dedup(self) -> None:
+        assert parse_issue_numbers("5, #5, 5") == [5]
+
+    def test_parse_issue_numbers_invalid_token(self) -> None:
+        with pytest.raises(ValueError, match="无法解析 issue 编号: 'abc'"):
+            parse_issue_numbers("12 abc")
+
+    def test_parse_issue_numbers_invalid_hash_token(self) -> None:
+        with pytest.raises(ValueError, match="无法解析 issue 编号: '#abc'"):
+            parse_issue_numbers("#abc")
 
     def test_backlog_result_contains_issue_items(self) -> None:
         result = BacklogResult(

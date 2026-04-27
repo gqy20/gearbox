@@ -169,7 +169,7 @@ async def run_implement(
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
 
-    project_root = Path(__file__).resolve().parents[3]
+    project_root = Path.cwd()
     issue = _gh_issue_view(repo, issue_number)
     issue_title = issue["title"]
     issue_body = issue["body"] or "(无正文)"

@@ -245,6 +245,50 @@ class TestStructuredOutputParsing:
         assert issue["labels"] == ["enhancement", "P2"]
         assert "{title:.title,body:.body,labels:[.labels[].name]}" in captured_cmd
 
+    def test_implement_agent_uses_current_workspace_as_sdk_cwd(self, monkeypatch, tmp_path) -> None:
+        captured: dict[str, str] = {}
+
+        async def fake_query(*args, **kwargs):
+            del args, kwargs
+            yield _result_message(
+                {
+                    "branch_name": "feat/issue-2",
+                    "summary": "Fix parser",
+                    "files_changed": ["src/gearbox/agents/backlog.py"],
+                    "pr_url": None,
+                    "ready_for_review": True,
+                }
+            )
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                del kwargs
+
+            def handle_message(self, *args, **kwargs) -> None:
+                del args, kwargs
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            del agent_name
+            captured["cwd"] = str(options.cwd)
+            return options, FakeLogger()
+
+        monkeypatch.setattr(implement, "_gh_issue_view", lambda *args: {"title": "T", "body": "B"})
+        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.chdir(tmp_path)
+
+        import asyncio
+
+        asyncio.run(implement.run_implement("owner/repo", 2, model="test-model"))
+
+        assert captured["cwd"] == str(tmp_path)
+
     def test_evaluator_mapping(self) -> None:
         message = _result_message(
             {

@@ -15,7 +15,7 @@ on:
         required: false
         default: '3'
   schedule:
-    - cron: '15 17 * * *'
+    - cron: '15 */2 * * *'
   issue_comment:
     types: [created]
 

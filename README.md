@@ -23,6 +23,16 @@ uv run gearbox config set anthropic-api-key YOUR_KEY
 uv run gearbox config list
 ```
 
+## 本地验证
+
+提交前可运行以下命令做基本检查：
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy src
+```
+
 ## 当前架构
 
 ```text

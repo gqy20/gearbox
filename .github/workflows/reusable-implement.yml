@@ -115,7 +115,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: implement-results-run-*
-          path: ./implement-runs
+          path: ${{ github.workspace }}/implement-runs
 
       - name: Aggregate implement results
         shell: bash
@@ -123,11 +123,11 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           CMD=(
             uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent implement-select
-            --input-root ./implement-runs
+            --input-root "$GITHUB_WORKSPACE/implement-runs"
             --repo "${{ inputs.repo }}"
             --issue "${{ inputs.issue_number }}"
             --base-branch "${{ inputs.base_branch }}"
-            --artifact-path ./implement-output/result.json
+            --artifact-path "$GITHUB_WORKSPACE/implement-output/result.json"
             --max-turns 29
           )
 

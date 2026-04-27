@@ -144,20 +144,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: audit-results-run-*
-          path: ./audit-runs
+          path: ${{ github.workspace }}/audit-runs
 
       - name: Aggregate audit results
         shell: bash
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           echo "::group::[audit] downloaded run artifacts"
-          find ./audit-runs -maxdepth 2 -type f | sort || true
+          find "$GITHUB_WORKSPACE/audit-runs" -maxdepth 2 -type f | sort || true
           echo "::endgroup::"
 
           CMD=(
             uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent audit-select
-            --input-root ./audit-runs
-            --output-dir ./audit-output
+            --input-root "$GITHUB_WORKSPACE/audit-runs"
+            --output-dir "$GITHUB_WORKSPACE/audit-output"
             --max-turns 29
           )
 

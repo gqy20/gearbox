@@ -136,21 +136,21 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: backlog-results-issue-*-run-*
-          path: ./backlog-runs
+          path: ${{ github.workspace }}/backlog-runs
 
       - name: Aggregate backlog results
         shell: bash
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           echo "::group::[backlog] downloaded run artifacts"
-          find ./backlog-runs -maxdepth 2 -type f | sort || true
+          find "$GITHUB_WORKSPACE/backlog-runs" -maxdepth 2 -type f | sort || true
           echo "::endgroup::"
 
           CMD=(
             uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent backlog-select
-            --input-root ./backlog-runs
+            --input-root "$GITHUB_WORKSPACE/backlog-runs"
             --repo "${{ needs.plan.outputs.repo }}"
-            --artifact-path ./backlog-output/result.json
+            --artifact-path "$GITHUB_WORKSPACE/backlog-output/result.json"
             --max-turns 29
           )
 

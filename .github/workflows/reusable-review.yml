@@ -106,7 +106,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: review-results-run-*
-          path: ./review-runs
+          path: ${{ github.workspace }}/review-runs
 
       - name: Aggregate review results
         shell: bash
@@ -114,10 +114,10 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           CMD=(
             uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent review-select
-            --input-root ./review-runs
+            --input-root "$GITHUB_WORKSPACE/review-runs"
             --repo "${{ inputs.repo }}"
             --pr "${{ inputs.pr_number }}"
-            --artifact-path ./review-output/result.json
+            --artifact-path "$GITHUB_WORKSPACE/review-output/result.json"
             --max-turns 29
           )
 

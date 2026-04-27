@@ -91,6 +91,25 @@ def test_reusable_workflow_aggregators_use_action_source() -> None:
         assert 'uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent' in workflow
 
 
+def test_reusable_workflow_aggregators_use_workspace_artifact_paths() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow_paths = [
+        root / ".github" / "workflows" / "reusable-review.yml",
+        root / ".github" / "workflows" / "reusable-implement.yml",
+        root / ".github" / "workflows" / "backlog.yml",
+        root / ".github" / "workflows" / "audit.yml",
+        root / ".github" / "workflows" / "reusable-audit.yml",
+    ]
+
+    for workflow_path in workflow_paths:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "--input-root ./" not in workflow
+        assert "--artifact-path ./" not in workflow
+        assert "--output-dir ./" not in workflow
+        assert "path: ${{ github.workspace }}/" in workflow
+
+
 def test_dispatch_workflow_uses_parallel_implement_aggregation() -> None:
     root = Path(__file__).resolve().parents[1]
 

@@ -228,6 +228,8 @@ def implement(
                 click.echo(f"✅ Branch pushed: {result.branch_name}")
             else:
                 click.echo(f"⚠️ No changes to push for branch: {result.branch_name}")
+                result.ready_for_review = False
+                result.branch_name = ""
 
         if artifact_path:
             write_implement_result(result, Path(artifact_path))

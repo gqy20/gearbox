@@ -417,6 +417,53 @@ class TestAgentCommand:
         result = runner.invoke(cli, ["agent", "implement"])
         assert result.exit_code != 0
 
+    def test_agent_implement_marks_result_not_ready_when_no_branch_was_pushed(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from gearbox.agents.implement import ImplementResult
+
+        monkeypatch.setattr(
+            "gearbox.commands.agent.prepare_working_branch",
+            lambda *args, **kwargs: "gearbox/temp-test",
+        )
+
+        async def fake_run_implement(*args, **kwargs) -> ImplementResult:
+            del args, kwargs
+            return ImplementResult(
+                branch_name="feat/issue-7",
+                summary="Already documented",
+                files_changed=["README.md"],
+                pr_url=None,
+                ready_for_review=True,
+            )
+
+        monkeypatch.setattr("gearbox.commands.agent.run_implement", fake_run_implement)
+        monkeypatch.setattr(
+            "gearbox.commands.agent.finalize_and_push",
+            lambda *args, **kwargs: False,
+        )
+
+        artifact_path = tmp_path / "result.json"
+        result = runner.invoke(
+            cli,
+            [
+                "agent",
+                "implement",
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "7",
+                "--artifact-path",
+                str(artifact_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        assert data["branch_name"] == ""
+        assert data["ready_for_review"] is False
+        assert "No changes to push" in result.output
+
     def test_agent_audit_repo_requires_repo(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["agent", "audit-repo"])
         assert result.exit_code != 0

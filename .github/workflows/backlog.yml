@@ -106,7 +106,7 @@ jobs:
         id: matrix
         uses: ./actions/matrix
         with:
-          count: ${{ github.event_name == 'workflow_dispatch' && inputs.parallel_runs || '3' }}
+          count: ${{ (github.event_name == 'workflow_dispatch' && inputs.parallel_runs) || '3' }}
           issues: ${{ steps.issues.outputs.issues }}
 
   backlog-run:

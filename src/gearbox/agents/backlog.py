@@ -224,18 +224,17 @@ async def run_backlog_item(
     Returns:
         BacklogItemResult 结构
     """
-    from pathlib import Path
+    import tempfile
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    from gearbox.agents.shared import clone_repository
     from gearbox.agents.shared.prompt_helpers import format_issues_summary
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
     from gearbox.core.gh import list_open_issues
 
-    project_root = Path(__file__).resolve().parents[3]
     issue = _gh_issue_view(repo, issue_number)
-
     all_issues = list_open_issues(repo, limit=50)
     issues_summary = format_issues_summary(all_issues, current_issue_number=issue_number)
 
@@ -255,6 +254,18 @@ async def run_backlog_item(
 ---
 {SYSTEM_PROMPT}"""
 
+    clone_root: Path | None = None
+    clone_dir: tempfile.TemporaryDirectory[str] | None = None
+
+    # 仅远程仓库（owner/repo 格式）需要克隆，本地路径不具备 GitHub API 上下文
+    if "/" in repo:
+        try:
+            clone_root, clone_dir = clone_repository(repo)
+        except Exception:
+            pass  # 克隆失败时 cwd 未定义，由 Agent 自行处理
+
+    cwd = clone_root if clone_root else Path.cwd()
+
     options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(
             model=model,
@@ -262,7 +273,7 @@ async def run_backlog_item(
             output_format=json_schema_output(OUTPUT_SCHEMA),
             allowed_tools=["Read", "Bash"],
             skills="all",
-            cwd=project_root,
+            cwd=cwd,
         ),
         agent_name="backlog",
     )
@@ -270,7 +281,7 @@ async def run_backlog_item(
         model=model,
         max_turns=max_turns,
         base_url=options.env.get("ANTHROPIC_BASE_URL"),
-        cwd=str(project_root),
+        cwd=str(cwd),
     )
 
     structured: BacklogItemResult | None = None
@@ -295,6 +306,8 @@ async def run_backlog_item(
                     break
     finally:
         sdk_logger.log_completion()
+        if clone_dir is not None:
+            clone_dir.cleanup()
 
     if structured is None:
         raise RuntimeError("Backlog agent did not return structured output")

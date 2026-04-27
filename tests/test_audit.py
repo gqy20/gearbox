@@ -4,8 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from gearbox.agents.audit import _clone_repository
-from gearbox.agents.shared import scanner
+from gearbox.agents.shared import clone_repository, scanner
 from gearbox.agents.shared.scanner import scan_repository
 
 
@@ -40,7 +39,7 @@ def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:
         text=True,
     )
 
-    clone_root, clone_dir = _clone_repository(str(source_repo))
+    clone_root, clone_dir = clone_repository(str(source_repo))
     try:
         assert clone_root.exists()
         assert (clone_root / "README.md").read_text(encoding="utf-8") == "hello\n"

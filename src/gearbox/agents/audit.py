@@ -2,7 +2,6 @@
 
 import json
 import shutil
-import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -11,6 +10,7 @@ from typing import Any
 
 import click
 
+from gearbox.agents.shared import clone_repository
 from gearbox.core.gh import IssueSummary
 
 # =============================================================================
@@ -144,30 +144,6 @@ def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
             }
         )
     )
-
-
-def _clone_repository(repo: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
-    """将目标仓库克隆到临时目录，供扫描和 Agent 分析统一使用。"""
-    temp_dir = tempfile.TemporaryDirectory(prefix="gearbox-audit-")
-    clone_root = Path(temp_dir.name) / "repo"
-
-    if Path(repo).exists():
-        source = str(Path(repo).resolve())
-        cmd = ["git", "clone", "--depth", "1", source, str(clone_root)]
-    else:
-        cmd = ["gh", "repo", "clone", repo, str(clone_root), "--", "--depth", "1"]
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        temp_dir.cleanup()
-        stderr = result.stderr.strip() or result.stdout.strip() or "unknown clone error"
-        raise RuntimeError(f"clone failed for {repo}: {stderr}")
-
-    return clone_root, temp_dir
 
 
 def load_audit_result(output_dir: Path) -> AuditResult:
@@ -306,7 +282,7 @@ async def run_audit(
 
     try:
         click.echo(f"📥 克隆目标仓库: {repo}")
-        clone_root, clone_dir = _clone_repository(repo)
+        clone_root, clone_dir = clone_repository(repo)
         click.echo(f"✅ 仓库已克隆到: {clone_root}")
 
         if enable_prescan:

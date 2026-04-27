@@ -36,6 +36,22 @@ def test_select_dispatch_items_filters_blocked_and_ranks_priority_then_complexit
     assert skipped == 3
 
 
+def test_select_dispatch_items_can_filter_to_p0_only() -> None:
+    items, skipped = select_dispatch_items(
+        [
+            _issue(1, ["ready-to-implement", "P1", "complexity:S"]),
+            _issue(2, ["ready-to-implement", "P0", "complexity:M"]),
+            _issue(3, ["ready-to-implement", "P0", "complexity:S"]),
+            _issue(4, ["ready-to-implement", "P2", "complexity:S"]),
+        ],
+        max_items=1,
+        allowed_priorities={"P0"},
+    )
+
+    assert [item.issue_number for item in items] == [3]
+    assert skipped == 3
+
+
 def test_dispatch_branch_name_is_stable_per_issue() -> None:
     assert dispatch_branch_name(2) == "feat/issue-2-run-0"
 
@@ -56,6 +72,20 @@ def test_build_dispatch_plan_uses_ready_to_implement_label(monkeypatch) -> None:
     assert captured["repo"] == "owner/repo"
     assert captured["labels"] == ["ready-to-implement"]
     assert [item.issue_number for item in plan.items] == [7]
+
+
+def test_build_dispatch_plan_can_filter_allowed_priorities(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "gearbox.flow.dispatch.list_open_issues",
+        lambda *args, **kwargs: [
+            _issue(7, ["ready-to-implement", "P1", "complexity:S"]),
+            _issue(8, ["ready-to-implement", "P0", "complexity:S"]),
+        ],
+    )
+
+    plan = build_dispatch_plan("owner/repo", max_items=1, allowed_priorities={"P0"})
+
+    assert [item.issue_number for item in plan.items] == [8]
 
 
 def test_select_backlog_items_filters_already_triaged_and_blocked() -> None:

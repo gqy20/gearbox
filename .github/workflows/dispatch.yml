@@ -24,6 +24,8 @@ on:
         required: false
         default: true
         type: boolean
+  schedule:
+    - cron: '30 17 * * *'
   issue_comment:
     types: [created]
 
@@ -32,10 +34,15 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'p0' || github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   plan:
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@dispatch') && !github.event.issue.pull_request && github.event.comment.user.id != github.event.installation.id)
     runs-on: ubuntu-latest
     outputs:
@@ -56,10 +63,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
-          ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
+          ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event_name == 'issue_comment' && github.event.issue.number || '' }}
           MAX_ITEMS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_items || '1' }}
           MAX_PARALLEL: ${{ github.event_name == 'workflow_dispatch' && inputs.max_parallel || '1' }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || 'true' }}
+          ALLOWED_PRIORITIES: ${{ github.event_name == 'schedule' && 'P0' || '' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || github.event_name == 'schedule' && 'false' || 'true' }}
         run: |
           set -e
           export PATH="$HOME/.local/bin:$PATH"
@@ -73,6 +81,9 @@ jobs:
 
           if [ -n "$ISSUE_NUMBER" ]; then
             CMD+=(--issue "$ISSUE_NUMBER")
+          fi
+          if [ -n "$ALLOWED_PRIORITIES" ]; then
+            CMD+=(--allowed-priorities "$ALLOWED_PRIORITIES")
           fi
 
           "${CMD[@]}" > dispatch-plan.json

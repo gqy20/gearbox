@@ -699,6 +699,37 @@ class TestDispatchCommand:
         assert result.exit_code == 0
         assert "#7 [P1/S] Fix CI" in result.output
 
+    def test_dispatch_plan_passes_allowed_priorities(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gearbox.flow.models import DispatchPlan
+
+        captured: dict[str, object] = {}
+
+        def fake_build_dispatch_plan(*args, **kwargs) -> DispatchPlan:
+            del args
+            captured.update(kwargs)
+            return DispatchPlan(repo="owner/repo", dry_run=True, skipped_count=0, items=[])
+
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.build_dispatch_plan", fake_build_dispatch_plan
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "dispatch",
+                "plan",
+                "--repo",
+                "owner/repo",
+                "--allowed-priorities",
+                "P0",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["allowed_priorities"] == {"P0"}
+
     def test_dispatch_run_defaults_to_dry_run(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:

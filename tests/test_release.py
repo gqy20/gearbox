@@ -326,6 +326,22 @@ def test_dispatch_workflow_uses_parallel_implement_aggregation() -> None:
     assert "uses: ./actions/dispatch" not in workflow
 
 
+def test_dispatch_schedule_runs_p0_first_lane() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "dispatch.yml").read_text(encoding="utf-8")
+
+    assert "schedule:" in workflow
+    assert "cron: '30 17 * * *'" in workflow
+    assert "github.event_name == 'schedule'" in workflow
+    assert "--allowed-priorities" in workflow
+    assert "ALLOWED_PRIORITIES: ${{ github.event_name == 'schedule' && 'P0' || '' }}" in workflow
+    assert (
+        "DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || github.event_name == 'schedule' && 'false' || 'true' }}"
+        in workflow
+    )
+
+
 def test_build_marketplace_bundle_excludes_python_cache_files(tmp_path: Path) -> None:
     output_dir = tmp_path / "gearbox-action"
 

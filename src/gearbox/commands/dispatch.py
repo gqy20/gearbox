@@ -18,6 +18,19 @@ from gearbox.core.gh import (
 from gearbox.flow import DispatchPlan, build_dispatch_plan, dispatch_branch_name
 
 
+def _parse_allowed_priorities(value: str) -> set[str] | None:
+    priorities = {part.strip() for part in value.split(",") if part.strip()}
+    if not priorities:
+        return None
+    allowed = {"P0", "P1", "P2", "P3"}
+    unknown = sorted(priorities - allowed)
+    if unknown:
+        raise click.ClickException(
+            f"allowed priorities must be one of P0,P1,P2,P3, got: {','.join(unknown)}"
+        )
+    return priorities
+
+
 def _echo_dispatch_plan(plan: DispatchPlan, *, as_json: bool = False) -> None:
     if as_json:
         click.echo(json.dumps(asdict(plan), ensure_ascii=False, indent=2))
@@ -44,8 +57,15 @@ def dispatch() -> None:
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--issue", "issue_number", type=int, default=None, help="只规划指定 Issue")
 @click.option("--max-items", default=1, type=int, help="最多选择多少个 Issue")
+@click.option("--allowed-priorities", default="", help="只选择指定优先级，例如 P0 或 P0,P1")
 @click.option("--json-output", is_flag=True, help="输出 JSON 计划")
-def dispatch_plan(repo: str, issue_number: int | None, max_items: int, json_output: bool) -> None:
+def dispatch_plan(
+    repo: str,
+    issue_number: int | None,
+    max_items: int,
+    allowed_priorities: str,
+    json_output: bool,
+) -> None:
     """只生成实现计划，不创建分支或 PR。"""
     try:
         plan = build_dispatch_plan(
@@ -53,6 +73,7 @@ def dispatch_plan(repo: str, issue_number: int | None, max_items: int, json_outp
             issue_number=issue_number,
             max_items=max_items,
             dry_run=True,
+            allowed_priorities=_parse_allowed_priorities(allowed_priorities),
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -64,6 +85,7 @@ def dispatch_plan(repo: str, issue_number: int | None, max_items: int, json_outp
 @click.option("--repo", required=True, help="仓库标识 (owner/name)")
 @click.option("--issue", "issue_number", type=int, default=None, help="只实现指定 Issue")
 @click.option("--max-items", default=1, type=int, help="最多实现多少个 Issue")
+@click.option("--allowed-priorities", default="", help="只选择指定优先级，例如 P0 或 P0,P1")
 @click.option("--base-branch", default="main", help="PR 目标分支")
 @click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
 @click.option(
@@ -78,6 +100,7 @@ def dispatch_run(
     repo: str,
     issue_number: int | None,
     max_items: int,
+    allowed_priorities: str,
     base_branch: str,
     model: str,
     max_turns: int,
@@ -92,6 +115,7 @@ def dispatch_run(
             issue_number=issue_number,
             max_items=max_items,
             dry_run=dry_run,
+            allowed_priorities=_parse_allowed_priorities(allowed_priorities),
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc

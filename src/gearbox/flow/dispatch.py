@@ -60,12 +60,18 @@ def _sort_key(item: DispatchItem) -> tuple[int, int, int]:
 
 
 def select_dispatch_items(
-    issues: list[IssueSummary], max_items: int
+    issues: list[IssueSummary],
+    max_items: int,
+    *,
+    allowed_priorities: set[str] | None = None,
 ) -> tuple[list[DispatchItem], int]:
     """Filter and rank candidate issues for implementation."""
     dispatchable = [_to_dispatch_item(issue) for issue in issues if _is_dispatchable(issue)]
+    if allowed_priorities:
+        dispatchable = [item for item in dispatchable if item.priority in allowed_priorities]
     dispatchable.sort(key=_sort_key)
-    return dispatchable[:max_items], len(issues) - len(dispatchable)
+    selected = dispatchable[:max_items]
+    return selected, len(issues) - len(selected)
 
 
 def build_dispatch_plan(
@@ -74,6 +80,7 @@ def build_dispatch_plan(
     issue_number: int | None = None,
     max_items: int = 1,
     dry_run: bool = True,
+    allowed_priorities: set[str] | None = None,
 ) -> DispatchPlan:
     """Build a deterministic implementation plan from backlog labels."""
     if max_items < 1:
@@ -85,5 +92,9 @@ def build_dispatch_plan(
         issue = get_issue_summary(repo, issue_number)
         issues = [issue] if issue is not None else []
 
-    items, skipped_count = select_dispatch_items(issues, max_items)
+    items, skipped_count = select_dispatch_items(
+        issues,
+        max_items,
+        allowed_priorities=allowed_priorities,
+    )
     return DispatchPlan(repo=repo, items=items, skipped_count=skipped_count, dry_run=dry_run)

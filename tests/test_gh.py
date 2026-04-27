@@ -9,7 +9,6 @@ from gearbox.core.gh import (
     VALID_ISSUE_LABELS,
     IssueSummary,
     add_issue_labels,
-    build_issue_body,
     build_review_body,
     configure_authenticated_origin,
     create_issue,
@@ -452,22 +451,6 @@ class TestBuildReviewBody:
         assert "42" in body
         assert "Bug here" in body
         assert "src/utils.py" in body
-
-
-class TestBuildIssueBody:
-    """测试 build_issue_body"""
-
-    def test_basic_body(self) -> None:
-        body = build_issue_body("P1", "M", None, True)
-        assert "P1" in body
-        assert "M" in body
-        assert "✅" in body
-
-    def test_with_clarification(self) -> None:
-        body = build_issue_body("P2", "L", "What use case?", False)
-        assert "P2" in body
-        assert "需要澄清" in body
-        assert "What use case?" in body
 
 
 class TestValidIssueLabels:

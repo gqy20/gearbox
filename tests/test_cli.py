@@ -277,8 +277,6 @@ class TestAgentCommand:
                 labels=["enhancement"],
                 priority="P2",
                 complexity="S",
-                needs_clarification=False,
-                clarification_question=None,
                 ready_to_implement=True,
             )
 
@@ -318,8 +316,6 @@ class TestAgentCommand:
                                 "labels": ["enhancement"],
                                 "priority": "P2",
                                 "complexity": "S",
-                                "needs_clarification": False,
-                                "clarification_question": None,
                                 "ready_to_implement": True,
                             }
                         ]
@@ -373,8 +369,6 @@ class TestAgentCommand:
                             "labels": ["enhancement"],
                             "priority": "P2",
                             "complexity": "S",
-                            "needs_clarification": False,
-                            "clarification_question": None,
                             "ready_to_implement": True,
                         }
                     ]

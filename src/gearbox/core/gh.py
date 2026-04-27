@@ -635,25 +635,6 @@ def build_review_body(
     return "\n\n".join(lines)
 
 
-def build_issue_body(
-    priority: str,
-    complexity: str,
-    clarification_question: str | None,
-    ready_to_implement: bool,
-) -> str:
-    """构建 Backlog 评论的 Markdown body。"""
-    lines = [
-        f"**优先级**: {priority}",
-        f"**复杂度**: {complexity}",
-        f"**可实现**: {'✅' if ready_to_implement else '❌'}",
-    ]
-
-    if clarification_question:
-        lines.append(f"\n**需要澄清**: {clarification_question}")
-
-    return "\n\n".join(lines)
-
-
 def write_outputs(
     outputs: dict[str, str],
     path: str = "/tmp/github_output",

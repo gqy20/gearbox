@@ -282,7 +282,10 @@ class TestStructuredOutputParsing:
         message = _result_message(
             {
                 "winner": 0,
-                "scores": {"0": 0.85, "1": 0.72},
+                "scores": {
+                    "0": {"score": 0.85, "justification": "Complete and actionable"},
+                    "1": {"score": 0.72, "justification": "Missing details"},
+                },
                 "reasoning": "First result is more complete",
                 "consensus": ["item-a"],
             }
@@ -291,7 +294,13 @@ class TestStructuredOutputParsing:
             message,
             lambda data: EvaluationResult(
                 winner=int(data["winner"]),
-                scores={int(k): float(v) for k, v in data["scores"].items()},
+                scores={
+                    int(k): {
+                        "score": float(v.get("score", 0)),
+                        "justification": v.get("justification", ""),
+                    }
+                    for k, v in data["scores"].items()
+                },
                 reasoning=data["reasoning"],
                 consensus=data["consensus"],
             ),
@@ -299,6 +308,7 @@ class TestStructuredOutputParsing:
         assert result is not None
         assert result.winner == 0
         assert 1 in result.scores
+        assert result.scores[0]["justification"] == "Complete and actionable"
 
 
 class TestEvaluatorPrompt:

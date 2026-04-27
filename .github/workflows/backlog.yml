@@ -66,10 +66,9 @@ jobs:
             echo "comment_mode=auto" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Plan scheduled backlog issues
-        id: scheduled
-        if: github.event_name == 'schedule'
-        shell: bash
+      - name: Plan backlog issues
+        id: planned
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.issues == '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -95,10 +94,10 @@ jobs:
         id: issues
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.issues }}" ]; then
             echo "issues=${{ inputs.issues }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "issues=${{ steps.scheduled.outputs.issues }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ steps.planned.outputs.issues }}" ]; then
+            echo "issues=${{ steps.planned.outputs.issues }}" >> "$GITHUB_OUTPUT"
           else
             echo "issues=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           fi

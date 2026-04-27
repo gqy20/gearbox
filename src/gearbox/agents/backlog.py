@@ -228,6 +228,7 @@ async def run_backlog_item(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    from gearbox.agents.shared.prompt_helpers import format_issues_summary
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
     from gearbox.core.gh import list_open_issues
@@ -236,17 +237,7 @@ async def run_backlog_item(
     issue = _gh_issue_view(repo, issue_number)
 
     all_issues = list_open_issues(repo, limit=50)
-    other_issues = [i for i in all_issues if i.number != issue_number]
-
-    other_issues_summary = ""
-    if other_issues:
-        lines = []
-        for i in other_issues:
-            labels_str = ", ".join(i.labels) if i.labels else "无标签"
-            lines.append(f"- #{i.number} [{i.title}]({i.url}) — {labels_str}")
-        other_issues_summary = "\n".join(lines)
-    else:
-        other_issues_summary = "(无其他 open issues)"
+    issues_summary = format_issues_summary(all_issues, current_issue_number=issue_number)
 
     prompt = f"""## 当前 Issue 信息
 
@@ -259,9 +250,7 @@ async def run_backlog_item(
 
 **现有标签**: {", ".join(issue["labels"]) if issue["labels"] else "(无)"}
 
-## 其他 Open Issues 概览
-
-{other_issues_summary}
+## {issues_summary}
 
 ---
 {SYSTEM_PROMPT}"""

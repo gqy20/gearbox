@@ -5,7 +5,7 @@ from dataclasses import asdict
 
 import click
 
-from gearbox.cleanup import CleanupPlan, cleanup_candidate_branches
+from gearbox.cleanup import CleanupPlan, cleanup_candidate_branches, restore_issue_after_unmerged_pr
 
 
 def _echo_plan(plan: CleanupPlan, *, json_output: bool) -> None:
@@ -59,3 +59,24 @@ def cleanup(
         protect_open_prs=protect_open_prs,
     )
     _echo_plan(plan, json_output=json_output)
+
+
+@click.command("cleanup-restore-unmerged-pr")
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--issue", "issue_number", required=True, type=int, help="Issue 编号")
+@click.option("--pr", "pr_number", required=True, type=int, help="已关闭但未合并的 PR 编号")
+@click.option("--pr-url", required=True, help="已关闭但未合并的 PR URL")
+def cleanup_restore_unmerged_pr(
+    repo: str,
+    issue_number: int,
+    pr_number: int,
+    pr_url: str,
+) -> None:
+    """PR 关闭但未合并时恢复 Issue 的可调度状态。"""
+    restore_issue_after_unmerged_pr(
+        repo,
+        issue_number,
+        pr_number=pr_number,
+        pr_url=pr_url,
+    )
+    click.echo(f"Issue #{issue_number} restored after unmerged PR #{pr_number}.")

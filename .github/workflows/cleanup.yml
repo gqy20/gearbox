@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pull-requests: read
 
 jobs:
@@ -46,6 +47,8 @@ jobs:
             ISSUE="$INPUT_ISSUE"
           elif [[ "$HEAD_REF" =~ ^feat/issue-([0-9]+)-run-[0-9]+$ ]]; then
             ISSUE="${BASH_REMATCH[1]}"
+          elif [[ "$HEAD_REF" =~ ^gearbox/issue-([0-9]+)$ ]]; then
+            ISSUE="${BASH_REMATCH[1]}"
           else
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "No Gearbox candidate issue found for head ref: $HEAD_REF"
@@ -63,3 +66,22 @@ jobs:
           issue_number: ${{ steps.issue.outputs.issue_number }}
           dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           protect_open_prs: ${{ github.event_name == 'workflow_dispatch' && inputs.protect_open_prs || 'true' }}
+
+      - name: Restore issue when PR closed unmerged
+        if: >-
+          steps.issue.outputs.skip != 'true' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.merged == false
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          GEARBOX_ACTION_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+
+          uv run --directory "$GEARBOX_ACTION_ROOT" gearbox cleanup-restore-unmerged-pr \
+            --repo "${{ github.repository }}" \
+            --issue "${{ steps.issue.outputs.issue_number }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --pr-url "${{ github.event.pull_request.html_url }}"

@@ -6,6 +6,8 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
+from gearbox.core.gh import add_issue_labels, post_issue_comment, remove_issue_labels
+
 
 @dataclass
 class CleanupPlan:
@@ -118,4 +120,24 @@ def cleanup_candidate_branches(
         candidate_branches=branches,
         deleted_branches=deleted,
         skipped_branches=skipped,
+    )
+
+
+def restore_issue_after_unmerged_pr(
+    repo: str,
+    issue_number: int,
+    *,
+    pr_number: int,
+    pr_url: str,
+) -> None:
+    """Restore an issue to dispatchable state when its implementation PR is closed unmerged."""
+    remove_issue_labels(repo, issue_number, ["has-pr"])
+    add_issue_labels(repo, issue_number, ["ready-to-implement"])
+    post_issue_comment(
+        repo,
+        issue_number,
+        (
+            f"⚠️ Gearbox 检测到实现 PR #{pr_number} 已关闭但未合并：{pr_url}\n\n"
+            "已移除 `has-pr` 并重新添加 `ready-to-implement`，该 Issue 可再次进入 dispatch。"
+        ),
     )

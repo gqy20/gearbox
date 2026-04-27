@@ -940,3 +940,53 @@ class TestCleanupCommand:
 
         assert result.exit_code == 0
         assert captured["protect_open_prs"] is False
+
+    def test_cleanup_restore_unmerged_pr_command(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_restore_issue_after_unmerged_pr(
+            repo: str,
+            issue_number: int,
+            *,
+            pr_number: int,
+            pr_url: str,
+        ) -> None:
+            captured.update(
+                {
+                    "repo": repo,
+                    "issue": issue_number,
+                    "pr_number": pr_number,
+                    "pr_url": pr_url,
+                }
+            )
+
+        monkeypatch.setattr(
+            "gearbox.commands.cleanup.restore_issue_after_unmerged_pr",
+            fake_restore_issue_after_unmerged_pr,
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "cleanup-restore-unmerged-pr",
+                "--repo",
+                "owner/repo",
+                "--issue",
+                "13",
+                "--pr",
+                "14",
+                "--pr-url",
+                "https://github.com/owner/repo/pull/14",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured == {
+            "repo": "owner/repo",
+            "issue": 13,
+            "pr_number": 14,
+            "pr_url": "https://github.com/owner/repo/pull/14",
+        }
+        assert "restored" in result.output

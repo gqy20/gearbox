@@ -10,6 +10,7 @@ from gearbox.cleanup import (
     cleanup_candidate_branches,
     list_candidate_branches,
     list_open_pr_head_branches,
+    restore_issue_after_unmerged_pr,
 )
 
 
@@ -206,3 +207,36 @@ def test_cleanup_candidate_branches_can_delete_open_pr_heads_when_unprotected(mo
 
     assert plan.deleted_branches == ["feat/issue-13-run-0"]
     assert plan.skipped_branches == []
+
+
+def test_restore_issue_after_unmerged_pr_reopens_dispatch_state(monkeypatch) -> None:
+    events: list[tuple[str, object]] = []
+
+    def fake_remove(repo: str, issue_number: int, labels: list[str]) -> object:
+        events.append(("remove", repo, issue_number, labels))
+        return object()
+
+    def fake_add(repo: str, issue_number: int, labels: list[str]) -> object:
+        events.append(("add", repo, issue_number, labels))
+        return object()
+
+    def fake_comment(repo: str, issue_number: int, body: str) -> object:
+        events.append(("comment", repo, issue_number, body))
+        return object()
+
+    monkeypatch.setattr("gearbox.cleanup.remove_issue_labels", fake_remove)
+    monkeypatch.setattr("gearbox.cleanup.add_issue_labels", fake_add)
+    monkeypatch.setattr("gearbox.cleanup.post_issue_comment", fake_comment)
+
+    restore_issue_after_unmerged_pr(
+        "owner/repo",
+        13,
+        pr_number=14,
+        pr_url="https://github.com/owner/repo/pull/14",
+    )
+
+    assert events[0] == ("remove", "owner/repo", 13, ["has-pr"])
+    assert events[1] == ("add", "owner/repo", 13, ["ready-to-implement"])
+    assert events[2][0:3] == ("comment", "owner/repo", 13)
+    assert "PR #14" in str(events[2][3])
+    assert "未合并" in str(events[2][3])

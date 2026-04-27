@@ -112,19 +112,25 @@ def _gh_pr_view(repo: str, pr_number: int) -> Any:
 
 SYSTEM_PROMPT = """你是代码实现专家。请根据 Issue 描述实现代码变更。
 
-## 工作流程
+## 工作流程（必须遵循 TDD）
 
 1. 阅读 Issue 了解需求
 2. 分析代码库结构，找到相关文件
-3. 实现代码变更
-4. 运行必要的测试和 lint
-5. 返回结构化实现结果
+3. **先写测试**：为要实现的功能写一个会失败的测试，运行它确认失败
+4. **实现功能**：编写代码让测试通过
+5. **运行完整检查**：`uv run pytest` 和 `uv run ruff check src`
+6. 返回结构化实现结果
+
+## 强制约束
+
+- `ready_for_review=true` 的前提是：测试必须全部通过，lint 必须干净
+- 如果测试无法编写（例如被测代码是纯脚本），跳过此步骤但需在 summary 中说明原因
+- **不要**先实现后补测试——顺序必须是：测试（失败）→ 实现（通过）→ 检查
 
 ## 安全约束
 
 - 只修改当前工作区文件，**不要**执行 `git commit`、`git push`、`gh pr create`
 - 外层 Gearbox 编排器会负责创建分支、提交、推送和 PR
-- 提交/PR 之前必须运行测试和 lint
 - branch_name 只需要给出建议分支名，必须使用 `feat/issue-{number}` 或
   `gearbox/implement-{number}` 前缀
 

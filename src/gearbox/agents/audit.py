@@ -206,7 +206,7 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 1. **已预扫描**: 如果提供了扫描结果摘要，说明仓库已经过静态分析工具扫描
 2. 用 `gh repo view` 查看远程仓库信息（仅远程仓库需要）
 3. 用 `gh search repos` 发现对标项目（如果未提供 benchmarks）
-4. 用 ctx7 查询相关库的官方文档（`npx ctx7 docs <library-id> <query>`）
+4. **必须**使用 ctx7 查询相关技术栈的官方文档（`npx ctx7 docs <library-id> <query>`），确保建议基于最新实践
 5. 自主分析并生成结构化报告
 
 ## 重要: 避免重复搜索

@@ -230,11 +230,25 @@ async def run_backlog_item(
 
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
+    from gearbox.core.gh import list_open_issues
 
     project_root = Path(__file__).resolve().parents[3]
     issue = _gh_issue_view(repo, issue_number)
 
-    prompt = f"""## Issue 信息
+    all_issues = list_open_issues(repo, limit=50)
+    other_issues = [i for i in all_issues if i.number != issue_number]
+
+    other_issues_summary = ""
+    if other_issues:
+        lines = []
+        for i in other_issues:
+            labels_str = ", ".join(i.labels) if i.labels else "无标签"
+            lines.append(f"- #{i.number} [{i.title}]({i.url}) — {labels_str}")
+        other_issues_summary = "\n".join(lines)
+    else:
+        other_issues_summary = "(无其他 open issues)"
+
+    prompt = f"""## 当前 Issue 信息
 
 **仓库**: {repo}
 **编号**: #{issue_number}
@@ -244,6 +258,10 @@ async def run_backlog_item(
 {issue["body"] or "(无正文)"}
 
 **现有标签**: {", ".join(issue["labels"]) if issue["labels"] else "(无)"}
+
+## 其他 Open Issues 概览
+
+{other_issues_summary}
 
 ---
 {SYSTEM_PROMPT}"""

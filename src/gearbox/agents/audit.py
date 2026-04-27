@@ -144,6 +144,62 @@ def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
     )
 
 
+@dataclass
+class ExistingIssue:
+    """仓库中已存在的 Issue 摘要"""
+
+    number: int
+    title: str
+    labels: list[str]
+
+
+def _fetch_existing_issues(repo: str) -> list[ExistingIssue]:
+    """获取仓库中所有 open 的 Issue（轻量：只取 number, title, labels）。"""
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                repo,
+                "--state",
+                "open",
+                "--limit",
+                "200",
+                "--json",
+                "number,title,labels",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+        items = json.loads(result.stdout)
+        return [
+            ExistingIssue(
+                number=item["number"],
+                title=item["title"],
+                labels=[lb["name"] for lb in item.get("labels", [])],
+            )
+            for item in items
+        ]
+    except Exception:
+        return []
+
+
+def _format_existing_issues(issues: list[ExistingIssue]) -> str:
+    """格式化为 prompt 片段。"""
+    if not issues:
+        return "（无可用 Issue 数据）"
+    lines = []
+    for iss in issues:
+        labels_str = ", ".join(iss.labels) if iss.labels else "无标签"
+        lines.append(f"  - #{iss.number}: [{labels_str}] {iss.title}")
+    return "\n".join(lines)
+
+
 def _clone_repository(repo: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
     """将目标仓库克隆到临时目录，供扫描和 Agent 分析统一使用。"""
     temp_dir = tempfile.TemporaryDirectory(prefix="gearbox-audit-")
@@ -241,7 +297,16 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 - 不要尝试创建 GitHub Issue
 - `comparison_markdown` 必须是完整 Markdown
 - `issues` 里的每条记录都要可直接写入 `issues.json`
-- 如果无法完成审计，在 `failure_reason` 中说明原因"""
+- 如果无法完成审计，在 `failure_reason` 中说明原因
+
+## 已有 Issue 指引
+
+仓库中已存在以下 open Issues（下方提供）。**对于这些已有 Issue，你的职责是：**
+- **不要深入分析**其根本原因或解决方案（已有 owner 处理）
+- **只需标注它们存在**，在对比分析中提及差距已记录
+- **聚焦发现全新问题**：寻找扫描结果中暗示但未被这些已有 Issue 覆盖的盲区
+
+换句话说：你应该发现"还有什么东西没被人注意到"，而不是重复已有的发现。"""
 
 
 async def run_audit(
@@ -333,12 +398,26 @@ async def run_audit(
             if benchmarks:
                 click.echo(f"📦 使用缓存的对标仓库: {len(benchmarks)} 个")
 
+        existing_issues: list[ExistingIssue] = []
+        existing_issues_str = ""
+        # 仅远程仓库需要拉取已有 Issues，本地路径不具备 GitHub 上下文
+        if "/" in repo:
+            existing_issues = _fetch_existing_issues(repo)
+            if existing_issues:
+                click.echo(f"📋 已有 open Issues: {len(existing_issues)} 个")
+                existing_issues_str = (
+                    f"\n\n## 仓库已有 Open Issues\n\n{_format_existing_issues(existing_issues)}"
+                )
+
+        prompt_parts = []
         if scan_summary and enable_prescan:
+            prompt_parts.append(f"```json\n{scan_summary}\n```")
+        prompt_parts.append(existing_issues_str)
+
+        if prompt_parts:
             resolved_prompt = f"""{resolved_prompt}
 
-```json
-{scan_summary}
-```"""
+{"".join(prompt_parts)}"""
 
         options, sdk_logger = prepare_agent_options(
             ClaudeAgentOptions(

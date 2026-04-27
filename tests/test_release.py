@@ -91,6 +91,20 @@ def test_reusable_workflow_aggregators_use_action_source() -> None:
         assert 'uv run --directory "$GEARBOX_ACTION_ROOT" gearbox agent' in workflow
 
 
+def test_dispatch_workflow_uses_parallel_implement_aggregation() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    workflow = (root / ".github" / "workflows" / "dispatch.yml").read_text(encoding="utf-8")
+
+    assert "uses: ./.github/workflows/reusable-implement.yml" in workflow
+    assert "parallel_runs: ${{ needs.plan.outputs.max_parallel }}" in workflow
+    assert (
+        "if: ${{ needs.plan.outputs.has_items == 'true' "
+        "&& needs.plan.outputs.dry_run == 'false' }}" in workflow
+    )
+    assert "uses: ./actions/dispatch" not in workflow
+
+
 def test_build_marketplace_bundle_excludes_python_cache_files(tmp_path: Path) -> None:
     output_dir = tmp_path / "gearbox-action"
 

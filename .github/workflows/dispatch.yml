@@ -16,7 +16,7 @@ on:
         required: false
         default: '1'
       max_parallel:
-        description: '最多并行处理多少个 Issue'
+        description: '每个 Issue 的并行实现次数'
         required: false
         default: '3'
       dry_run:
@@ -100,28 +100,17 @@ jobs:
           print(f"dry_run={os.environ['DRY_RUN']}")
           PY
 
-  dispatch:
+  implement:
     needs: plan
-    if: ${{ needs.plan.outputs.has_items == 'true' }}
+    if: ${{ needs.plan.outputs.has_items == 'true' && needs.plan.outputs.dry_run == 'false' }}
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    name: 'Dispatch issue #${{ matrix.issue_number }}'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Run Dispatch
-        uses: ./actions/dispatch
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        with:
-          repo: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
-          issue_number: ${{ matrix.issue_number }}
-          max_items: '1'
-          dry_run: ${{ needs.plan.outputs.dry_run }}
-          model: ${{ secrets.ANTHROPIC_MODEL }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+    name: 'Implement issue #${{ matrix.issue_number }}'
+    uses: ./.github/workflows/reusable-implement.yml
+    with:
+      repo: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_repo || github.repository) || github.repository }}
+      issue_number: ${{ matrix.issue_number }}
+      base_branch: main
+      parallel_runs: ${{ needs.plan.outputs.max_parallel }}
+    secrets: inherit

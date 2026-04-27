@@ -70,6 +70,8 @@ runs:
         if [ -n "$HEAD_REF" ]; then
           if [[ "$HEAD_REF" =~ ^feat/issue-([0-9]+)-run-[0-9]+$ ]]; then
             ISSUE_NUMBER="${BASH_REMATCH[1]}"
+          elif [[ "$HEAD_REF" =~ ^gearbox/issue-([0-9]+)$ ]]; then
+            ISSUE_NUMBER="${BASH_REMATCH[1]}"
           else
             SKIP='true'
             SKIP_REASON="Head ref does not match Gearbox candidate branch pattern: $HEAD_REF"

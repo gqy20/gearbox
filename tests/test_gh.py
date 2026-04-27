@@ -14,6 +14,7 @@ from gearbox.core.gh import (
     configure_authenticated_origin,
     create_issue,
     finalize_and_create_pr,
+    finalize_and_push,
     get_issue_summary,
     get_repo_labels,
     list_open_issues,
@@ -362,6 +363,43 @@ class TestFinalizeAndCreatePr:
         )
 
         assert result.success is True
+        assert ["git", "config", "user.name", "gqy20"] in commands
+        assert [
+            "git",
+            "config",
+            "user.email",
+            "12345+github-actions[bot]@users.noreply.github.com",
+        ] in commands
+        assert ["git", "commit", "-m", "feat: test"] in commands
+
+    def test_push_sets_git_author_before_commit_when_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GITHUB_ACTOR", "gqy20")
+        monkeypatch.setenv("GITHUB_ACTOR_ID", "12345")
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            commands.append(cmd)
+            if cmd == ["git", "config", "--get", "user.name"]:
+                return MagicMock(stdout="")
+            if cmd == ["git", "config", "--get", "user.email"]:
+                return MagicMock(stdout="")
+            if cmd == ["git", "diff", "--staged", "--quiet"]:
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = finalize_and_push(
+            repo="owner/repo",
+            temp_branch="gearbox/temp",
+            final_branch="feat/issue-2-run-0",
+            commit_message="feat: test",
+            files=["src/example.py"],
+        )
+
+        assert result is True
         assert ["git", "config", "user.name", "gqy20"] in commands
         assert [
             "git",

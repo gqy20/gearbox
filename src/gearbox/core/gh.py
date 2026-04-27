@@ -431,6 +431,7 @@ def finalize_and_push(
             capture_output=True,
         )
         if result.returncode == 1:  # 有变更
+            ensure_git_author()
             subprocess.run(["git", "commit", "-m", commit_message], check=True)
             subprocess.run(
                 ["git", "push", "-u", "origin", final_branch],

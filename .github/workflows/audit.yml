@@ -18,7 +18,7 @@ on:
       create_issues:
         description: '是否创建 Issues'
         required: false
-        default: false
+        default: true
         type: boolean
       is_self_audit:
         description: '审计当前项目自身'
@@ -156,7 +156,9 @@ jobs:
           path: audit-output/
 
   create-issues:
-    if: github.event_name == 'workflow_dispatch' && inputs.create_issues == true
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.create_issues == true) ||
+      (github.event_name == 'schedule')
     needs: aggregate-audit
     runs-on: ubuntu-latest
     env:

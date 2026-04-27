@@ -75,7 +75,7 @@ jobs:
 
   aggregate-review:
     needs: [plan, review-run]
-    if: ${{ always() }}
+    if: ${{ always() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

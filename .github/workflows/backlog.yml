@@ -98,7 +98,7 @@ jobs:
 
   aggregate-backlog:
     needs: [plan, backlog-run]
-    if: ${{ always() && needs.plan.outputs.repo != '' && needs.plan.outputs.issues != '' }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.repo != '' && needs.plan.outputs.issues != '' }}
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

@@ -145,12 +145,28 @@ def test_matrix_action_exposes_step_output_and_local_callers_checkout_first() ->
     ]
 
     assert "value: ${{ steps.build.outputs.matrix_json }}" in matrix_action
+    assert "${{ fromJSON(...) }}" not in matrix_action
 
     for workflow_path in local_matrix_workflows:
         workflow = workflow_path.read_text(encoding="utf-8")
         matrix_use = workflow.index("uses: ./actions/matrix")
         checkout_use = workflow.index("uses: actions/checkout")
         assert checkout_use < matrix_use
+
+
+def test_aggregators_do_not_run_when_plan_fails() -> None:
+    root = Path(__file__).resolve().parents[1]
+    workflow_paths = [
+        root / ".github" / "workflows" / "audit.yml",
+        root / ".github" / "workflows" / "backlog.yml",
+        root / ".github" / "workflows" / "reusable-audit.yml",
+        root / ".github" / "workflows" / "reusable-implement.yml",
+        root / ".github" / "workflows" / "reusable-review.yml",
+    ]
+
+    for workflow_path in workflow_paths:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "needs.plan.result == 'success'" in workflow
 
 
 def test_workflow_entry_keeps_target_repo_override_and_has_no_dead_inputs() -> None:

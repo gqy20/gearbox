@@ -109,7 +109,7 @@ jobs:
 
   aggregate-audit:
     needs: [plan, audit-run]
-    if: ${{ always() && needs.plan.outputs.repo != '' }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.repo != '' }}
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

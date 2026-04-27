@@ -13,7 +13,7 @@ inputs:
 
 outputs:
   matrix_json:
-    description: JSON matrix for use with matrix ${{ fromJSON(...) }}
+    description: JSON matrix for GitHub Actions strategy
     value: ${{ steps.build.outputs.matrix_json }}
 
 runs:

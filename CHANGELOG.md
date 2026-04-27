@@ -5,7 +5,7 @@
 版本号使用与发布流程一致的 `vX.Y.Z` tag。每次发布到
 `gearbox-action` 时，会自动提取对应版本段落作为 Release Notes。
 
-## [Unreleased]
+## [v1.1.6] - 2026-04-27
 
 ### 新增
 

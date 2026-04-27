@@ -56,7 +56,7 @@ def config_set(key: str, value: str) -> None:
       anthropic-api-key      API Key (必需)
       provider               预设 Provider (minimax/glm/anthropic)
       anthropic-base-url     Base URL (provider 预设时会自动设置)
-      anthropic-model        模型名 (默认: glm-5.1)
+      anthropic-model        模型名 (默认: glm-5-turbo)
 
     \b
     Provider 预设 (一键配置 base_url + model):

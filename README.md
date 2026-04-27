@@ -117,8 +117,8 @@ gh workflow run dispatch.yml
 统一的 backlog 入口会根据 `issues` 数量自动选择行为：1 个 issue 时执行快速分类，多个 issue 时执行批量分类并逐个写回标签/评论。
 
 Backlog 会写入类型标签、优先级标签、复杂度标签和状态标签。若仓库还没有
-`P0`-`P3`、`complexity:S/M/L`、`ready-to-implement` 或
-`needs-clarification`，运行时会先自动创建这些标签，再添加到对应 Issue。
+`P0`-`P3`、`complexity:S/M/L`、`ready-to-implement`，
+运行时会先自动创建这些标签，再添加到对应 Issue。
 日志中的“标签不存在，正在创建”是初始化提示；只有出现“创建标签失败”或
 “添加标签失败”才表示写回失败。
 
@@ -172,7 +172,7 @@ jobs:
 
 | Variable | 默认值 | 说明 |
 | --- | --- | --- |
-| `ANTHROPIC_MODEL` | `glm-5.1` | 默认模型名 |
+| `ANTHROPIC_MODEL` | `glm-5-turbo` | 默认模型名 |
 
 ## 审计可观测性
 

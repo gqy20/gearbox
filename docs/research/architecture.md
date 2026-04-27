@@ -6,7 +6,7 @@
 
 > Gearbox = 变速箱/齿轮箱 — 将 Issue 转化为 Code，Code 转化为 PR，PR 转化为 Merge 的传动装置。
 
-**核心价值：** 一个可复用的 GitHub Action 套件仓库，其他项目只需一行 `uses: gqy20/gearbox/triage@v1` 即可接入完整的 AI 驱动开发闭环。
+**核心价值：** 一个可复用的 GitHub Action 套件仓库，其他项目只需一行 `uses: gqy20/gearbox-action@v1` 即可接入完整的 AI 驱动开发闭环。
 
 ## 飞轮模型
 
@@ -17,10 +17,10 @@
                         └──────────┬──────────┘
                                    │ 创建 Issue
                                    ▼
-┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
-│   Auto Triage       │───→│   Implement         │───→│   Code Review       │
-│   (分类/排序/标签)    │    │   (实现 → 提 PR)     │    │   (审查/评论)        │
-└─────────────────────┘    └─────────────────────┘    └──────────┬──────────┘
+┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+│   Backlog            │→ │   Implement         │→ │   Code Review       │
+│   (分类/排序/标签)    │  │   (实现 → 提 PR)    │  │   (审查/评论)        │
+└─────────────────────┘  └─────────────────────┘  └──────────┬──────────┘
         ▲                                                    │
         │                                                    ▼
         │                                          ┌─────────────────────┐
@@ -42,31 +42,40 @@
 ┌────────────────────────────────────────────────────────────┐
 │                    消费者仓库 (Consumer Repo)                │
 │                                                            │
-│  .github/flywheel.yml  ← 声明式配置（项目特性）              │
-│  .github/workflows/    ← 事件路由（极简，~80行）              │
+│  一行 YAML 接入                                             │
 └──────────────────────────┬─────────────────────────────────┘
-                           │ uses: gqy20/gearbox/action@v1
+                           │ uses: gqy20/gearbox-action@v1
                            ▼
 ┌────────────────────────────────────────────────────────────┐
-│                  Gearbox Action 仓库（集中管控）               │
+│                  开发仓内部编排 (gqy20/gearbox)             │
 │                                                            │
-│  Layer 1: actions/*/action.yml                             │
-│  ├─ 入口定义 (inputs / outputs / runs)                      │
-│  ├─ 安全护栏 (branch prefix 检查、权限校验)                   │
-│  └─ 配置读取 (flywheel.yml 解析)                            │
+│  .github/workflows/audit.yml     — 内部 audit 入口       │
+│  .github/workflows/backlog.yml    — 内部 backlog 入口       │
+│  .github/workflows/dispatch.yml   — 内部 dispatch 入口      │
+│  .github/workflows/review.yml     — 内部 review 入口         │
 │                                                            │
-│  Layer 2: src/gearbox/core/                                │
-│  ├─ Agent 引擎 (基于 Claude Agent SDK)                      │
-│  ├─ Prompt 管理 (模板 + 动态注入)                           │
-│  ├─ 工具集 (GitHub API、代码分析、对比)                      │
-│  └─ Guard 系统 (防死循环、成本控制、审计日志)                 │
+│  .github/workflows/reusable-*.yml — 保留给外部调用的模板    │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────────┐
+│                      Action 执行层                          │
 │                                                            │
-│  Layer 3: anthropics/claude-code-action@v1                 │
-│  └─ 官方执行引擎（可选后端）                                 │
+│  actions/*/action.yml   — composite action，各自调用 CLI      │
+│  actions/_runtime/      — uv + Python + gh + 项目依赖      │
+│  actions/_setup/        — audit 扫描工具（semgrep 等）      │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────────┐
+│                      核心逻辑层                             │
 │                                                            │
-│  Layer 4: 输出 & 反馈                                      │
-│  ├─ GitHub API 操作 (label、comment、PR、merge)             │
-│  └─ 审计日志 & 成本追踪                                     │
+│  src/gearbox/agents/*.py    — audit / backlog / review /  │
+│                                 implement 等 agent 逻辑     │
+│  src/gearbox/agents/shared/ — runtime / scanner /        │
+│                                 structured / selection       │
+│  src/gearbox/flow/*.py     — 确定性编排逻辑（dispatch）    │
+│  src/gearbox/core/gh.py    — GitHub API 封装              │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -75,153 +84,141 @@
 | 模式 | 场景 | 入口 |
 |------|------|------|
 | **CLI 本地模式** | 开发调试、一次性审计 | `uv run gearbox audit --repo owner/name` |
-| **Action 远程模式** | 生产环境持续运行 | `uses: gqy20/gearbox/triage@v1` |
+| **Action 远程模式** | 生产环境持续运行 | `uses: gqy20/gearbox-action@v1` |
 
-两种模式共享同一套核心逻辑（Agent、Prompt、工具），仅入口不同。
+两种模式共享同一套核心逻辑（Agent、Scanner、工具），仅入口不同。
 
 ## 目录结构
 
 ```
 gearbox/
 ├── README.md                       # 使用文档 + Quick Start
-├── LICENSE
-├── pyproject.toml                  # Python 包定义
+├── CHANGELOG.md                   # 版本变更记录
+├── LICENSE                        # MIT
+├── pyproject.toml                 # Python 包定义
 │
-├── src/gearbox/                     # 核心包
+├── actions/                        # Composite Action 套件
+│   ├── _runtime/                  # 运行时：uv + Python + gh + 项目依赖
+│   ├── _setup/                    # 扫描工具：semgrep / deptry / cloc / trivy 等
+│   ├── main/                      # 内部路由层，导出后成为根 action.yml
+│   ├── audit/                     # 审计 action
+│   ├── backlog/                   # Issue 分类 action
+│   ├── dispatch/                  # 从 ready backlog 选择并触发实现
+│   ├── review/                    # PR 审查 action
+│   ├── implement/                 # 实现 action（Issue → PR）
+│   ├── publish/                   # 发布 action（issues.json → GitHub Issues）
+│   └── cleanup/                   # 清理 action（候选分支清理）
+│
+├── src/gearbox/                    # 核心 Python 包
 │   ├── __init__.py
-│   ├── __main__.py                 # CLI 入口
-│   ├── cli.py                      # Click CLI 命令
-│   ├── config/                     # 配置管理
-│   │   ├── __init__.py
-│   │   ├── settings.py             # 设置加载
-│   │   └── flywheel.py             # flywheel.yml 解析
-│   ├── core/                       # Agent 核心
-│   │   ├── __init__.py
-│   │   ├── engine.py               # Agent 引擎封装
-│   │   ├── session.py              # 会话管理
-│   │   └── guards.py               # 安全护栏
-│   ├── prompts/                    # Prompt 模板
-│   │   ├── triage.md
-│   │   ├── implement.md
-│   │   ├── review.md
-│   │   ├── audit.md
-│   │   └── report.md
-│   ├── tools/                      # 工具集
-│   │   ├── __init__.py
-│   │   ├── triage.py               # 分类工具
-│   │   ├── implement.py            # 实现工具
-│   │   ├── review.py               # Review 工具
-│   │   ├── audit.py                # 审计工具
-│   │   ├── profile.py              # 仓库画像（已有）
-│   │   ├── compare.py              # 对比分析（已有）
-│   │   ├── issue.py                # Issue 生成（已有）
-│   │   └── benchmark.py            # 对标分析（已有）
-│   └── utils/                      # 工具函数
-│       ├── github_api.py           # GitHub API 封装
-│       └── logger.py               # 统一日志
+│   ├── __main__.py                # CLI 入口
+│   ├── cli.py                     # Click CLI 入口（root 命令）
+│   ├── config.py                  # 配置加载
+│   │
+│   ├── agents/                    # Agent 实现
+│   │   ├── audit.py              # Audit Agent
+│   │   ├── backlog.py            # Backlog Agent（分类打标）
+│   │   ├── review.py            # Review Agent
+│   │   ├── implement.py         # Implement Agent
+│   │   ├── evaluator.py         # 多实例选优 Agent
+│   │   └── shared/             # Agent 共享能力
+│   │       ├── runtime.py       # Claude Agent SDK 调用 + 流式日志
+│   │       ├── structured.py    # 结构化输出提取
+│   │       ├── scanner.py       # 克隆后静态扫描（cloc/semgrep/trivy/deptry）
+│   │       ├── artifacts.py     # Artifact 文件管理
+│   │       ├── selection.py     # 多实例结果选优
+│   │       ├── git.py          # Git 克隆（shared）
+│   │       └── prompt_helpers.py # Prompt 格式化工具
+│   │
+│   ├── core/                     # GitHub API 封装
+│   │   └── gh.py                # Issue / PR / Label / Comment 等操作
+│   │
+│   ├── flow/                     # 确定性编排（无 LLM 调用）
+│   │   ├── backlog.py           # Backlog plan 构建与 issue 过滤
+│   │   ├── dispatch.py         # Dispatch 计划与选择逻辑
+│   │   └── models.py           # Flow 数据模型
+│   │
+│   └── commands/                  # CLI 命令模块
+│       ├── agent.py              # agent 子命令（audit-select 等）
+│       ├── backlog.py            # backlog plan 子命令
+│       ├── config.py            # config 子命令
+│       └── release.py           # release / package 子命令
 │
-├── actions/                         # Composite Action 套件
-│   ├── triage/
-│   │   └── action.yml             # Issue 自动分类排序
-│   ├── implement/
-│   │   └── action.yml             # Issue → 实现 → PR
-│   ├── review/
-│   │   └── action.yml             # PR Code Review
-│   ├── audit/
-│   │   └── action.yml             # 仓库审计
-│   ├── auto-merge/
-│   │   └── action.yml             # 条件自动合并
-│   ├── report/
-│   │   └── action.yml             # 定时健康报告
-│   └── setup/
-│       └── action.yml             # 一键初始化
+├── .github/workflows/
+│   ├── ci.yml                    # ruff / mypy / pytest
+│   ├── audit.yml                # 内部 audit matrix 编排
+│   ├── backlog.yml             # 内部 backlog matrix 编排
+│   ├── dispatch.yml             # 内部 dispatch 入口
+│   ├── review.yml              # 内部 review 入口
+│   ├── cleanup.yml             # 清理候选分支
+│   ├── reusable-*.yml          # 保留给外部调用的模板
+│   └── release-marketplace.yml  # Marketplace 发布流程
 │
-├── templates/
-│   └── flywheel.yml               # 默认配置模板
+├── tests/                        # pytest 测试套件
+├── docs/                         # 文档
+│   ├── index.md                 # 架构文档入口
+│   ├── roadmap.md              # 开发路线图
+│   └── research/               # 调研文档
+│       ├── architecture.md      # ← 本文件
+│       ├── claude-code-actions.md
+│       ├── composite-actions.md
+│       ├── flywheel-workflow.md
+│       └── security-governance.md
 │
-├── tests/
-│   ├── test_actions/
-│   ├── test_tools/
-│   └── test_core/
-│
-├── docs/
-│   ├── index.md
-│   ├── research/                  # 调研文档
-│   │   ├── architecture.md        # ← 本文件
-│   │   ├── claude-code-actions.md # Claude Code Actions 调研
-│   │   ├── composite-actions.md   # Composite Action 设计
-│   │   ├── flywheel-workflow.md   # 飞轮 Workflow 设计
-│   │   └── security-governance.md # 安全与治理
-│   └── guides/
-│       ├── getting-started.md
-│       ├── configuration.md
-│       └── customization.md
-│
-└── .github/
-    ├── workflows/
-    │   ├── release.yml            # tag push → 自动发版
-    │   ├── test.yml               # 测试
-    │   └── validate.yml           # 校验所有 action.yml
-    └── CODEOWNERS
+└── dist/                        # Marketplace 发布产物（自动生成）
 ```
 
-## 五大核心 Action
+## 六大核心 Action
 
 ### 1. Audit — 仓库审计
 
-- **触发**: 定时（每周）或手动
-- **输入**: 仓库全量状态
-- **输出**: 改进建议 Issue
-- **模型**: Sonnet
+- **触发**: 定时（每小时）或手动 `workflow_dispatch` / `@audit`
+- **输入**: 仓库标识、对标仓库列表
+- **输出**: `issues.json`（可发布为改进建议 Issue）
+- **特点**: 始终克隆目标仓库，scanner 和 Agent 基于同一克隆目录运行；提示词包含已有 open Issues 摘要，引导 Agent 聚焦新发现
 
-### 2. Triage — 自动分类
+### 2. Backlog — Issue 分类
 
-- **触发**: Issue opened / edited
-- **输入**: Issue 内容 (title, body, labels)
-- **输出**: 类型标签 + 优先级 + 是否 ready-to-implement
-- **模型**: Sonnet (低成本高频)
+- **触发**: `@backlog` 评论 / `workflow_dispatch` / 定时
+- **输入**: 仓库标识、Issue 编号列表
+- **输出**: 标签写回（P0-P3 / complexity:S/M/L / ready-to-implement）
+- **特点**: 鼓励 Agent 分析源码判断问题本质；包含所有 open issues 摘要做相对优先级决策；标签过期（默认 2 天）重新评估
 
-### 2. Implement — 自动实现
+### 3. Dispatch — 实现计划
 
-- **触发**: Issue labeled `ready-to-implement`
-- **输入**: Issue 内容 + 代码库上下文
+- **触发**: `@dispatch` 评论 / `workflow_dispatch`
+- **输入**: 仓库标识、最大选择数量、dry-run 开关
+- **输出**: 计划输出（默认 dry-run，不创建 PR）
+- **特点**: 从 ready-to-implement backlog 中按优先级/复杂度选择；需要显式关闭 dry-run 才进入实现阶段
+
+### 4. Implement — Issue 实现
+
+- **触发**: Dispatch 选择后自动调用
+- **输入**: 仓库标识、Issue 编号
 - **输出**: 新分支 + Commit + PR
-- **模型**: Sonnet (常规) / Opus (复杂任务)
-- **安全**: branch 前缀 `feat/issue-{n}`
+- **特点**: 要求 TDD（先写测试再实现）；要求测试通过 + lint 通过才能提交；同一测试失败 3 次自动停止
 
-### 3. Review — 自动审查
+### 5. Review — PR 审查
 
-- **触发**: PR opened / synchronize
-- **输入**: PR diff + 变更文件
-- **输出**: Review comments + LGTM/Request Changes
-- **模型**: Sonnet
-- **并发控制**: cancel-in-progress
+- **触发**: `@review` 评论 / `workflow_dispatch`
+- **输入**: 仓库标识、PR 编号
+- **输出**: Review comments + 评分
+- **特点**: 要求测试覆盖率，缺失测试标记 warning；支持基于前次 review 的增量 review
 
-### 4. Auto-Merge — 条件合并
+### 6. Publish — 发布 Issues
 
-- **触发**: PR ready_for_review + checks passed
-- **条件**: 非 draft + approval ≥ 1 + checks pass + 无 wip 标签
-- **技术**: 纯 GitHub Actions (无需 AI)
-- **安全**: 永远不自动 merge AI 生成的 PR 到 main
+- **触发**: CLI / action 手动调用
+- **输入**: `issues.json` 文件路径
+- **输出**: GitHub Issues
 
-### 5. Report — 定时巡检
+## 从旧架构的演进
 
-- **触发**: Cron (每日/每周)
-- **输入**: 仓库全量状态
-- **输出**: 健康 Report Issue + 发现新改进点
-- **模型**: Sonnet
-
-## 从 repo-auditor 到 gearbox 的演进映射
-
-| repo-auditor (旧) | gearbox (新) | 说明 |
-|-------------------|-------------|------|
-| `audit.py` | `core/engine.py` | Agent 引擎通用化 |
-| `cli.py` (audit/publish) | `cli.py` (audit/triage/implement/review/report)` | 命令扩展 |
-| `tools/issue.py` | `tools/triage.py` + `tools/implement.py` | 拆分+增强 |
-| `tools/compare.py` | `tools/review.py` | 方向对齐 |
-| `tools/profile.py` | `tools/report.py` | 复用+增强 |
-| `tools/benchmark.py` | `tools/benchmark.py` | 保留 |
-| `.github/workflows/audit.yml` | `actions/*/action.yml` | 从单 workflow → Action 套件 |
-| `config/settings.py` | `config/flywheel.py` | 新增消费者配置解析 |
-| (无) | `core/guards.py` | 新增安全护栏 |
-| (无) | `prompts/*.md` | 新增 Prompt 模板管理 |
+| 旧（设计阶段） | 当前（实现） |
+|---|---|
+| `tools/` 目录 | `agents/` 目录 |
+| `prompts/` 目录 | Prompt 内联在 Agent Python 文件中 |
+| `config/flywheel.py` | 消费者配置未实现，保持简洁 |
+| `triage` action | `backlog` action |
+| `core/engine.py` | 直接使用 `claude_agent_sdk` |
+| `auto-merge` action | 未实现，保持简洁 |
+| `setup/` action | 未实现，保持简洁 |

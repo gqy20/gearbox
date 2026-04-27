@@ -292,11 +292,11 @@ jobs:
 | Concurrency group | `cancel-in-progress: true` | 取消排队中的重复运行 |
 | 事件过滤 | `types: [opened]` 非 `[opened, synchronize]` | 每个 PR 只触发一次 |
 | 路径过滤 | `paths-ignore: ['*.md']` | 跳过文档变更 |
-| 模型选择 | Sonnet vs Opus | Sonnet 成本约 Opus 的 40% |
+| 模型选择 | glm-5-turbo vs glm-5 | glm-5-turbo 成本约 glm-5 的 40% |
 | 超时 | `timeout-minutes: 10` | 终止失控的任务 |
 | 工具限制 | `--allowedTools 'Edit,Read'` | 减少不必要的轮次 |
 
-**预估成本（Sonnet 模型）：**
+**预估成本（glm-5-turbo 模型）：**
 
 | PR 规模 | 预估成本/次 |
 |---------|------------|

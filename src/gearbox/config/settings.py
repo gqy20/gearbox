@@ -141,7 +141,7 @@ def get_anthropic_model() -> str:
         if provider:
             return provider["model"]
 
-    return "glm-5.1"
+    return "glm-5-turbo"
 
 
 def set_github_token(token: str) -> None:

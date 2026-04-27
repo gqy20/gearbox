@@ -49,43 +49,43 @@ audit:
   schedule: "0 9 * * 1"       # 每周一 9 点 UTC
   benchmarks: []              # 空则自动发现
   max_issues: 3
-```**推荐模型：** Sonnet 4.6
+```**推荐模型：** glm-5-turbo
 
 ---
 
-### 2. Triage — Issue 自动分类
+### 2. Backlog — Issue 自动分类
 
-**触发条件：** Issue opened / edited
+**触发条件：** `@backlog` 评论 / `workflow_dispatch` / 定时（每 2 小时）
 
 **流程：**
 ```
-Issue Created
+Issue Created / Backlog Triggered
     ↓
-Claude 分析 title + body + labels
+克隆目标仓库（供源码分析）
     ↓
-判断: 类型(bug/feature/docs/question/refactor)
+Claude 分析 title + body + 现有标签 + 所有 open issues 摘要
+    ↓
+判断: 类型(bug/enhancement/docs/refactor 等)
        优先级(P0-P3)
        复杂度(S/M/L)
     ↓
-执行: gh api 添加 labels
-      gh api 设置优先级
-      [可选] 评论追问缺失信息
-      [可选] 标记 ready-to-implement
+执行: gh api 添加/替换 labels
+      标记 ready-to-implement（如符合条件）
+    ↓
+分类标签过期（默认 2 天）则下次重新进入候选池
 ```
 
 **配置示例：**
 ```yaml
-triage:
-  enabled: true
-  label_schema:
-    - { pattern: "bug", labels: ["bug", "priority-high"], color: "d73a4a" }
-    - { pattern: "feature", labels: ["enhancement"], color: "a2eeef" }
-    - { pattern: "docs", labels: ["documentation"], color: "0075ca" }
-    - { pattern: "question", labels: ["question"], color: "d876e3" }
-  ask_clarification: true
+# GitHub Actions workflow dispatch
+- uses: gqy20/gearbox-action@v1
+  with:
+    action: backlog
+    repo: owner/repo
+    issues: '2,5,6'
 ```
 
-**推荐模型：** Sonnet 4.6（高频低成本）
+**推荐模型：** glm-5-turbo（高频低成本）
 
 ---
 
@@ -127,7 +127,7 @@ implement:
   pr_labels: [auto-generated, gearbox-implemented]
 ```
 
-**推荐模型：** Sonnet（常规）/ Opus（复杂任务）
+**推荐模型：** glm-5-turbo（常规）/ glm-5（复杂任务）
 
 ---
 
@@ -166,7 +166,7 @@ review:
   max_findings: 50
 ```
 
-**推荐模型：** Sonnet 4.6
+**推荐模型：** glm-5-turbo
 
 ---
 
@@ -225,7 +225,7 @@ report:
   suggest_improvements: true   # 建议新改进点
 ```
 
-**推荐模型：** Sonnet 4.6
+**推荐模型：** glm-5-turbo
 
 ---
 

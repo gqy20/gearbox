@@ -40,7 +40,7 @@
 Layer 1: per-execution limit (action 级别)
 Layer 2: daily budget limit (config 级别)
 Layer 3: rate limiting (每小时最大次数)
-Layer 4: model selection (常规用 Sonnet，复杂用 Opus)
+Layer 4: model selection (常规用 glm-5-turbo，复杂用 glm-5)
 ```
 
 ### 实现
@@ -95,11 +95,11 @@ inputs:
 
 | 操作 | 推荐模型 | 预估成本/次 | 月频次(50PR团队) | 月成本 |
 |------|---------|------------|---------------|-------|
-| Audit | Sonnet 4.6 | $0.05-0.20 | ~4 | $0.2-0.8 |
-| Triage | Sonnet 4.6 | $0.01-0.03 | ~100 | $1-3 |
-| Review | Sonnet 4.6 | $0.02-0.05 | ~50 | $1-2.5 |
-| Implement | Sonnet 4.6 | $0.05-0.20 | ~10 | $0.5-2 |
-| Report | Sonnet 4.6 | $0.02-0.04 | ~30 | $0.6-1.2 |
+| Audit | glm-5-turbo | $0.05-0.20 | ~4 | $0.2-0.8 |
+| Triage | glm-5-turbo | $0.01-0.03 | ~100 | $1-3 |
+| Review | glm-5-turbo | $0.02-0.05 | ~50 | $1-2.5 |
+| Implement | glm-5-turbo | $0.05-0.20 | ~10 | $0.5-2 |
+| Report | glm-5-turbo | $0.02-0.04 | ~30 | $0.6-1.2 |
 | **合计** | | | | **~$3-10/月** |
 
 ## 3. 权限模型：最小权限原则

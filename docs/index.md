@@ -208,9 +208,11 @@ Backlog 结构化结果会映射为 GitHub 标签：
 | `priority` | `P0`、`P1`、`P2`、`P3` |
 | `complexity` | `complexity:S`、`complexity:M`、`complexity:L` |
 | `ready_to_implement` | `ready-to-implement` |
-| `needs_clarification` | `needs-clarification` |
 
-如果目标仓库缺少这些标签，Gearbox 会先创建再添加。日志中的“标签不存在，正在创建”表示首次初始化标签，不代表写回失败；只有“创建标签失败”或“添加标签失败”才需要排查权限或 GitHub API 返回。
+如果目标仓库缺少这些标签，Gearbox 会先创建再添加。日志中的”标签不存在，正在创建”表示首次初始化标签，不代表写回失败；只有”创建标签失败”或”添加标签失败”才需要排查权限或 GitHub API 返回。
+
+Backlog 每次执行会传入所有 open issues 摘要作为上下文，让 Agent 了解全局后做相对优先级判断。
+已完整分类的 issue 如果 P0-P3 / complexity 标签超过 `--since-days`（默认 2 天）未更新，会重新进入候选池。
 
 ## 配置与密钥
 

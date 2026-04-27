@@ -1,85 +1,44 @@
 # Roadmap
 
-## 现状
+## 当前状态
 
-已完成重命名（repo-auditor → gearbox），具备：
-- CLI 入口（audit / publish-issues / config）
-- 4 个 MCP 工具（profile / benchmark / compare / issue）
-- GitHub Actions workflow 骨架
-- 基础测试覆盖
+Gearbox 已完成以下核心能力：
 
-核心差距：仍是"一次性审计工具"，不是可复用的 Action 套件。
+- **Audit**：仓库审计，生成改进建议 Issues，支持多实例并行和结果选优
+- **Backlog**：Issue 分类（优先级/复杂度/标签），支持过期重新评估和源码分析
+- **Dispatch**：从 ready-to-implement backlog 按优先级/复杂度选择 Issue，支持 dry-run
+- **Review**：PR Code Review，评分 + inline comments
+- **Implement**：Issue → 分支 → PR，支持 TDD 约束和 3 次失败停止
+- **Publish**：将 issues.json 发布为 GitHub Issues
+- **Marketplace**：完整 Action 发布仓，支持 `gqy20/gearbox-action@v1` 一行接入
 
-## Phase 1: 统一 Backlog Action
+## 剩余工作
 
-**目标**：消费者仓库能通过 `uses: gqy20/gearbox-action@v1` + `action: backlog` 批量分类 Issue。
+### Phase 8: Review / Implement 内部入口对齐
 
-```
-actions/
-  backlog/
-    action.yml          # composite action 定义
-```
+review 和 implement 尚未拥有与 audit/backlog 对齐的独立 workflow 内部入口。
+当前 review.yml 和 implement 调用外部 reusable workflow，未使用本仓库 inline matrix 编排。
 
-**action.yml 要素**：
-- inputs：`issues`、`repo`
-- outputs：`labels`、`priority`、`assignees`
-- steps：checkout → uv sync → run backlog → gh api 更新 issue
-- 复用现有 config/mcp 基础设施
+- [ ] 实现 review 内部 workflow（`review.yml`），与 audit/backlog 矩阵编排体验对齐
+- [ ] 实现 implement 内部 workflow（`implement.yml`），与 audit/backlog 矩阵编排体验对齐
+- [ ] Review 支持与 audit 同样的并行选优机制
+- [ ] Implement 支持与 backlog 同样的 artifact 聚合和选优
 
-**交付物**：
-- [ ] `actions/backlog/action.yml`
-- [ ] `src/gearbox/tools/classify.py` + 注册到 MCP server
-- [ ] `.github/workflows/backlog.yml`（独立可触发）
-- [ ] 测试：mock gh API，验证分类输出格式
-- [ ] 文档：consumer 接入示例
+### 持续改进
 
-## Phase 2: 扩展工具链
+- [ ] Audit 发现已有 open issue 时，引导 Agent 聚焦新问题（已实现）
+- [ ] Backlog `since_days` 阈值可配置化（已实现 CLI，workflow_dispatch 可配）
+- [ ] 完善集成测试覆盖关键 Agent 模块（issue #19）
+- [ ] pydantic 依赖清理（issue #18）
+- [ ] Scanner 对纯 Python 项目不跳过 semgrep（issue #17）
 
-在 Phase 1 的框架上新增 3 个工具：
+## 已完成里程碑
 
-| 工具 | 输入 | 输出 | 说明 |
-|------|------|------|------|
-| `implement.py` | issue body | diff patch | 基于 issue 描述生成代码变更 |
-| `review.py` | PR diff | review comment | 自动 code review |
-| `audit.py` | repo | issues.json | 仓库审计生成改进建议 |
-
-每个工具遵循相同模式：`@tool()` 装饰器 → 返回 `{content, structured_output}`。
-
-**交付物**：
-- [ ] 3 个新 tool 文件 + 单元测试
-- [ ] 对应的 composite action（`actions/implement/`, `actions/review/`, `actions/audit/`）
-
-## Phase 3: 配置系统
-
-**目标**：消费者通过一份 YAML 配置接入，不需要 fork 改 workflow。
-
-```yaml
-# .github/flywheel.yml（消费者仓库）
-project:
-  type: backend
-  language: typescript
-
-backlog: { enabled: true, auto_label: true }
-review: { enabled: true, focus_areas: [security, testing] }
-audit: { enabled: true, schedule: "weekly" }
-report: { enabled: true, schedule: "weekly" }
-```
-
-**实现**：
-- [ ] `src/gearbox/config/consumer.py` — 解析 flywheel.yml，合并默认值
-- [ ] 各 action 读取配置决定是否执行、参数是什么
-- [ ] `gearbox init` CLI 子命令 — 在消费者仓库生成模板文件
-
-## Phase 4: 发布与治理
-
-- [ ] Git tag + GitHub Release（语义化版本）
-- [ ] Marketplace 发布（6 个 Action 分别上架）
-- [ ] 成本控制：单次运行 token 上限 + 每月预算告警
-- [ ] 安全护栏：禁止路径白名单、OIDC 认证替代 PAT、审计日志
-
-## 优先级判断原则
-
-1. **Backlog 先行** — 它是飞轮入口，没有分类后面所有动作都缺乏上下文
-2. **每个 Phase 可独立交付** — 不依赖后续阶段就能产生价值
-3. **复用优先于新建** — config/mcp/CLI 基础设施已在，新 action 尽量复用
-4. **测试先行** — 每个 tool 必须有对应的 mock 测试才能合入 main
+| 版本 | 内容 |
+|------|------|
+| v1.1.5 | dispatch、quiet planning、workflow-entry/matrix actions、backlog 分类过期重评、源码分析、open issues 摘要 |
+| v1.1.4 | Marketplace 根 action 展示名修正 |
+| v1.1.3 | CI 基线、audit 预扫描、Claude Agent SDK 可观测性、backlog 统一入口 |
+| v1.1.2 | Marketplace 发布流程稳定化 |
+| v1.1.1 | `setup-uv` 版本固定修复 |
+| v1.1.0 | 首个 Marketplace `gearbox-action` 版本 |

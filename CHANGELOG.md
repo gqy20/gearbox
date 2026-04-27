@@ -5,21 +5,45 @@
 版本号使用与发布流程一致的 `vX.Y.Z` tag。每次发布到
 `gearbox-action` 时，会自动提取对应版本段落作为 Release Notes。
 
-## [未发布]
+## [v1.1.5] - 2026-04-27
 
 ### 新增
 
-- 新增 `dispatch` action、CLI 与 workflow，用于从 `ready-to-implement`
-  backlog 中按优先级和复杂度选择 Issue，并复用现有 Implement Agent 创建 PR。
-- 新增 `src/gearbox/flow/` 确定性编排层，将候选筛选、排序和 dispatch 计划与
-  LLM Agent 层分离。
-- 新增 GitHub Issue 摘要查询原子能力，支持按标签拉取开放 Issue 和读取单个
-  Issue 的标签、标题、URL、创建时间。
+- 新增 `backlog dispatch flow`，支持从 `ready-to-implement` backlog 按优先级和
+  复杂度选择 Issue，并自动创建 PR。
+- 新增 P0 dispatch 专用调度 lane，支持高优先级 Issue 的独立调度策略。
+- 新增定时 quiet backlog planning，在非活跃时段自动规划 backlog。
+- 新增 `cleanup` action，用于清理候选分支。
+- 新增 dispatch 失败自动恢复与自动合并能力。
+- 新增 `workflow-entry` action，统一 GitHub event 解析（issue number、target repo、
+  skip logic）。
+- 新增 `matrix` action，标准化 matrix 生成，替代 6 个 workflow 文件中的内联脚本。
+- 审计定时触发默认创建 Issue。
 
 ### 变更
 
-- 将过长的 `src/gearbox/cli.py` 拆分为 `src/gearbox/commands/` 命令模块，
-  保留 `gearbox.cli:cli` 作为稳定入口，降低 CLI 后续维护成本。
+- 将 `src/gearbox/cli.py` 拆分为 `src/gearbox/commands/` 命令模块。
+- 将 `audit-select`、`review-select`、`implement-select` 的重复逻辑收敛到
+  `commands/shared.py` 的 `_select_single()` 辅助函数。
+- 移除废弃的兼容性路径。
+- Dispatch 支持矩阵化并行处理多个 Issue。
+- Implement agent 从 action 源码目录运行，artifact 写入 workspace。
+- Review 命令通过 PR 评论路由。
+
+### 修复
+
+- 修复 dispatch PR 创建、推送、分支保护的 PAT 凭证问题。
+- 修复 dispatch 失败时清理 progress 标签。
+- 修复 issue/PR 未合并关闭时恢复 Issue 状态。
+- 修复 implement 结果标记为 not ready 的边界条件。
+- 修复 dispatch 聚合并行实现时的路径问题。
+- 修复 artifact 下载的 single artifact 布局支持。
+- 修复 `deptry` 输出解析。
+- 修复 matrix action manifest 格式。
+- 修复 review 失败时正确报错。
+- 修复 `gh review` flags 使用。
+- 修复 `has-pr` 标签标记逻辑。
+- 修复 dispatch dry-run 状态保持。
 
 ## [v1.1.4] - 2026-04-26
 

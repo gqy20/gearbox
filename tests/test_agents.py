@@ -315,17 +315,18 @@ class TestStructuredOutputParsing:
                 "consensus": ["item-a"],
             }
         )
+
+        def _parse_score(raw: dict) -> dict:
+            return {
+                "score": float(raw.get("score", 0)),
+                "justification": raw.get("justification", ""),
+            }
+
         result = parse_structured_output(
             message,
             lambda data: EvaluationResult(
                 winner=int(data["winner"]),
-                scores={
-                    int(k): {
-                        "score": float(v.get("score", 0)),
-                        "justification": v.get("justification", ""),
-                    }
-                    for k, v in data["scores"].items()
-                },
+                scores={int(k): _parse_score(v) for k, v in data["scores"].items()},
                 reasoning=data["reasoning"],
                 consensus=data["consensus"],
             ),

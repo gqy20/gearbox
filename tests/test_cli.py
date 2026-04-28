@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 from click.testing import CliRunner
@@ -431,9 +432,14 @@ class TestAgentCommand:
             "gearbox.commands.shared.replace_managed_issue_labels",
             lambda *args, **kwargs: PostReviewResult(True),
         )
+
+        def fake_post_comment(*args: Any, **kwargs: Any) -> PostReviewResult:
+            comments.append(args)
+            return PostReviewResult(True)
+
         monkeypatch.setattr(
             "gearbox.commands.shared.post_issue_comment",
-            lambda *args, **kwargs: comments.append(args) or PostReviewResult(True),
+            fake_post_comment,
         )
 
         result = runner.invoke(

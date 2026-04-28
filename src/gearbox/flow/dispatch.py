@@ -87,7 +87,7 @@ def build_dispatch_plan(
         raise ValueError("max_items must be a positive integer")
 
     if issue_number is None:
-        issues = list_open_issues(repo, labels=["ready-to-implement"])
+        issues = list_open_issues(repo, labels=["ready-to-implement"]) or []
     else:
         issue = get_issue_summary(repo, issue_number)
         issues = [issue] if issue is not None else []

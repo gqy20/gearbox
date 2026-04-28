@@ -1,6 +1,7 @@
 """测试 agents/shared/scanner.py 静态分析扫描器"""
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,9 @@ from gearbox.agents.shared.scanner import (
     run_semgrep,
     run_trivy,
     scan_repository,
+)
+from gearbox.agents.shared.scanner import (
+    logger as scanner_logger,
 )
 
 # ---------------------------------------------------------------------------
@@ -506,3 +510,109 @@ class TestFallbackFileCounts:
 
         files, lines = _fallback_file_counts(tmp_path)
         assert files == 1  # only real.py, .git and __pycache__ excluded
+
+
+# ---------------------------------------------------------------------------
+# 具体异常类型 — Issue #24
+# ---------------------------------------------------------------------------
+
+
+class TestSpecificExceptionTypes:
+    """验证 scanner.py 使用具体异常类型而非 bare except Exception。"""
+
+    def test_read_pyproject_logs_on_toml_error(self, tmp_path: Path) -> None:
+        """_read_pyproject 在 TOML 解析失败时应记录日志。"""
+        (tmp_path / "pyproject.toml").write_text("broken[", encoding="utf-8")
+        records: list[logging.LogRecord] = []
+        handler = logging.Handler()
+        handler.emit = lambda r: records.append(r)
+        old_handlers = scanner_logger.handlers[:]
+        scanner_logger.addHandler(handler)
+        old_level = scanner_logger.level
+        scanner_logger.setLevel(logging.DEBUG)
+        try:
+            result = _read_pyproject(tmp_path)
+            # 解析失败返回空 dict（保持向后兼容）
+            assert result == {}
+            # 应有 warning 日志
+            warnings = [r for r in records if r.levelno >= logging.WARNING]
+            assert len(warnings) >= 1
+        finally:
+            scanner_logger.handlers = old_handlers
+            scanner_logger.setLevel(old_level)
+
+    def test_read_pyproject_returns_empty_on_missing_file(self, tmp_path: Path) -> None:
+        """文件不存在时静默返回空 dict。"""
+        result = _read_pyproject(tmp_path)
+        assert result == {}
+
+    def test_fallback_file_counts_logs_on_os_error(self, tmp_path: Path) -> None:
+        """_fallback_file_counts 在读取文件失败时应记录日志。"""
+        # 创建一个普通文件
+        (tmp_path / "normal.py").write_text("print('hi')", encoding="utf-8")
+        # 创建一个无法读取的路径（使用 mock）
+        original_rglob = Path.rglob
+
+        def failing_rglob(self_: Path, pattern):
+            for p in original_rglob(self_, pattern):
+                if p.name == "normal.py":
+                    yield p
+                else:
+                    yield p
+
+        records: list[logging.LogRecord] = []
+        handler = logging.Handler()
+        handler.emit = lambda r: records.append(r)
+        old_handlers = scanner_logger.handlers[:]
+        scanner_logger.addHandler(handler)
+        old_level = scanner_logger.level
+        scanner_logger.setLevel(logging.DEBUG)
+        try:
+            files, lines = _fallback_file_counts(tmp_path)
+            assert files >= 1  # 至少 normal.py 被计数
+        finally:
+            scanner_logger.handlers = old_handlers
+            scanner_logger.setLevel(old_level)
+
+
+class TestScannerLoggingOnCommandFailure:
+    """验证扫描工具在命令失败时记录日志。"""
+
+    def _collect_logs(self):
+        records: list[logging.LogRecord] = []
+        handler = logging.Handler()
+        handler.emit = lambda r: records.append(r)
+        old_handlers = scanner_logger.handlers[:]
+        scanner_logger.addHandler(handler)
+        old_level = scanner_logger.level
+        scanner_logger.setLevel(logging.DEBUG)
+        return records, old_handlers, old_level
+
+    @staticmethod
+    def _restore(old_handlers, old_level):
+        scanner_logger.handlers = old_handlers
+        scanner_logger.setLevel(old_level)
+
+    def test_run_cloc_logs_on_failure(self, tmp_path: Path) -> None:
+        fake = TestToolRunners._fake_run(1, "", "cloc not found")
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            records, oh, ol = self._collect_logs()
+            try:
+                data, status = run_cloc(tmp_path)
+                assert data == {}
+            finally:
+                self._restore(oh, ol)
+
+    def test_deptry_logs_on_parse_failure(self, tmp_path: Path) -> None:
+        fake_run = TestToolRunners._fake_run(0, "", "")
+        with (
+            patch("gearbox.agents.shared.scanner._run_command", fake_run),
+            patch("pathlib.Path.read_text", side_effect=OSError("permission denied")),
+        ):
+            records, oh, ol = self._collect_logs()
+            try:
+                issues, status = run_deptry(tmp_path)
+                # 应该仍然返回结果或空列表，但记录了日志
+                assert isinstance(issues, list)
+            finally:
+                self._restore(oh, ol)

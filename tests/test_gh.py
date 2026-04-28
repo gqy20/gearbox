@@ -1,5 +1,6 @@
 """测试 core/gh.py 模块"""
 
+import logging
 import subprocess
 from typing import Any
 from unittest.mock import MagicMock
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from gearbox.core.gh import (
+    _RETRYABLE_FUNCTIONS,
     VALID_ISSUE_LABELS,
     IssueSummary,
     PostReviewResult,
@@ -16,6 +18,8 @@ from gearbox.core.gh import (
     create_issue,
     finalize_and_create_pr,
     finalize_and_push,
+    get_issue_label_events,
+    get_issue_labels,
     get_issue_summary,
     get_repo_labels,
     list_open_issues,
@@ -232,13 +236,11 @@ class TestGetRepoLabels:
 
         assert get_repo_labels("owner/repo") == ["bug", "docs"]
 
-    def test_returns_empty_list_when_gh_label_list_fails(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_returns_none_when_gh_label_list_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
         monkeypatch.setattr(subprocess, "run", mock_run)
 
-        assert get_repo_labels("owner/repo") == []
+        assert get_repo_labels("owner/repo") is None
 
 
 class TestIssueListing:
@@ -536,3 +538,273 @@ class TestValidIssueLabels:
         from gearbox.core.gh import VALID_ISSUE_LABELS
 
         assert isinstance(VALID_ISSUE_LABELS, (set, frozenset))
+
+
+# ---------------------------------------------------------------------------
+# 日志可观测性测试 — Issue #24
+# ---------------------------------------------------------------------------
+
+
+class TestLoggingOnFailure:
+    """验证异常路径产生 warning 级别日志（含 stderr 内容）。"""
+
+    def _make_logger(self) -> tuple[list[logging.LogRecord], logging.Logger]:
+        """创建一个收集所有日志记录的 logger。"""
+        records: list[logging.LogRecord] = []
+        logger = logging.getLogger("gearbox.core.gh")
+        logger.setLevel(logging.DEBUG)
+        handler = logging.Handler()
+        handler.emit = lambda record: records.append(record)
+        logger.addHandler(handler)
+        return records, logger
+
+    @staticmethod
+    def _cleanup_logger(logger: logging.Logger) -> None:
+        logger.handlers.clear()
+
+    def test_get_repo_labels_logs_warning_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        records, logger = self._make_logger()
+        try:
+            mock_run = MagicMock(
+                side_effect=subprocess.CalledProcessError(4, "gh", stderr="API rate limit")
+            )
+            monkeypatch.setattr(subprocess, "run", mock_run)
+
+            result = get_repo_labels("owner/repo")
+
+            assert result is None  # 失败返回 None 而非 []
+            warnings = [r for r in records if r.levelno >= logging.WARNING]
+            assert len(warnings) >= 1
+            assert any("rate limit" in r.getMessage().lower() for r in warnings)
+        finally:
+            self._cleanup_logger(logger)
+
+    def test_get_issue_labels_logs_warning_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        records, logger = self._make_logger()
+        try:
+            mock_run = MagicMock(
+                side_effect=subprocess.CalledProcessError(4, "gh", stderr="Not Found")
+            )
+            monkeypatch.setattr(subprocess, "run", mock_run)
+
+            result = get_issue_labels("owner/repo", 42)
+
+            assert result is None
+            warnings = [r for r in records if r.levelno >= logging.WARNING]
+            assert len(warnings) >= 1
+        finally:
+            self._cleanup_logger(logger)
+
+    def test_list_open_issues_logs_warning_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        records, logger = self._make_logger()
+        try:
+            mock_run = MagicMock(
+                side_effect=subprocess.CalledProcessError(4, "gh", stderr="timeout")
+            )
+            monkeypatch.setattr(subprocess, "run", mock_run)
+
+            result = list_open_issues("owner/repo")
+
+            assert result is None
+            warnings = [r for r in records if r.levelno >= logging.WARNING]
+            assert len(warnings) >= 1
+        finally:
+            self._cleanup_logger(logger)
+
+    def test_get_issue_label_events_logs_warning_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        records, logger = self._make_logger()
+        try:
+            mock_run = MagicMock(
+                side_effect=subprocess.CalledProcessError(4, "gh", stderr="API error")
+            )
+            monkeypatch.setattr(subprocess, "run", mock_run)
+
+            result = get_issue_label_events("owner/repo", 42, {"P1"})
+
+            assert result is None
+            warnings = [r for r in records if r.levelno >= logging.WARNING]
+            assert len(warnings) >= 1
+        finally:
+            self._cleanup_logger(logger)
+
+    def test_post_issue_comment_logs_warning_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        records, logger = self._make_logger()
+        try:
+            mock_run = MagicMock(
+                side_effect=subprocess.CalledProcessError(1, "gh", stderr="permission denied")
+            )
+            monkeypatch.setattr(subprocess, "run", mock_run)
+
+            result = post_issue_comment("owner/repo", 42, "body")
+
+            assert result.success is False
+            warnings = [r for r in records if r.levelno >= logging.WARNING]
+            assert len(warnings) >= 1
+            assert any("permission" in r.getMessage().lower() for r in warnings)
+        finally:
+            self._cleanup_logger(logger)
+
+
+# ---------------------------------------------------------------------------
+# 返回值区分测试 — None 表示失败，[] / 列表表示真空
+# ---------------------------------------------------------------------------
+
+
+class TestReturnValueDistinction:
+    """失败返回 None，成功返回列表（可能为空）。"""
+
+    def test_get_repo_labels_returns_none_on_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert get_repo_labels("owner/repo") is None
+
+    def test_get_repo_labels_returns_list_on_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(return_value=MagicMock(stdout='[{"name":"bug"}]'))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = get_repo_labels("owner/repo")
+        assert result == ["bug"]
+        assert isinstance(result, list)
+
+    def test_get_issue_labels_returns_none_on_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert get_issue_labels("owner/repo", 1) is None
+
+    def test_get_issue_labels_returns_list_on_success(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(return_value=MagicMock(stdout='["bug","P1"]'))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = get_issue_labels("owner/repo", 1)
+        assert result == ["bug", "P1"]
+
+    def test_list_open_issues_returns_none_on_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert list_open_issues("owner/repo") is None
+
+    def test_list_open_issues_returns_empty_list_when_no_issues(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(return_value=MagicMock(stdout="[]"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = list_open_issues("owner/repo")
+        assert result == []
+        assert isinstance(result, list)
+
+    def test_get_issue_label_events_returns_none_on_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        assert get_issue_label_events("owner/repo", 1, {"P1"}) is None
+
+    def test_get_issue_label_events_returns_empty_list_on_success_no_events(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(return_value=MagicMock(stdout=""))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = get_issue_label_events("owner/repo", 1, {"P1"})
+        assert result == []
+        assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# 重试逻辑测试 — 指数退避
+# ---------------------------------------------------------------------------
+
+
+class TestRetryLogic:
+    """关键函数在瞬态故障时自动重试。"""
+
+    def test_list_open_issues_retries_on_transient_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        call_count = 0
+
+        def flaky_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                raise subprocess.CalledProcessError(4, "gh", stderr="rate limited")
+            return MagicMock(
+                returncode=0,
+                stdout=(
+                    '[{"number":1,"title":"T","labels":[],'
+                    '"url":"https://x","createdAt":"2026-01-01"}]'
+                ),
+            )
+
+        monkeypatch.setattr(subprocess, "run", flaky_run)
+
+        result = list_open_issues("owner/repo")
+
+        assert result is not None
+        assert len(result) == 1
+        assert call_count == 2  # 第一次失败 + 重试成功
+
+    def test_get_repo_labels_retries_on_transient_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        call_count = 0
+
+        def flaky_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                raise subprocess.CalledProcessError(4, "gh", stderr="timeout")
+            return MagicMock(returncode=0, stdout='[{"name":"bug"}]')
+
+        monkeypatch.setattr(subprocess, "run", flaky_run)
+
+        result = get_repo_labels("owner/repo")
+
+        assert result == ["bug"]
+        assert call_count == 2
+
+    def test_retry_exhausted_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(
+            side_effect=subprocess.CalledProcessError(4, "gh", stderr="persistent error")
+        )
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        # 应该重试多次后最终返回 None
+        result = list_open_issues("owner/repo")
+
+        assert result is None
+        # 首次调用 + 重试次数
+        assert mock_run.call_count > 1
+
+
+# ---------------------------------------------------------------------------
+# _RETRYABLE_FUNCTIONS 常量
+# ---------------------------------------------------------------------------
+
+
+class TestRetryableFunctionsConstant:
+    """_RETRYABLE_FUNCTIONS 包含所有应重试的函数名。"""
+
+    def test_contains_key_query_functions(self) -> None:
+        expected = {
+            "list_open_issues",
+            "get_repo_labels",
+            "get_issue_labels",
+            "get_issue_label_events",
+        }
+        assert expected.issubset(_RETRYABLE_FUNCTIONS)

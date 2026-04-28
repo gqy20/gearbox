@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, cast
 
 import tomli
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -74,7 +77,8 @@ def _read_pyproject(repo_path: Path) -> dict[str, Any]:
     try:
         data = tomli.loads(pyproject.read_text(encoding="utf-8"))
         return cast(dict[str, Any], data)
-    except Exception:
+    except (tomli.TOMLDecodeError, OSError, ValueError) as exc:
+        logger.warning("_read_pyproject failed for %s: %s", repo_path, exc)
         return {}
 
 
@@ -133,7 +137,8 @@ def _fallback_file_counts(repo_path: Path) -> tuple[int, int]:
         total_files += 1
         try:
             total_lines += len(path.read_text(encoding="utf-8", errors="ignore").splitlines())
-        except Exception:
+        except (OSError, PermissionError) as exc:
+            logger.debug("_fallback_file_counts: skipping %s: %s", path, exc)
             continue
 
     return total_files, total_lines

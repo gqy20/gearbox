@@ -2,6 +2,8 @@
 
 import asyncio
 import subprocess
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import cast
 
@@ -547,3 +549,128 @@ def implement_select(
 
     # Re-write output after pr_url may have been updated
     result_to_github_output(winner_result, output)
+
+
+@agent.command()
+@click.option("--repo", required=True, help="仓库标识 (owner/name)")
+@click.option("--pr", required=True, type=int, help="PR 编号")
+@click.option("--model", default="", help="使用的模型（默认从 provider 配置读取）")
+@click.option("--max-turns", default=20, type=int, help="最大对话轮次")
+@click.option("--artifact-path", default="", help="可选: 写出结构化结果 artifact")
+@click.option("--output", default="/tmp/github_output", help="输出文件路径")
+def fix(
+    repo: str,
+    pr: int,
+    model: str,
+    max_turns: int,
+    artifact_path: str,
+    output: str,
+) -> None:
+    """运行 Fix Agent - 根据 Review 反馈修补 PR"""
+    from gearbox.agents.fix import run_fix
+    from gearbox.config import get_anthropic_model
+
+    resolved_model = model or get_anthropic_model()
+
+    result = asyncio.run(
+        run_fix(
+            repo,
+            pr,
+            model=resolved_model,
+            max_turns=max_turns,
+        )
+    )
+    click.echo(
+        f"✅ Fix: verdict={result.verdict}, commits={result.commits_pushed}, files={len(result.files_modified)}"
+    )
+
+    if artifact_path:
+        from gearbox.agents.shared.artifacts import to_jsonable, write_json_artifact
+
+        write_json_artifact(Path(artifact_path), to_jsonable(result))
+
+    result_to_github_output(result, output)
+
+
+# ---------------------------------------------------------------------------
+# Review-Fix Loop decision functions
+# ---------------------------------------------------------------------------
+
+
+class FixLoopOutcome(Enum):
+    """Final outcome of a review-fix loop."""
+
+    MERGED = "merged"
+    MERGE_AFTER_MAX_ROUNDS = "merge_after_max_rounds"
+    ABANDONDED_SCORE_DROPPED = "abandoned_score_dropped"
+    ABANDONDED = "abandoned"
+
+
+@dataclass(frozen=True)
+class FixLoopDecision:
+    """Single round's decision in the fix loop."""
+
+    round_num: int
+    review: ReviewResult
+    should_fix: bool
+    should_merge: bool
+    should_abandon: bool
+
+
+def should_fix(review: ReviewResult) -> bool:
+    """Return True if the PR should enter the fix loop.
+
+    Conditions: verdict is 'Request Changes' AND score is in [5, 7].
+    """
+    return review.verdict == "Request Changes" and 5 <= review.score <= 7
+
+
+def should_merge_directly(review: ReviewResult) -> bool:
+    """Return True if the PR can be merged without a fix loop.
+
+    Conditions: LGTM, OR (Request Changes with score >= 8).
+    """
+    if review.verdict == "LGTM":
+        return True
+    return review.verdict == "Request Changes" and review.score >= 8
+
+
+def should_abandon(review: ReviewResult) -> bool:
+    """Return True if the PR should be abandoned (closed as unfixable).
+
+    Conditions: Request Changes with score < 5.
+    """
+    return review.verdict == "Request Changes" and review.score < 5
+
+
+def evaluate_fix_loop(
+    decisions: list[FixLoopDecision],
+    *,
+    max_rounds: int = 2,
+) -> FixLoopOutcome:
+    """Evaluate a sequence of fix-loop decisions to determine final outcome.
+
+    Rules (applied per decision, in priority order):
+    1. Exceeded max_rounds + should_merge → MERGE_AFTER_MAX_ROUNDS (forced)
+    2. Within max_rounds + should_abandon → ABANDONDED / ABANDONDED_SCORE_DROPPED
+    3. Within max_rounds + should_merge → MERGED (natural LGTM or high-score pass)
+    4. Exhausted all decisions without terminal state → MERGE_AFTER_MAX_ROUNDS
+    """
+    prev_score: int | None = None
+
+    for dec in decisions:
+        # Forced merge after exceeding max rounds takes priority
+        if dec.round_num > max_rounds and dec.should_merge:
+            return FixLoopOutcome.MERGE_AFTER_MAX_ROUNDS
+
+        if dec.should_abandon:
+            if prev_score is not None and dec.review.score < prev_score:
+                return FixLoopOutcome.ABANDONDED_SCORE_DROPPED
+            return FixLoopOutcome.ABANDONDED
+
+        if dec.should_merge:
+            return FixLoopOutcome.MERGED
+
+        prev_score = dec.review.score
+
+    return FixLoopOutcome.MERGE_AFTER_MAX_ROUNDS

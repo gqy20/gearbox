@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 from .audit import AuditResult, Issue
 from .backlog import BacklogItemResult
 from .evaluator import EvaluationResult
+from .fix import FixResult
 from .implement import ImplementResult
 from .review import ReviewComment, ReviewResult
 
@@ -140,4 +141,5 @@ __all__ = [
     "BacklogItemResult",
     "ImplementResult",
     "EvaluationResult",
+    "FixResult",
 ]

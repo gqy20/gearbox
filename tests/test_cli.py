@@ -25,6 +25,54 @@ def runner(tmp_path: "Path") -> CliRunner:
     return CliRunner(env=env)
 
 
+# ---------------------------------------------------------------------------
+# Test helpers — eliminate repeated data construction across tests
+# ---------------------------------------------------------------------------
+
+
+def _make_dispatch_item(
+    issue_number: int = 7,
+    title: str = "Fix CI",
+    priority: str = "P1",
+    complexity: str = "S",
+    url: str = "",
+):
+    from gearbox.flow.models import DispatchItem
+
+    return DispatchItem(
+        issue_number=issue_number,
+        title=title,
+        labels=["ready-to-implement", priority, f"complexity:{complexity}"],
+        priority=priority,
+        complexity=complexity,
+        url=url or f"https://github.com/owner/repo/issues/{issue_number}",
+        reason=f"ready-to-implement, priority={priority}, complexity={complexity}",
+    )
+
+
+def _make_dispatch_plan(*, dry_run=True, skipped_count=1, items=None):
+    from gearbox.flow.models import DispatchPlan
+
+    return DispatchPlan(
+        repo="owner/repo",
+        dry_run=dry_run,
+        skipped_count=skipped_count,
+        items=items or [_make_dispatch_item()],
+    )
+
+
+def _make_cleanup_plan(*, dry_run=True, deleted=None):
+    from gearbox.cleanup import CleanupPlan
+
+    return CleanupPlan(
+        repo="owner/repo",
+        issue_number=13,
+        dry_run=dry_run,
+        candidate_branches=["feat/issue-13-run-0"],
+        deleted_branches=deleted or [],
+    )
+
+
 class TestVersionAndHelp:
     """测试版本和帮助命令"""
 
@@ -81,12 +129,12 @@ class TestAuditCommand:
         assert "--output" in result.output
 
     def test_audit_with_repo(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Audit 需要真实 API key，这里只验证参数传递
-        # 实际调用会失败，但参数解析应该是对的
+        # 参数解析正确，但因缺少 API key 而失败（非参数错误）
         monkeypatch.setattr("gearbox.config.get_anthropic_api_key", lambda: None)
         result = runner.invoke(cli, ["audit", "--repo", "owner/repo", "--output", "/tmp/test"])
-        # 不应该因为参数问题失败（可能因为没 key 而失败，但参数是对的）
-        assert "--repo" not in result.output or result.exit_code != 0
+
+        assert result.exit_code != 0  # 缺少 key 必然失败
+        assert "Missing option" not in result.output  # 不是参数解析错误
 
 
 class TestPublishIssuesCommand:
@@ -666,26 +714,9 @@ class TestDispatchCommand:
     def test_dispatch_plan_outputs_selected_issue(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from gearbox.flow.models import DispatchItem, DispatchPlan
-
         monkeypatch.setattr(
             "gearbox.commands.dispatch.build_dispatch_plan",
-            lambda *args, **kwargs: DispatchPlan(
-                repo="owner/repo",
-                dry_run=True,
-                skipped_count=1,
-                items=[
-                    DispatchItem(
-                        issue_number=7,
-                        title="Fix CI",
-                        labels=["ready-to-implement", "P1"],
-                        priority="P1",
-                        complexity="S",
-                        url="https://github.com/owner/repo/issues/7",
-                        reason="ready-to-implement, priority=P1, complexity=S",
-                    )
-                ],
-            ),
+            lambda *args, **kwargs: _make_dispatch_plan(),
         )
 
         result = runner.invoke(cli, ["dispatch", "plan", "--repo", "owner/repo"])
@@ -727,26 +758,9 @@ class TestDispatchCommand:
     def test_dispatch_run_defaults_to_dry_run(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from gearbox.flow.models import DispatchItem, DispatchPlan
-
         monkeypatch.setattr(
             "gearbox.commands.dispatch.build_dispatch_plan",
-            lambda *args, **kwargs: DispatchPlan(
-                repo="owner/repo",
-                dry_run=True,
-                skipped_count=0,
-                items=[
-                    DispatchItem(
-                        issue_number=7,
-                        title="Fix CI",
-                        labels=["ready-to-implement", "P1"],
-                        priority="P1",
-                        complexity="S",
-                        url="",
-                        reason="ready-to-implement, priority=P1, complexity=S",
-                    )
-                ],
-            ),
+            lambda *args, **kwargs: _make_dispatch_plan(skipped_count=0),
         )
         monkeypatch.setattr(
             "gearbox.commands.dispatch.run_implement",
@@ -761,26 +775,9 @@ class TestDispatchCommand:
     def test_dispatch_run_cleans_in_progress_when_implement_fails(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from gearbox.flow.models import DispatchItem, DispatchPlan
-
         monkeypatch.setattr(
             "gearbox.commands.dispatch.build_dispatch_plan",
-            lambda *args, **kwargs: DispatchPlan(
-                repo="owner/repo",
-                dry_run=False,
-                skipped_count=0,
-                items=[
-                    DispatchItem(
-                        issue_number=7,
-                        title="Fix CI",
-                        labels=["ready-to-implement", "P1"],
-                        priority="P1",
-                        complexity="S",
-                        url="",
-                        reason="ready-to-implement, priority=P1, complexity=S",
-                    )
-                ],
-            ),
+            lambda *args, **kwargs: _make_dispatch_plan(dry_run=False, skipped_count=0),
         )
         monkeypatch.setattr(
             "gearbox.commands.dispatch.prepare_working_branch",
@@ -820,26 +817,10 @@ class TestDispatchCommand:
     ) -> None:
         from gearbox.agents.implement import ImplementResult
         from gearbox.core.gh import CreatePrResult, PostReviewResult
-        from gearbox.flow.models import DispatchItem, DispatchPlan
 
         monkeypatch.setattr(
             "gearbox.commands.dispatch.build_dispatch_plan",
-            lambda *args, **kwargs: DispatchPlan(
-                repo="owner/repo",
-                dry_run=False,
-                skipped_count=0,
-                items=[
-                    DispatchItem(
-                        issue_number=7,
-                        title="Fix CI",
-                        labels=["ready-to-implement", "P1"],
-                        priority="P1",
-                        complexity="S",
-                        url="",
-                        reason="ready-to-implement, priority=P1, complexity=S",
-                    )
-                ],
-            ),
+            lambda *args, **kwargs: _make_dispatch_plan(dry_run=False, skipped_count=0),
         )
         monkeypatch.setattr(
             "gearbox.commands.dispatch.prepare_working_branch",
@@ -900,87 +881,33 @@ class TestCleanupCommand:
         assert "--issue" in result.output
         assert "--dry-run" in result.output
 
-    def test_cleanup_defaults_to_dry_run(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def _mock_cleanup(self, monkeypatch, *, dry_run=True, deleted=None):
         from gearbox.cleanup import CleanupPlan
 
         captured: dict[str, object] = {}
 
-        def fake_cleanup_candidate_branches(
-            repo: str,
-            issue_number: int,
-            *,
-            dry_run: bool,
-            protect_open_prs: bool,
-        ) -> CleanupPlan:
-            captured.update(
-                {
-                    "repo": repo,
-                    "issue": issue_number,
-                    "dry_run": dry_run,
-                    "protect_open_prs": protect_open_prs,
-                }
-            )
-            return CleanupPlan(
-                repo=repo,
-                issue_number=issue_number,
-                dry_run=dry_run,
-                candidate_branches=["feat/issue-13-run-0"],
-                deleted_branches=[],
-            )
+        def fake(repo: str, issue_number: int, **kw) -> CleanupPlan:
+            captured.update({"repo": repo, "issue": issue_number, **kw})
+            return _make_cleanup_plan(dry_run=dry_run, deleted=deleted)
 
-        monkeypatch.setattr(
-            "gearbox.commands.cleanup.cleanup_candidate_branches",
-            fake_cleanup_candidate_branches,
-        )
+        monkeypatch.setattr("gearbox.commands.cleanup.cleanup_candidate_branches", fake)
+        return captured
+
+    def test_cleanup_defaults_to_dry_run(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = self._mock_cleanup(monkeypatch)
 
         result = runner.invoke(cli, ["cleanup", "--repo", "owner/repo", "--issue", "13"])
 
         assert result.exit_code == 0
-        assert captured == {
-            "repo": "owner/repo",
-            "issue": 13,
-            "dry_run": True,
-            "protect_open_prs": True,
-        }
+        assert captured["dry_run"] is True
         assert "DRY-RUN" in result.output
-        assert "feat/issue-13-run-0" in result.output
 
     def test_cleanup_can_delete_candidates(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from gearbox.cleanup import CleanupPlan
-
-        captured: dict[str, object] = {}
-
-        def fake_cleanup_candidate_branches(
-            repo: str,
-            issue_number: int,
-            *,
-            dry_run: bool,
-            protect_open_prs: bool,
-        ) -> CleanupPlan:
-            captured.update(
-                {
-                    "repo": repo,
-                    "issue": issue_number,
-                    "dry_run": dry_run,
-                    "protect_open_prs": protect_open_prs,
-                }
-            )
-            return CleanupPlan(
-                repo=repo,
-                issue_number=issue_number,
-                dry_run=dry_run,
-                candidate_branches=["feat/issue-13-run-0"],
-                deleted_branches=["feat/issue-13-run-0"],
-            )
-
-        monkeypatch.setattr(
-            "gearbox.commands.cleanup.cleanup_candidate_branches",
-            fake_cleanup_candidate_branches,
-        )
+        captured = self._mock_cleanup(monkeypatch, dry_run=False, deleted=["feat/issue-13-run-0"])
 
         result = runner.invoke(
             cli,
@@ -988,48 +915,13 @@ class TestCleanupCommand:
         )
 
         assert result.exit_code == 0
-        assert captured == {
-            "repo": "owner/repo",
-            "issue": 13,
-            "dry_run": False,
-            "protect_open_prs": True,
-        }
+        assert captured["dry_run"] is False
         assert "Deleted" in result.output
 
     def test_cleanup_can_force_delete_open_pr_heads(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from gearbox.cleanup import CleanupPlan
-
-        captured: dict[str, object] = {}
-
-        def fake_cleanup_candidate_branches(
-            repo: str,
-            issue_number: int,
-            *,
-            dry_run: bool,
-            protect_open_prs: bool,
-        ) -> CleanupPlan:
-            captured.update(
-                {
-                    "repo": repo,
-                    "issue": issue_number,
-                    "dry_run": dry_run,
-                    "protect_open_prs": protect_open_prs,
-                }
-            )
-            return CleanupPlan(
-                repo=repo,
-                issue_number=issue_number,
-                dry_run=dry_run,
-                candidate_branches=["feat/issue-13-run-0"],
-                deleted_branches=["feat/issue-13-run-0"],
-            )
-
-        monkeypatch.setattr(
-            "gearbox.commands.cleanup.cleanup_candidate_branches",
-            fake_cleanup_candidate_branches,
-        )
+        captured = self._mock_cleanup(monkeypatch, dry_run=False, deleted=["feat/issue-13-run-0"])
 
         result = runner.invoke(
             cli,

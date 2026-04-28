@@ -9,6 +9,7 @@ import pytest
 from gearbox.core.gh import (
     VALID_ISSUE_LABELS,
     IssueSummary,
+    PostReviewResult,
     add_issue_labels,
     build_review_body,
     configure_authenticated_origin,
@@ -286,31 +287,96 @@ class TestIssueListing:
 class TestCreateIssue:
     """测试 create_issue"""
 
-    def test_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        mock_run = MagicMock(
-            return_value=MagicMock(stdout="https://github.com/owner/repo/issues/5")
-        )
-        monkeypatch.setattr(subprocess, "run", mock_run)
-
-        result = create_issue("owner/repo", "Test Title", "Test Body", ["enhancement"])
-        assert result.success is True
-        assert "issues/5" in (result.pr_url or "")
-
-    def test_labels_filtered(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_creates_issue_then_adds_labels(self, monkeypatch: pytest.MonkeyPatch) -> None:
         commands: list[list[str]] = []
+        label_calls: list[tuple[str, int, list[str]]] = []
 
         def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             del kwargs
             commands.append(cmd)
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
+
+        def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
+            label_calls.append((repo, issue_number, labels))
+            return PostReviewResult(True)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("gearbox.core.gh.add_issue_labels", fake_add_labels)
+
+        result = create_issue("owner/repo", "Title", "Body", ["enhancement", "P2"])
+
+        assert result.success is True
+        assert result.pr_url == "https://github.com/owner/repo/issues/5"
+        assert commands[0][0:3] == ["gh", "issue", "create"]
+        assert "--label" not in commands[0]
+        assert label_calls == [("owner/repo", 5, ["enhancement", "P2"])]
+
+    def test_skips_label_step_when_no_labels(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        commands: list[list[str]] = []
+        label_calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
+
+        def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
+            label_calls.append((repo, issue_number, labels))
+            return PostReviewResult(True)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("gearbox.core.gh.add_issue_labels", fake_add_labels)
+
+        result = create_issue("owner/repo", "Title", "Body", None)
+
+        assert result.success is True
+        assert len(commands) == 1
+        assert label_calls == []
+
+    def test_filters_invalid_labels_before_adding(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        label_calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
             return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/42\n")
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
+            label_calls.append((repo, issue_number, labels))
+            return PostReviewResult(True)
 
-        create_issue("owner/repo", "Title", "Body", ["enhancement", "invalid-label"])
-        # First call is issue create (no labels), second call is label add (filtered)
-        assert len(commands) >= 1
-        create_cmd = commands[0]
-        assert "--label" not in create_cmd
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("gearbox.core.gh.add_issue_labels", fake_add_labels)
+
+        create_issue("owner/repo", "Title", "Body", ["enhancement", "invalid-label", "P1"])
+
+        assert label_calls == [("owner/repo", 42, ["enhancement", "P1"])]
+
+    def test_returns_failure_when_create_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            MagicMock(side_effect=subprocess.CalledProcessError(1, "gh", stderr="not found")),
+        )
+
+        result = create_issue("owner/repo", "Title", "Body", ["enhancement"])
+
+        assert result.success is False
+        assert "not found" in (result.error or "")
+
+    def test_succeeds_even_if_labels_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
+
+        def fake_add_labels(*args: Any) -> PostReviewResult:
+            return PostReviewResult(False, url="label error")
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("gearbox.core.gh.add_issue_labels", fake_add_labels)
+
+        result = create_issue("owner/repo", "Title", "Body", ["enhancement"])
+
+        assert result.success is True
 
 
 class TestFinalizeAndCreatePr:

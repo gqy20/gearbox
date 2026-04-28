@@ -36,7 +36,11 @@ runs:
       GH_TOKEN: ${{ github.token }}
     run: |
       set -e
+      source "$GITHUB_ACTION_PATH/../_lib/validate.sh"
       export PATH="$HOME/.local/bin:$PATH"
+
+      validate_repo "${{ inputs.repo }}"
+      validate_number "issue_number" "${{ inputs.issue_number }}"
 
       CMD=(
         uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox cleanup

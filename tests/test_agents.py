@@ -61,7 +61,6 @@ class TestStructuredOutputParsing:
                 issues=[Issue(**issue) for issue in data["issues"]],
             ),
         )
-        assert result is not None
         assert result.repo == "owner/repo"
         assert len(result.issues) == 1
 
@@ -75,7 +74,6 @@ class TestStructuredOutputParsing:
             }
         )
         result = parse_structured_output(message, lambda data: BacklogItemResult(**data))
-        assert result is not None
         assert result.labels == ["bug", "high-priority"]
         assert result.ready_to_implement is True
 
@@ -98,7 +96,6 @@ class TestStructuredOutputParsing:
 
         result = parse_structured_output(message, lambda data: BacklogItemResult(**data))
 
-        assert result is not None
         assert result.labels == ["enhancement", "ci"]
         assert result.priority == "P2"
 
@@ -217,7 +214,6 @@ class TestStructuredOutputParsing:
                 comments=[ReviewComment(**comment) for comment in data["comments"]],
             ),
         )
-        assert result is not None
         assert result.comments[0].severity == "blocker"
 
     def test_implement_mapping(self) -> None:
@@ -231,7 +227,6 @@ class TestStructuredOutputParsing:
             }
         )
         result = parse_structured_output(message, lambda data: ImplementResult(**data))
-        assert result is not None
         assert result.branch_name == "feat/issue-42"
 
     def test_implement_prompt_leaves_git_side_effects_to_orchestrator(self) -> None:
@@ -331,7 +326,6 @@ class TestStructuredOutputParsing:
                 consensus=data["consensus"],
             ),
         )
-        assert result is not None
         assert result.winner == 0
         assert 1 in result.scores
         assert result.scores[0]["justification"] == "Complete and actionable"
@@ -367,3 +361,69 @@ class TestEvaluatorPrompt:
         prompt = build_evaluation_prompt(results, "Audit 审计结果", ["run_0"])
         assert "owner/repo" in prompt
         assert '"title": "A"' in prompt
+
+
+class TestStructuredOutputErrorPaths:
+    """parse_structured_output 的 None 返回路径（错误/边界输入）"""
+
+    def _result(self, data) -> ResultMessage:
+        return ResultMessage(
+            subtype="result",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="session",
+            structured_output=data,
+        )
+
+    def _assistant(self, tool_input) -> AssistantMessage:
+        return AssistantMessage(
+            model="test-model",
+            content=[ToolUseBlock(id="toolu_1", name="StructuredOutput", input=tool_input)],
+        )
+
+    def test_result_message_with_none_structured_output_returns_none(self) -> None:
+        result = parse_structured_output(self._result(None), lambda data: data["key"])
+        assert result is None
+
+    def test_result_message_with_string_structured_output_returns_none(self) -> None:
+        result = parse_structured_output(self._result("not a dict"), lambda data: data["key"])
+        assert result is None
+
+    def test_result_message_with_list_structured_output_returns_none(self) -> None:
+        result = parse_structured_output(self._result([1, 2, 3]), lambda data: data["key"])
+        assert result is None
+
+    def test_assistant_message_with_empty_content_returns_none(self) -> None:
+        msg = AssistantMessage(model="test", content=[])
+        result = parse_structured_output(msg, lambda data: data)
+        assert result is None
+
+    def test_assistant_message_with_text_block_returns_none(self) -> None:
+        from claude_agent_sdk import TextBlock
+
+        msg = AssistantMessage(model="test", content=[TextBlock(text="hello")])
+        result = parse_structured_output(msg, lambda data: data)
+        assert result is None
+
+    def test_assistant_message_with_wrong_tool_name_returns_none(self) -> None:
+        msg = AssistantMessage(
+            model="test",
+            content=[ToolUseBlock(id="t1", name="OtherTool", input={"key": "val"})],
+        )
+        result = parse_structured_output(msg, lambda data: data)
+        assert result is None
+
+    def test_assistant_message_with_non_dict_tool_input_returns_none(self) -> None:
+        msg = AssistantMessage(
+            model="test",
+            content=[ToolUseBlock(id="t1", name="StructuredOutput", input="bad")],
+        )
+        result = parse_structured_output(msg, lambda data: data)
+        assert result is None
+
+    def test_non_message_object_returns_none(self) -> None:
+        for bad_input in [42, "string", [1, 2], {"key": "val"}, None]:
+            result = parse_structured_output(bad_input, lambda data: data)
+            assert result is None

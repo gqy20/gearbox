@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Any
 
@@ -457,8 +458,12 @@ def finalize_and_push(
     Returns:
         True if successful, False otherwise
     """
+    askpass_path = None
     try:
-        configure_authenticated_origin(repo)
+        askpass_path = configure_authenticated_origin(repo)
+
+        # Build env with GIT_ASKPASS for authenticated push (avoids URL-embedded token)
+        push_env = _build_push_env(askpass_path)
 
         # 重命名分支
         subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
@@ -483,11 +488,14 @@ def finalize_and_push(
                 check=True,
                 capture_output=True,
                 text=True,
+                env=push_env,
             )
             return True
         return False
     except subprocess.CalledProcessError:
         return False
+    finally:
+        cleanup_authenticated_origin(askpass_path)
 
 
 def finalize_and_create_pr(
@@ -505,8 +513,12 @@ def finalize_and_create_pr(
     Returns:
         CreatePrResult
     """
+    askpass_path = None
     try:
-        configure_authenticated_origin(repo)
+        askpass_path = configure_authenticated_origin(repo)
+
+        # Build env with GIT_ASKPASS for authenticated push (avoids URL-embedded token)
+        push_env = _build_push_env(askpass_path)
 
         # 重命名分支
         subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
@@ -527,6 +539,7 @@ def finalize_and_create_pr(
                 check=True,
                 capture_output=True,
                 text=True,
+                env=push_env,
             )
 
         # 创建 PR
@@ -539,6 +552,8 @@ def finalize_and_create_pr(
         )
     except subprocess.CalledProcessError as e:
         return CreatePrResult(success=False, error=_called_process_error_message(e))
+    finally:
+        cleanup_authenticated_origin(askpass_path)
 
 
 def create_pr(
@@ -644,11 +659,24 @@ def ensure_git_author() -> None:
         )
 
 
-def configure_authenticated_origin(repo: str) -> None:
-    """Prefer GH_TOKEN for git push so checkout credentials do not shadow PAT scopes."""
+def configure_authenticated_origin(repo: str) -> str | None:
+    """Configure git origin for authenticated push using GIT_ASKPASS.
+
+    Instead of embedding the token in the remote URL (which leaks it into
+    process lists, ``.git/config``, and error messages), this function:
+
+    1. Removes the actions/checkout extraheader that shadows PAT scopes.
+    2. Sets the origin URL to a **clean** URL (no credentials).
+    3. Writes a temporary ``GIT_ASKPASS`` script containing the token
+       and returns its path so callers can pass it via environment to
+       ``git push``.
+
+    Returns:
+        Path to the temporary askpass script, or *None* if no token is set.
+    """
     token = os.environ.get("GH_TOKEN")
     if not token:
-        return
+        return None
 
     # actions/checkout injects an extraheader for github.token that overrides
     # origin credentials. Remove it so PAT scopes on GH_TOKEN are honored.
@@ -656,22 +684,83 @@ def configure_authenticated_origin(repo: str) -> None:
         ["git", "config", "--unset-all", "http.https://github.com/.extraheader"],
         check=False,
     )
+
+    # Set a clean URL without embedded credentials
+    clean_url = f"https://github.com/{repo}.git"
     subprocess.run(
-        [
-            "git",
-            "remote",
-            "set-url",
-            "origin",
-            f"https://x-access-token:{token}@github.com/{repo}.git",
-        ],
+        ["git", "remote", "set-url", "origin", clean_url],
         check=True,
     )
+
+    # Write a temporary GIT_ASKPASS script that outputs the token when git
+    # requests credentials.  The script is only readable by the current user.
+    tmp_dir = tempfile.mkdtemp(prefix="gearbox-askpass-")
+    askpass_path = os.path.join(tmp_dir, "askpass.sh")
+    with open(askpass_path, mode="w") as f:
+        f.write(f"#!/bin/sh\necho {token}\n")
+    os.chmod(askpass_path, 0o700)
+
+    return askpass_path
+
+
+def cleanup_authenticated_origin(askpass_path: str | None) -> None:
+    """Remove the temporary GIT_ASKPASS script created by ``configure_authenticated_origin``."""
+    if askpass_path is None or not os.path.exists(askpass_path):
+        return
+    try:
+        os.remove(askpass_path)
+        parent = os.path.dirname(askpass_path)
+        if parent.startswith(tempfile.gettempdir()) or "gearbox-askpass-" in parent:
+            os.rmdir(parent)
+    except OSError:
+        pass
+
+
+def _build_push_env(askpass_path: str | None) -> dict[str, str] | None:
+    """Build an environment dict for git push that uses GIT_ASKPASS for credentials.
+
+    Returns *None* when no askpass is available (no token / unauthenticated push).
+    """
+    if askpass_path is None:
+        return None
+    env = dict(os.environ)
+    env["GIT_ASKPASS"] = askpass_path
+    # Disable any existing credential helpers that might interfere
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _sanitize_token_from_output(text: str | None, token: str | None = None) -> str:
+    """Remove tokens from a string to prevent credential leakage in logs/errors.
+
+    If *token* is not provided explicitly, ``GH_TOKEN`` / ``GITHUB_PAT`` from
+    the environment are used as fallback.
+    """
+    if not text:
+        return ""
+
+    tokens_to_redact: list[str] = []
+    if token:
+        tokens_to_redact.append(token)
+    for env_key in ("GH_TOKEN", "GITHUB_PAT"):
+        env_val = os.environ.get(env_key)
+        if env_val and env_val not in tokens_to_redact:
+            tokens_to_redact.append(env_val)
+
+    result = text
+    for t in tokens_to_redact:
+        if t:
+            # Redact token both in x-access-token URLs and bare occurrences
+            result = result.replace(t, "***REDACTED***")
+
+    return result
 
 
 def _called_process_error_message(error: subprocess.CalledProcessError) -> str:
     stderr = error.stderr.strip() if isinstance(error.stderr, str) else ""
     stdout = error.stdout.strip() if isinstance(error.stdout, str) else ""
-    return stderr or stdout or str(error)
+    raw = stderr or stdout or str(error)
+    return _sanitize_token_from_output(raw)
 
 
 def build_review_body(

@@ -10,6 +10,8 @@ from typing import Any, Callable, cast
 
 import tomli
 
+from gearbox.agents.shared.retry import DEFAULT_RETRY_CONFIG, retry_on_transient
+
 
 @dataclass
 class RepoScanResult:
@@ -51,8 +53,10 @@ def _run_command(
     cwd: Path,
     timeout: int = 120,
 ) -> tuple[int, str, str]:
-    """执行命令并返回 (returncode, stdout, stderr)"""
-    try:
+    """执行命令并返回 (returncode, stdout, stderr)。瞬态故障自动重试。"""
+
+    @retry_on_transient(DEFAULT_RETRY_CONFIG)
+    def _execute() -> tuple[int, str, str]:
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -61,8 +65,12 @@ def _run_command(
             cwd=cwd,
         )
         return result.returncode, result.stdout, result.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", "timeout"
+
+    try:
+        return _execute()  # type: ignore[no-any-return]
+    except subprocess.TimeoutExpired as e:
+        # 所有重试耗尽后，转为标准返回格式保持向后兼容
+        return -1, "", f"timeout ({e.cmd})"
     except Exception as e:
         return -1, "", str(e)
 

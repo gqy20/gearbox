@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from gearbox.agents.shared.retry import DEFAULT_RETRY_CONFIG, is_transient_error, retry_on_transient
+
 
 @dataclass
 class PostReviewResult:
@@ -227,6 +229,7 @@ def remove_issue_labels(
         return PostReviewResult(success=False, url=e.stderr.strip())
 
 
+@retry_on_transient(DEFAULT_RETRY_CONFIG)
 def get_issue_labels(repo: str, issue_number: int) -> list[str]:
     """获取 Issue 当前标签列表。"""
     try:
@@ -260,6 +263,7 @@ class LabelEvent:
     created_at: str
 
 
+@retry_on_transient(DEFAULT_RETRY_CONFIG)
 def get_issue_label_events(
     repo: str,
     issue_number: int,
@@ -298,6 +302,7 @@ def get_issue_label_events(
         return []
 
 
+@retry_on_transient(DEFAULT_RETRY_CONFIG)
 def list_open_issues(
     repo: str, labels: list[str] | None = None, limit: int = 100
 ) -> list[IssueSummary]:
@@ -331,10 +336,15 @@ def list_open_issues(
             )
             for issue in issues
         ]
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+    except subprocess.CalledProcessError as e:
+        if is_transient_error(e):
+            raise  # 让 retry_on_transient 处理重试
+        return []
+    except (json.JSONDecodeError, KeyError, TypeError):
         return []
 
 
+@retry_on_transient(DEFAULT_RETRY_CONFIG)
 def get_issue_summary(repo: str, issue_number: int) -> IssueSummary | None:
     """获取单个开放 Issue 摘要。"""
     try:
@@ -388,6 +398,7 @@ def replace_managed_issue_labels(
     return add_issue_labels(repo, issue_number, next_labels)
 
 
+@retry_on_transient(DEFAULT_RETRY_CONFIG)
 def get_repo_labels(repo: str) -> list[str]:
     """
     获取仓库现有的标签列表。

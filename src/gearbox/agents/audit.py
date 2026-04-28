@@ -11,6 +11,11 @@ import click
 from gearbox.agents.schemas import AuditResult as _AuditResultModel
 from gearbox.agents.schemas import Issue as _IssueModel
 from gearbox.agents.shared import clone_repository
+from gearbox.agents.shared.retry import (
+    DEFAULT_RETRY_CONFIG,
+    CostBudgetExceededError,
+    retry_sdk_query,
+)
 from gearbox.core.gh import IssueSummary
 
 # Re-export for backward compat
@@ -181,6 +186,7 @@ async def run_audit(
     max_turns: int = 20,
     system_prompt: str | None = None,
     enable_prescan: bool = True,
+    max_cost_budget_usd: float | None = None,
 ) -> AuditResult:
     """
     执行仓库审计。
@@ -193,9 +199,13 @@ async def run_audit(
         max_turns: 最大对话轮次
         system_prompt: 自定义 System Prompt（可选，默认使用内置）
         enable_prescan: 是否启用预扫描（默认 True）
+        max_cost_budget_usd: 最大成本预算（美元），超出时提前终止
 
     Returns:
         AuditResult 结构
+
+    Raises:
+        CostBudgetExceededError: 当累计成本超过预算时抛出
     """
     from claude_agent_sdk import (
         ClaudeAgentOptions,
@@ -325,10 +335,23 @@ async def run_audit(
         structured: AuditResult | None = None
         total_cost: float | None = None
 
+        # 使用 retry 包装器保护 SDK query 调用
+        retrying_query = retry_sdk_query(query, config=DEFAULT_RETRY_CONFIG)
+
         try:
-            async for message in query(prompt=prompt, options=options):
+            async for message in retrying_query(prompt=prompt, options=options):
                 sdk_logger.handle_message(message, echo_assistant_text=False)
                 total_cost = getattr(message, "total_cost_usd", total_cost)
+                # 成本预算检查：在每条消息后检查是否超支
+                if (
+                    max_cost_budget_usd is not None
+                    and total_cost is not None
+                    and total_cost > max_cost_budget_usd
+                ):
+                    raise CostBudgetExceededError(
+                        budget_usd=max_cost_budget_usd,
+                        actual_usd=total_cost,
+                    )
                 if structured is None:
                     parsed = parse_with_model(message, AuditResult)
                     if parsed is not None:

@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from gearbox.agents.schemas import EvaluationResult as _EvaluationResultModel
+from gearbox.agents.shared.retry import DEFAULT_RETRY_CONFIG, retry_sdk_query
 
 # Re-export for backward compat
 EvaluationResult = _EvaluationResultModel
@@ -142,8 +143,11 @@ async def run_evaluator(
 
     structured: EvaluationResult | None = None
 
+    # 使用 retry 包装器保护 SDK query 调用
+    retrying_query = retry_sdk_query(query, config=DEFAULT_RETRY_CONFIG)
+
     try:
-        async for message in query(prompt=prompt, options=options):
+        async for message in retrying_query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
                 parsed = parse_with_model(message, EvaluationResult)

@@ -304,9 +304,11 @@ class TestToolRunners:
 class TestScanRepositoryOrchestration:
     """scan_repository 的编排逻辑：根据项目类型选择正确的工具组合"""
 
-    def test_python_runs_deptry_and_trivy(self, tmp_path: Path) -> None:
+    def test_python_runs_deptry_trivy_and_semgrep(self, tmp_path: Path) -> None:
+        """Python 项目应启用 deptry、trivy 和 semgrep 扫描（Issue #17）"""
         deptry_issues = [{"type": "x"}]
         trivy_vulns = [{"VulnerabilityID": "V-1"}]
+        semgrep_finds = [{"id": "S-1", "message": "hardcoded secret"}]
 
         with (
             patch(
@@ -318,14 +320,19 @@ class TestScanRepositoryOrchestration:
                 "gearbox.agents.shared.scanner.run_deptry", return_value=(deptry_issues, "issues=1")
             ),
             patch("gearbox.agents.shared.scanner.run_trivy", return_value=(trivy_vulns, "ok")),
+            patch(
+                "gearbox.agents.shared.scanner.run_semgrep",
+                return_value=(semgrep_finds, "ok"),
+            ),
         ):
             actual = scan_repository(tmp_path)
 
         assert actual.deptry_scanned is True
         assert actual.trivy_scanned is True
+        assert actual.semgrep_scanned is True
         assert actual.tool_statuses["deptry"] == "issues=1"
         assert actual.tool_statuses["trivy"] == "ok"
-        assert actual.tool_statuses.get("semgrep") == "skipped"
+        assert actual.tool_statuses["semgrep"] == "ok"
 
     def test_go_runs_govulncheck_and_trivy(self, tmp_path: Path) -> None:
         govuln_vulns = [{"id": "G-1"}]

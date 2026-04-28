@@ -246,3 +246,85 @@ class TestDispatchWorkflow:
             "DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || github.event_name == 'schedule' && 'false' || 'true' }}"
             in workflow
         )
+
+
+class TestAutoMergeWorkflow:
+    def test_auto_merge_triggers_on_pull_request_review_submitted(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "pull_request_review:" in workflow
+        assert "types: [submitted]" in workflow
+
+    def test_auto_merge_supports_manual_workflow_dispatch(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "workflow_dispatch:" in workflow
+        assert "pr_number:" in workflow
+
+    def test_auto_merge_filters_bot_reviewers(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "github.event.review.state == 'approved'" in workflow
+        assert "github-actions[bot]" in workflow
+        assert "dependabot[bot]" in workflow
+        assert "copilot-pull-request-reviewer" in workflow
+        assert "github.event.installation_id" in workflow
+
+    def test_auto_merge_validates_gearbox_branch_pattern(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert r"^feat/issue-" in workflow
+        assert "headRefName" in workflow
+
+    def test_auto_merge_rejects_draft_and_non_open_prs(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "isDraft" in workflow
+        assert '"OPEN"' in workflow
+        assert "mergeStateStatus" in workflow
+
+    def test_auto_merge_prevents_self_review_approval(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "self-review" in workflow.lower() or "AUTHOR_LOGIN" in workflow
+        assert "review.user.login" in workflow
+        assert "author.login" in workflow
+
+    def test_auto_merge_uses_squash_with_auto_flag(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "gh pr merge" in workflow
+        assert "--auto" in workflow
+        assert "--squash" in workflow
+        assert "--delete-branch" in workflow
+
+    def test_auto_merge_has_correct_permissions(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "contents: write" in workflow
+        assert "pull-requests: write" in workflow
+
+    def test_auto_merge_uses_concurrency_group_with_pr_number(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "concurrency:" in workflow
+        assert "cancel-in-progress: false" in workflow
+        assert "auto-merge-${{ github.event.pull_request.number" in workflow
+
+    def test_auto_merge_provides_clear_skip_output_on_validation_failure(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "auto-merge.yml").read_text(encoding="utf-8")
+
+        assert "skip=true" in workflow
+        assert "skip_reason=" in workflow
+        assert "::notice::" in workflow
+        assert "::warning::" in workflow

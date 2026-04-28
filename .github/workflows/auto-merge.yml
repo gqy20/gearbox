@@ -1,0 +1,123 @@
+name: Auto Merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR 编号 (手动触发)'
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.state == 'approved' &&
+       github.event.review.user.login != 'github-actions[bot]' &&
+       github.event.review.user.login != 'dependabot[bot]' &&
+       github.event.review.user.login != 'copilot-pull-request-reviewer' &&
+       github.event.review.user.id != github.event.installation_id) ||
+      github.event_name == 'workflow_dispatch'
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+    steps:
+      - name: Validate PR state
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PR_INFO=$(gh pr view "$PR_NUMBER" \
+            --json headRefName,isDraft,state,mergeStateStatus,author \
+            --jq '.')
+
+          HEAD_REF=$(echo "$PR_INFO" | jq -r '.headRefName')
+          IS_DRAFT=$(echo "$PR_INFO" | jq -r '.isDraft')
+          STATE=$(echo "$PR_INFO" | jq -r '.state')
+          MERGE_STATE_STATUS=$(echo "$PR_INFO" | jq -r '.mergeStateStatus')
+          AUTHOR_LOGIN=$(echo "$PR_INFO" | jq -r '.author.login')
+
+          echo "::group::PR #$PR_NUMBER state"
+          echo "headRefName: $HEAD_REF"
+          echo "isDraft: $IS_DRAFT"
+          echo "state: $STATE"
+          echo "mergeStateStatus: $MERGE_STATE_STATUS"
+          echo "author: $AUTHOR_LOGIN"
+          echo "::endgroup::"
+
+          # Gate 1: Branch must match Gearbox pattern
+          if [[ ! "$HEAD_REF" =~ ^feat/issue- ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=Head ref '$HEAD_REF' does not match Gearbox pattern ^feat/issue-" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto-merge skipped: branch '$HEAD_REF' is not a Gearbox branch"
+            exit 0
+          fi
+
+          # Gate 2: Must not be a draft PR
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=PR #$PR_NUMBER is a draft" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto-merge skipped: PR #$PR_NUMBER is a draft"
+            exit 0
+          fi
+
+          # Gate 3: Must be open
+          if [ "$STATE" != "OPEN" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=PR #$PR_NUMBER is not open (state=$STATE)" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto-merge skipped: PR #$PR_NUMBER state is $STATE"
+            exit 0
+          fi
+
+          # Gate 4: Must be mergeable or have clean merge status
+          case "$MERGE_STATE_STATUS" in
+            CLEAN|UNKNOWN|HAS_HOOKS)
+              ;;
+            *)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=PR #$PR_NUMBER mergeStateStatus=$MERGE_STATE_STATUS (conflicts or blocked)" >> "$GITHUB_OUTPUT"
+              echo "::warning::Auto-merge skipped: PR #$PR_NUMBER has mergeStateStatus=$MERGE_STATE_STATUS"
+              exit 0
+              ;;
+          esac
+
+          # Gate 5 (for pull_request_review only): Reject self-review
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            REVIEWER="${{ github.event.review.user.login }}"
+            if [ "$REVIEWER" = "$AUTHOR_LOGIN" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=Reviewer $REVIEWER is also the PR author (self-review)" >> "$GITHUB_OUTPUT"
+              echo "::notice::Auto-merge skipped: self-review from $REVIEWER"
+              exit 0
+            fi
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge
+        if: steps.validate.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "::group::Enabling auto-merge for PR #$PR_NUMBER"
+          gh pr merge "$PR_NUMBER" \
+            --auto \
+            --squash \
+            --delete-branch
+          echo "::endgroup::"
+
+          echo "::notice::Auto-merge enabled for PR #$PR_NUMBER — GitHub will squash-merge once all required checks pass"

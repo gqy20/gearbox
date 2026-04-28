@@ -321,7 +321,7 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
     else:
         result.tool_statuses["deptry"] = "skipped"
 
-    if result.project_type in ("typescript", "mixed"):
+    if result.project_type in ("python", "typescript", "mixed"):
         scan_tasks.append(("semgrep", lambda: run_semgrep(repo_path)))
     else:
         result.tool_statuses["semgrep"] = "skipped"

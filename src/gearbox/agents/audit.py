@@ -214,7 +214,8 @@ SYSTEM_PROMPT = """你是 Gearbox，一个专业的代码库审计专家。
 
 - 最多 3 个 Issues
 - 每个 Issue ≤1000 字符，≤3 个要点
-- 标签包含优先级（critical/high/medium/low）
+- body 末尾包含 `> **severity**: critical|high|medium|low` 元数据行
+- 标签只使用类型标签（bug/enhancement/security/documentation 等），不使用 severity 标签
 - 精选最重要的改进项
 - 不要尝试创建 GitHub Issue
 - `comparison_markdown` 必须是完整 Markdown

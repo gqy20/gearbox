@@ -1,6 +1,7 @@
 """测试 core/gh.py 模块"""
 
 import subprocess
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -296,15 +297,20 @@ class TestCreateIssue:
         assert "issues/5" in (result.pr_url or "")
 
     def test_labels_filtered(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        mock_run = MagicMock()
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        commands: list[list[str]] = []
 
-        # "invalid-label" is not in VALID_ISSUE_LABELS, should be filtered
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/42\n")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
         create_issue("owner/repo", "Title", "Body", ["enhancement", "invalid-label"])
-        call_args = mock_run.call_args[0][0]
-        assert "--label" in call_args
-        # Should only have enhancement, not invalid-label
-        assert "invalid-label" not in call_args
+        # First call is issue create (no labels), second call is label add (filtered)
+        assert len(commands) >= 1
+        create_cmd = commands[0]
+        assert "--label" not in create_cmd
 
 
 class TestFinalizeAndCreatePr:

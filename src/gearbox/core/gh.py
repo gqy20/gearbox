@@ -719,11 +719,6 @@ VALID_ISSUE_LABELS = {
     # Categories
     "security",
     "ci",
-    # Audit priority
-    "critical",
-    "high",
-    "medium",
-    "low",
 }
 
 
@@ -736,9 +731,11 @@ def create_issue(
     """
     创建 GitHub Issue。
 
-    Returns:
-        CreatePrResult
+    先不带标签创建 Issue（确保一定能创建成功），
+    成功后单独调用 add_issue_labels 添加标签（自动创建缺失标签）。
     """
+    import re
+
     cmd = [
         "gh",
         "issue",
@@ -750,13 +747,25 @@ def create_issue(
         "--body",
         body,
     ]
-    if labels:
-        filtered = [label for label in labels if label in VALID_ISSUE_LABELS]
-        for label in filtered:
-            cmd.extend(["--label", label])
 
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        return CreatePrResult(success=True, pr_url=result.stdout.strip())
+        url = result.stdout.strip()
     except subprocess.CalledProcessError as e:
         return CreatePrResult(success=False, error=e.stderr.strip())
+
+    if not labels:
+        return CreatePrResult(success=True, pr_url=url)
+
+    match = re.search(r"/(\d+)$", url)
+    if not match:
+        return CreatePrResult(success=True, pr_url=url)
+
+    issue_number = int(match.group(1))
+    filtered = [label for label in labels if label in VALID_ISSUE_LABELS]
+    if filtered:
+        label_result = add_issue_labels(repo, issue_number, filtered)
+        if not label_result.success:
+            pass  # 标签失败不影响 Issue 创建结果
+
+    return CreatePrResult(success=True, pr_url=url)

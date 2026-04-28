@@ -25,7 +25,7 @@ on:
         default: true
         type: boolean
   schedule:
-    - cron: '30 17 * * *'
+    - cron: '0 * * * *'
   issue_comment:
     types: [created]
 
@@ -66,7 +66,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event_name == 'issue_comment' && github.event.issue.number || '' }}
           MAX_ITEMS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_items || '1' }}
           MAX_PARALLEL: ${{ github.event_name == 'workflow_dispatch' && inputs.max_parallel || '1' }}
-          ALLOWED_PRIORITIES: ${{ github.event_name == 'schedule' && 'P0' || '' }}
+          ALLOWED_PRIORITIES: ''
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || github.event_name == 'schedule' && 'false' || 'true' }}
         run: |
           set -e

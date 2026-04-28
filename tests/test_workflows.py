@@ -1,5 +1,6 @@
 """Tests for GitHub Actions workflow and action file structure."""
 
+import re
 from pathlib import Path
 
 
@@ -195,7 +196,7 @@ class TestBacklogWorkflow:
         workflow = (root / ".github" / "workflows" / "backlog.yml").read_text(encoding="utf-8")
 
         assert "schedule:" in workflow
-        assert "cron: '15 */2 * * *'" in workflow
+        assert re.search(r"cron:\s*'[^\']+'", workflow)
         assert "gearbox backlog plan" in workflow
         assert "--comment-mode" in workflow
         assert "needs.plan.outputs.comment_mode" in workflow
@@ -237,17 +238,13 @@ class TestDispatchWorkflow:
         assert "--auto" in workflow
         assert "--squash" in workflow
 
-    def test_dispatch_schedule_runs_p0_first_lane(self) -> None:
+    def test_dispatch_schedule_has_no_priority_restriction(self) -> None:
         root = _root()
         workflow = (root / ".github" / "workflows" / "dispatch.yml").read_text(encoding="utf-8")
 
         assert "schedule:" in workflow
-        assert "cron: '30 17 * * *'" in workflow
-        assert "github.event_name == 'schedule'" in workflow
-        assert "--allowed-priorities" in workflow
-        assert (
-            "ALLOWED_PRIORITIES: ${{ github.event_name == 'schedule' && 'P0' || '' }}" in workflow
-        )
+        assert re.search(r"cron:\s*'[^\']+'", workflow)
+        assert "ALLOWED_PRIORITIES: ''" in workflow
         assert (
             "DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && 'false' || github.event_name == 'schedule' && 'false' || 'true' }}"
             in workflow

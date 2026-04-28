@@ -8,6 +8,93 @@ Gearbox 是开发母仓，用于维护源码、测试、文档、内部 workflow
 Audit -> Issue -> Backlog -> Implement -> Review -> Merge -> Report
 ```
 
+## 完整流程
+
+```mermaid
+flowchart TD
+    subgraph Trigger["触发方式"]
+        WD["手动: workflow_dispatch"]
+        IC["@audit / @backlog / @dispatch / @review"]
+        SCH["定时: cron schedule"]
+        PR_EV["PR 事件: opened / synchronize"]
+        RV_EV["Review 事件: approved"]
+    end
+
+    subgraph Audit["审计阶段"]
+        A1["clone 目标仓库"] --> A2["静态扫描\nsemgrep / deptry / trivy / cloc"]
+        A2 --> A3["AI Agent 分析"]
+        A3 --> A4{"生成 issues.json"}
+        A4 -->|可选| A5["publish-issues\n→ 创建 GitHub Issues"]
+    end
+
+    subgraph Backlog["分类阶段"]
+        B1["读取 Issue 列表"] --> B2["AI Agent 分类"]
+        B2 --> B3["写入标签\nP0-P3 / complexity:S-M-L\nready-to-implement / needs-clarification"]
+    end
+
+    subgraph Dispatch["调度阶段"]
+        D1["从 ready backlog 筛选"] --> D2["构建 dispatch plan\nmax_items / priority filter"]
+        D2 --> D3{"dry_run?"}
+        D3 -->|"是"| D4["输出计划，不执行"]
+        D3 -->|"否"| D5["mark in-progress"]
+    end
+
+    subgraph Implement["实现阶段"]
+        I1["并行 N 次 implement-run"] --> I2["每次: clone + AI Agent 实现\n分支: feat/issue-{N}-run-{id}"]
+        I2 --> I3["上传 artifact"]
+        I3 --> I4["aggregate-implement\nAI 选优最佳实现"]
+        I4 --> I5["create PR\nsquash merge"]
+        I5 --> I6["mark has-pr"]
+        I1 -.->|失败| I7["restore-failed\n→ ready-to-implement"]
+    end
+
+    subgraph Review["审查阶段"]
+        R1["获取 PR diff"] --> R2["AI Code Review\nverdict: LGTM / Request Changes\nscore: 0-10 / severity 分级评论"]
+        R2 --> R3{"verdict?"}
+        R3 -->|"LGTM"| R4["post review --approve"]
+        R3 -->|"Request Changes"| R5["post review --request-changes"]
+    end
+
+    subgraph Merge["合并阶段"]
+        M1["pull_request_review\nstate: approved"] --> M2{"验证门控"}
+        M2 --> M2_1["✓ 分支 ^feat/issue-"]
+        M2 --> M2_2["✓ 非 draft / OPEN"]
+        M2 --> M2_3["✓ 可合并状态"]
+        M2 --> M2_4["✓ 非自审 / 非 bot"]
+        M2_1 & M2_2 & M2_3 & M2_4 --> M3["gh pr merge\n--auto --squash\n--delete-branch"]
+        M3 --> M4["GitHub CI 通过后\n自动 squash merge"]
+        M4 --> M5["Issue 自动关闭\nCloses #N"]
+    end
+
+    subgraph Cleanup["清理阶段"]
+        C1["PR closed + unmerged"] --> C2["恢复 Issue 标签\n移除 in-progress / has-pr\n添加 ready-to-implement"]
+    end
+
+    WD & SCH --> Audit
+    IC -->|"@audit"| Audit
+    IC -->|"@backlog"| Backlog
+    IC -->|"@dispatch"| Dispatch
+    PR_EV --> Review
+    RV_EV --> Merge
+
+    Audit --> Backlog
+    Backlog --> Dispatch
+    Dispatch --> Implement
+    Implement --> Review
+    Review --> Merge
+    Merge --> Cleanup
+    Cleanup -.->|"恢复为 ready-to-implement"| Backlog
+
+    style Trigger fill:#f0f4ff,stroke:#4a6fa5
+    style Audit fill:#e8f5e9,stroke:#2e7d32
+    style Backlog fill:#fff3e0,stroke:#ef6c00
+    style Dispatch fill:#fce4ec,stroke:#c62828
+    style Implement fill:#e3f2fd,stroke:#1565c0
+    style Review fill:#f3e5f5,stroke:#6a1b9a
+    style Merge fill:#e0f2f1,stroke:#00695c
+    style Cleanup fill:#fbe9e7,stroke:#bf360c
+```
+
 ## 快速开始
 
 ```bash

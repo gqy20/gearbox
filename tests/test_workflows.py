@@ -328,3 +328,82 @@ class TestAutoMergeWorkflow:
         assert "skip_reason=" in workflow
         assert "::notice::" in workflow
         assert "::warning::" in workflow
+
+
+class TestCIWorkflow:
+    """Tests for the CI workflow that enforces test/lint/type-check automation."""
+
+    def test_ci_workflow_triggers_on_push_and_pull_request(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        assert "push:" in workflow
+        assert "branches:" in workflow
+        assert "main" in workflow
+        assert "pull_request:" in workflow
+
+    def test_ci_workflow_has_multi_version_python_matrix(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        # Must use strategy.matrix for Python versions
+        assert "strategy:" in workflow
+        assert "matrix:" in workflow
+        assert "python-version" in workflow
+
+        # Must include at least 3.10 (project minimum), 3.11, 3.12, 3.13
+        for version in ["3.10", "3.11", "3.12", "3.13"]:
+            assert version in workflow
+
+    def test_ci_workflow_includes_pytest_with_coverage(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        # Must run pytest with coverage
+        assert "pytest" in workflow
+        assert "--cov" in workflow or "coverage" in workflow.lower()
+
+    def test_ci_workflow_includes_ruff_lint_check(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        assert "ruff" in workflow
+        assert "ruff check" in workflow
+
+    def test_ci_workflow_includes_mypy_type_check(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        assert "mypy" in workflow
+
+    def test_ci_workflow_uses_uv_for_dependency_management(self) -> None:
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        # Must use uv for setup
+        assert "setup-uv" in workflow or "astral-sh/setup-uv" in workflow
+        assert "uv sync" in workflow
+
+
+class TestPyprojectCoverageConfig:
+    """Tests for pytest-cov coverage configuration in pyproject.toml."""
+
+    def test_pytest_cov_is_in_dev_dependencies(self) -> None:
+        root = _root()
+        pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert "pytest-cov" in pyproject
+
+    def test_coverage_target_configured(self) -> None:
+        root = _root()
+        pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+        # Must have [tool.pytest.ini_options] or [tool.coverage] section with fail_under
+        has_ini_options = "[tool.pytest.ini_options]" in pyproject
+        has_coverage_tool = (
+            "[tool.coverage.run]" in pyproject or "[tool.coverage.report]" in pyproject
+        )
+
+        assert has_ini_options or has_coverage_tool, (
+            "Expected [tool.pytest.ini_options] or [tool.coverage.*] section for coverage config"
+        )

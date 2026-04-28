@@ -189,6 +189,7 @@ def review(
     help="是否创建 PR（通常只应由聚合阶段或单路实现开启）",
 )
 @click.option("--candidate-branch-suffix", default="", help="候选分支后缀，用于并行实现隔离")
+@click.option("--run-id", default=0, type=int, help="并行运行 ID（注入分支名确保唯一）")
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def implement(
     repo: str,
@@ -200,6 +201,7 @@ def implement(
     push_candidate_branch: bool,
     create_pr: bool,
     candidate_branch_suffix: str,
+    run_id: int,
     output: str,
 ) -> None:
     """运行 Implement Agent - 实现 Issue 并创建 PR"""
@@ -217,6 +219,7 @@ def implement(
                 model=resolved_model,
                 base_branch=base_branch,
                 max_turns=max_turns,
+                run_id=run_id,
             )
         )
 
@@ -238,20 +241,28 @@ def implement(
             else:
                 click.echo(f"❌ PR creation failed: {pr_result.error}", err=True)
         elif push_candidate_branch and result.ready_for_review and result.branch_name:
-            candidate_branch = _with_branch_suffix(result.branch_name, candidate_branch_suffix)
-            result.branch_name = candidate_branch
+            final_branch = (
+                _with_branch_suffix(result.branch_name, candidate_branch_suffix)
+                if candidate_branch_suffix
+                else result.branch_name
+            )
+            result.branch_name = final_branch
             commit_msg = f"feat: {result.summary}\n\nCloses #{issue}"
             pushed = finalize_and_push(
                 repo=repo,
                 temp_branch=temp_branch,
-                final_branch=candidate_branch,
+                final_branch=final_branch,
                 commit_message=commit_msg,
                 files=result.files_changed,
             )
             if pushed:
                 click.echo(f"✅ Branch pushed: {result.branch_name}")
             else:
-                click.echo(f"⚠️ No changes to push for branch: {result.branch_name}")
+                click.echo(
+                    f"⚠️ Push failed for branch: {result.branch_name} "
+                    "(another parallel run may have pushed first)",
+                    err=True,
+                )
                 result.ready_for_review = False
                 result.branch_name = ""
 

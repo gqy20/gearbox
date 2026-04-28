@@ -145,8 +145,9 @@ SYSTEM_PROMPT = """你是代码实现专家。请根据 Issue 描述实现代码
 
 - 只修改当前工作区文件，**不要**执行 `git commit`、`git push`、`gh pr create`
 - 外层 Gearbox 编排器会负责创建分支、提交、推送和 PR
-- branch_name 只需要给出建议分支名，必须使用 `feat/issue-{number}` 或
-  `gearbox/implement-{number}` 前缀
+- branch_name 必须严格使用格式: {branch_format}
+  例如 feat/issue-17-run-0、feat/issue-17-run-1
+  不要自行添加 -run 后缀，调用方已注入唯一 run_id
 
 ## 输出格式
 
@@ -162,11 +163,17 @@ pr_url 请返回 null，外层编排器创建 PR 后会回填。
 - 如果无法完成，failure_reason 或 blocked_reason 必须有值"""
 
 
+def _build_implement_prompt(issue_number: int, run_id: int = 0) -> str:
+    branch_format = f"feat/issue-{{issue_number}}-run-{run_id}"
+    return SYSTEM_PROMPT.format(branch_format=branch_format)
+
+
 async def run_implement(
     repo: str,
     issue_number: int,
     *,
     model: str = "claude-sonnet-4-6",
+    run_id: int = 0,
     base_branch: str = "main",
     max_turns: int = 80,
 ) -> ImplementResult:
@@ -205,7 +212,7 @@ async def run_implement(
 {issue_body}
 
 ---
-{SYSTEM_PROMPT}"""
+{_build_implement_prompt(issue_number, run_id)}"""
 
     options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(

@@ -46,6 +46,10 @@ inputs:
     description: 候选分支后缀，用于并行实现隔离
     required: false
     default: ''
+  run_id:
+    description: 并行运行 ID（注入分支名确保唯一）
+    required: false
+    default: '0'
 
 outputs:
   status:
@@ -120,6 +124,10 @@ runs:
 
       if [ -n "${{ inputs.candidate_branch_suffix }}" ]; then
         CMD+=(--candidate-branch-suffix "${{ inputs.candidate_branch_suffix }}")
+      fi
+
+      if [ -n "${{ inputs.run_id }}" ]; then
+        CMD+=(--run-id "${{ inputs.run_id }}")
       fi
 
       "${CMD[@]}"

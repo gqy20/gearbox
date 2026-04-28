@@ -78,6 +78,7 @@ jobs:
           push_candidate_branch: 'true'
           create_pr: 'false'
           candidate_branch_suffix: run-${{ matrix.run_id }}
+          run_id: ${{ matrix.run_id }}
 
       - name: Upload run results
         if: always()

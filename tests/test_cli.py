@@ -595,7 +595,7 @@ class TestAgentCommand:
         data = json.loads(artifact_path.read_text(encoding="utf-8"))
         assert data["branch_name"] == ""
         assert data["ready_for_review"] is False
-        assert "No changes to push" in result.output
+        assert "Push failed for branch" in result.output
 
     def test_agent_implement_pushes_candidate_branch_with_suffix(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

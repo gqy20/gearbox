@@ -6,14 +6,22 @@ import json
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from pydantic import BaseModel
+
 
 def to_jsonable(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump()
     if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
     if isinstance(value, list):
         return [to_jsonable(item) for item in value]
     if isinstance(value, dict):
         return {key: to_jsonable(item) for key, item in value.items()}
+    if hasattr(value, "__dict__"):
+        return {k: to_jsonable(v) for k, v in value.__dict__.items() if not k.startswith("_")}
     return value
 
 

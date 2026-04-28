@@ -4,85 +4,23 @@ import json
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import click
 
+from gearbox.agents.schemas import AuditResult as _AuditResultModel
+from gearbox.agents.schemas import Issue as _IssueModel
 from gearbox.agents.shared import clone_repository
 from gearbox.core.gh import IssueSummary
 
-# =============================================================================
-# Schema 定义
-# =============================================================================
-
-OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "repo": {"type": "string", "description": "仓库标识"},
-        "profile": {
-            "type": "object",
-            "description": "仓库 Profile",
-        },
-        "comparison_markdown": {
-            "type": "string",
-            "description": "仓库与对标项目的 Markdown 对比分析",
-        },
-        "benchmarks": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "对标仓库列表",
-        },
-        "issues": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "body": {"type": "string"},
-                    "labels": {"type": "string"},
-                },
-                "required": ["title", "body", "labels"],
-            },
-            "description": "改进建议列表",
-        },
-        "failure_reason": {
-            "type": ["string", "null"],
-            "description": "无法完成审计时的原因说明",
-        },
-    },
-    "required": ["repo", "profile", "comparison_markdown", "issues"],
-}
+# Re-export for backward compat
+AuditResult = _AuditResultModel
+Issue = _IssueModel
 
 OUTPUT_FILES = ("profile.json", "comparison.md", "issues.json")
 
 # Benchmark 缓存
 _BENCHMARK_CACHE_DIR = Path.home() / ".cache" / "gearbox" / "benchmarks"
-
-# =============================================================================
-# 数据模型
-# =============================================================================
-
-
-@dataclass
-class Issue:
-    title: str
-    body: str
-    labels: str
-
-
-@dataclass
-class AuditResult:
-    """Audit Agent 结果"""
-
-    repo: str
-    profile: dict[str, Any] = field(default_factory=dict)
-    comparison_markdown: str = ""
-    benchmarks: list[str] = field(default_factory=list)
-    issues: list[Issue] = field(default_factory=list)
-    cost: float | None = None
-    failure_reason: str | None = None
 
 
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
@@ -159,19 +97,21 @@ def load_audit_result(output_dir: Path) -> AuditResult:
         comparison_path.read_text(encoding="utf-8") if comparison_path.exists() else ""
     )
 
-    return AuditResult(
-        repo=issues_payload.get("repo", ""),
-        profile=issues_payload.get("profile", {}),
-        comparison_markdown=comparison_markdown,
-        benchmarks=issues_payload.get("benchmarks", []),
-        issues=[
-            Issue(
-                title=item.get("title", ""),
-                body=item.get("body", ""),
-                labels=item.get("labels", "enhancement"),
-            )
-            for item in issues_payload.get("issues", [])
-        ],
+    return AuditResult.model_validate(
+        {
+            "repo": issues_payload.get("repo", ""),
+            "profile": issues_payload.get("profile", {}),
+            "comparison_markdown": comparison_markdown,
+            "benchmarks": issues_payload.get("benchmarks", []),
+            "issues": [
+                {
+                    "title": item.get("title", ""),
+                    "body": item.get("body", ""),
+                    "labels": item.get("labels", "enhancement"),
+                }
+                for item in issues_payload.get("issues", [])
+            ],
+        }
     )
 
 
@@ -262,14 +202,11 @@ async def run_audit(
         query,
     )
 
+    from gearbox.agents.schemas import output_format_schema, parse_with_model
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.scanner import (
         format_scan_summary,
         scan_repository,
-    )
-    from gearbox.agents.shared.structured import (
-        json_schema_output,
-        parse_structured_output,
     )
     from gearbox.config import get_anthropic_base_url, get_anthropic_model
 
@@ -350,7 +287,7 @@ async def run_audit(
                 model=resolved_model,
                 system_prompt=resolved_prompt,
                 max_turns=max_turns,
-                output_format=json_schema_output(OUTPUT_SCHEMA),
+                output_format=output_format_schema(AuditResult),
                 skills="all",
                 cwd=clone_root,
             ),
@@ -393,24 +330,7 @@ async def run_audit(
                 sdk_logger.handle_message(message, echo_assistant_text=False)
                 total_cost = getattr(message, "total_cost_usd", total_cost)
                 if structured is None:
-                    parsed = parse_structured_output(
-                        message,
-                        lambda data: AuditResult(
-                            repo=data.get("repo", repo),
-                            profile=data.get("profile", {}),
-                            comparison_markdown=data.get("comparison_markdown", ""),
-                            benchmarks=data.get("benchmarks", benchmarks or []),
-                            issues=[
-                                Issue(
-                                    title=item.get("title", ""),
-                                    body=item.get("body", ""),
-                                    labels=item.get("labels", "enhancement"),
-                                )
-                                for item in data.get("issues", [])
-                            ],
-                            failure_reason=data.get("failure_reason"),
-                        ),
-                    )
+                    parsed = parse_with_model(message, AuditResult)
                     if parsed is not None:
                         structured = parsed
                         break

@@ -3,67 +3,20 @@
 import json
 import re
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-# =============================================================================
-# Schema 定义（形式化，代码和文档共用）
-# =============================================================================
+from gearbox.agents.schemas import BacklogItemResult as _BacklogItemResultModel
 
-# JSON Schema 定义 — 形式化描述 Agent 应输出的结构
-OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "labels": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "建议添加的标签，如 bug/enhancement/documentation 等",
-        },
-        "priority": {
-            "type": "string",
-            "enum": ["P0", "P1", "P2", "P3"],
-            "description": "优先级：P0=生产故障，P1=核心受损，P2=一般，P3=优化建议",
-        },
-        "complexity": {
-            "type": "string",
-            "enum": ["S", "M", "L"],
-            "description": "实现复杂度：S=<1h，M=1-3天，L=>3天",
-        },
-        "ready_to_implement": {
-            "type": "boolean",
-            "description": "是否清晰可实现，可以开始编码",
-        },
-        "failure_reason": {
-            "type": ["string", "null"],
-            "description": "无法完成分类时的原因说明",
-        },
-    },
-    "required": ["labels", "priority", "ready_to_implement"],
-}
-
-# =============================================================================
-# 数据模型
-# =============================================================================
+# Re-export for backward compat
+BacklogItemResult = _BacklogItemResultModel
 
 
-@dataclass
-class BacklogItemResult:
-    """单个 Backlog Issue 的分类结果（对应 OUTPUT_SCHEMA）"""
-
-    labels: list[str]
-    priority: str  # P0/P1/P2/P3
-    complexity: str  # S/M/L
-    ready_to_implement: bool
-    issue_number: int | None = None
-    failure_reason: str | None = None
-
-
-@dataclass
 class BacklogResult:
     """Backlog 分类结果，单 issue 是多 issue 的特例。"""
 
-    items: list[BacklogItemResult]
+    def __init__(self, items: list[BacklogItemResult]) -> None:
+        self.items = items
 
 
 def parse_issue_numbers(value: str) -> list[int]:
@@ -127,14 +80,7 @@ def load_backlog_result(path: Path) -> BacklogResult:
     assert isinstance(raw_items, list)
     return BacklogResult(
         items=[
-            BacklogItemResult(
-                issue_number=cast(int | None, item.get("issue_number")),
-                labels=cast(list[str], item.get("labels", [])),
-                priority=cast(str, item.get("priority", "P3")),
-                complexity=cast(str, item.get("complexity", "M")),
-                ready_to_implement=cast(bool, item.get("ready_to_implement", False)),
-                failure_reason=cast(str | None, item.get("failure_reason")),
-            )
+            BacklogItemResult.model_validate(item)
             for item in cast(list[dict[str, object]], raw_items)
         ]
     )
@@ -228,10 +174,10 @@ async def run_backlog_item(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    from gearbox.agents.schemas import output_format_schema, parse_with_model
     from gearbox.agents.shared import clone_repository
     from gearbox.agents.shared.prompt_helpers import format_issues_summary
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
     from gearbox.core.gh import list_open_issues
 
     issue = _gh_issue_view(repo, issue_number)
@@ -270,7 +216,7 @@ async def run_backlog_item(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
-            output_format=json_schema_output(OUTPUT_SCHEMA),
+            output_format=output_format_schema(BacklogItemResult),
             allowed_tools=["Read", "Bash"],
             skills="all",
             cwd=cwd,
@@ -290,19 +236,11 @@ async def run_backlog_item(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
-                parsed = parse_structured_output(
-                    message,
-                    lambda data: BacklogItemResult(
-                        issue_number=issue_number,
-                        labels=cast(list[str], data.get("labels", [])),
-                        priority=cast(str, data.get("priority", "P3")),
-                        complexity=cast(str, data.get("complexity", "M")),
-                        ready_to_implement=cast(bool, data.get("ready_to_implement", False)),
-                        failure_reason=cast(str | None, data.get("failure_reason")),
-                    ),
-                )
+                parsed = parse_with_model(message, BacklogItemResult)
                 if parsed is not None:
                     structured = parsed
+                    # Inject issue_number since it's not part of the schema output
+                    structured.issue_number = issue_number
                     break
     finally:
         sdk_logger.log_completion()

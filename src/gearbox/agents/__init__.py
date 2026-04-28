@@ -1,18 +1,18 @@
 """Agent 模块 — 各业务 Agent 定义"""
 
-from .audit import OUTPUT_SCHEMA as AUDIT_SCHEMA
 from .audit import AuditResult, Issue, run_audit
-from .backlog import OUTPUT_SCHEMA as BACKLOG_SCHEMA
 from .backlog import BacklogItemResult, run_backlog_item
-from .evaluator import EVALUATOR_SCHEMA, EvaluationResult, run_evaluator
-from .implement import OUTPUT_SCHEMA as IMPLEMENT_SCHEMA
+from .evaluator import EvaluationResult, run_evaluator
 from .implement import ImplementResult, run_implement
-from .review import OUTPUT_SCHEMA as REVIEW_SCHEMA
 from .review import ReviewComment, ReviewResult, run_review
+from .schemas import (
+    output_format_schema,
+    parse_with_model,
+    validate,
+)
 from .shared import (
     SdkEventLogger,
     format_currency,
-    json_schema_output,
     parse_structured_output,
     prepare_agent_options,
     read_json_artifact,
@@ -26,10 +26,13 @@ __all__ = [
     # Audit
     "AuditResult",
     "Issue",
-    "AUDIT_SCHEMA",
     "run_audit",
-    "json_schema_output",
+    # Structured output utilities
+    "output_format_schema",
+    "parse_with_model",
+    "validate",
     "parse_structured_output",
+    # Shared
     "prepare_agent_options",
     "read_json_artifact",
     "SdkEventLogger",
@@ -40,19 +43,15 @@ __all__ = [
     "write_json_artifact",
     # Evaluator
     "EvaluationResult",
-    "EVALUATOR_SCHEMA",
     "run_evaluator",
     # Backlog
     "BacklogItemResult",
-    "BACKLOG_SCHEMA",
     "run_backlog_item",
     # Implement
     "ImplementResult",
-    "IMPLEMENT_SCHEMA",
     "run_implement",
     # Review
     "ReviewResult",
     "ReviewComment",
-    "REVIEW_SCHEMA",
     "run_review",
 ]

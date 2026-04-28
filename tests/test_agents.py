@@ -1,22 +1,26 @@
 """测试 agents 模块。"""
 
-from dataclasses import dataclass
-
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+from pydantic import ValidationError
 
 from gearbox.agents import backlog, implement
-from gearbox.agents.audit import AuditResult, Issue
 from gearbox.agents.backlog import (
-    BacklogItemResult,
     BacklogResult,
     github_labels_for_backlog_item,
     parse_issue_numbers,
 )
-from gearbox.agents.evaluator import EvaluationResult, build_evaluation_prompt
+from gearbox.agents.evaluator import build_evaluation_prompt
 from gearbox.agents.implement import SYSTEM_PROMPT as IMPLEMENT_SYSTEM_PROMPT
-from gearbox.agents.implement import ImplementResult
-from gearbox.agents.review import ReviewComment, ReviewResult
+from gearbox.agents.schemas import (
+    AuditResult,
+    BacklogItemResult,
+    EvaluationResult,
+    ImplementResult,
+    ReviewResult,
+    parse_with_model,
+)
+from gearbox.agents.schemas.audit import Issue as AuditIssue
 from gearbox.agents.shared.structured import parse_structured_output
 
 
@@ -33,7 +37,7 @@ def _result_message(data: dict) -> ResultMessage:
 
 
 class TestStructuredOutputParsing:
-    """测试基于 structured_output 的结果映射。"""
+    """测试基于 structured output 的 Pydantic 模型解析。"""
 
     def test_audit_mapping(self) -> None:
         message = _result_message(
@@ -51,16 +55,8 @@ class TestStructuredOutputParsing:
                 ],
             }
         )
-        result = parse_structured_output(
-            message,
-            lambda data: AuditResult(
-                repo=data["repo"],
-                profile=data["profile"],
-                comparison_markdown=data["comparison_markdown"],
-                benchmarks=data["benchmarks"],
-                issues=[Issue(**issue) for issue in data["issues"]],
-            ),
-        )
+        result = parse_with_model(message, AuditResult)
+        assert result is not None
         assert result.repo == "owner/repo"
         assert len(result.issues) == 1
 
@@ -73,7 +69,8 @@ class TestStructuredOutputParsing:
                 "ready_to_implement": True,
             }
         )
-        result = parse_structured_output(message, lambda data: BacklogItemResult(**data))
+        result = parse_with_model(message, BacklogItemResult)
+        assert result is not None
         assert result.labels == ["bug", "high-priority"]
         assert result.ready_to_implement is True
 
@@ -94,8 +91,9 @@ class TestStructuredOutputParsing:
             ],
         )
 
-        result = parse_structured_output(message, lambda data: BacklogItemResult(**data))
+        result = parse_with_model(message, BacklogItemResult)
 
+        assert result is not None
         assert result.labels == ["enhancement", "ci"]
         assert result.priority == "P2"
 
@@ -205,15 +203,8 @@ class TestStructuredOutputParsing:
                 ],
             }
         )
-        result = parse_structured_output(
-            message,
-            lambda data: ReviewResult(
-                verdict=data["verdict"],
-                score=data["score"],
-                summary=data["summary"],
-                comments=[ReviewComment(**comment) for comment in data["comments"]],
-            ),
-        )
+        result = parse_with_model(message, ReviewResult)
+        assert result is not None
         assert result.comments[0].severity == "blocker"
 
     def test_implement_mapping(self) -> None:
@@ -226,7 +217,8 @@ class TestStructuredOutputParsing:
                 "ready_for_review": True,
             }
         )
-        result = parse_structured_output(message, lambda data: ImplementResult(**data))
+        result = parse_with_model(message, ImplementResult)
+        assert result is not None
         assert result.branch_name == "feat/issue-42"
 
     def test_implement_prompt_leaves_git_side_effects_to_orchestrator(self) -> None:
@@ -311,34 +303,21 @@ class TestStructuredOutputParsing:
             }
         )
 
-        def _parse_score(raw: dict) -> dict:
-            return {
-                "score": float(raw.get("score", 0)),
-                "justification": raw.get("justification", ""),
-            }
-
-        result = parse_structured_output(
-            message,
-            lambda data: EvaluationResult(
-                winner=int(data["winner"]),
-                scores={int(k): _parse_score(v) for k, v in data["scores"].items()},
-                reasoning=data["reasoning"],
-                consensus=data["consensus"],
-            ),
-        )
+        result = parse_with_model(message, EvaluationResult)
+        assert result is not None
         assert result.winner == 0
-        assert 1 in result.scores
-        assert result.scores[0]["justification"] == "Complete and actionable"
+        assert 0 in result.scores
+        assert result.scores[0].justification == "Complete and actionable"
 
 
 class TestEvaluatorPrompt:
     """测试 evaluator prompt 构建。"""
 
     def test_build_prompt(self) -> None:
-        @dataclass
         class FakeResult:
-            labels: list
-            priority: str
+            def __init__(self, labels: list, priority: str) -> None:
+                self.labels = labels
+                self.priority = priority
 
         results = [
             FakeResult(labels=["bug"], priority="P1"),
@@ -355,7 +334,7 @@ class TestEvaluatorPrompt:
         results = [
             AuditResult(
                 repo="owner/repo",
-                issues=[Issue(title="A", body="B", labels="high")],
+                issues=[AuditIssue(title="A", body="B", labels="high")],
             )
         ]
         prompt = build_evaluation_prompt(results, "Audit 审计结果", ["run_0"])
@@ -363,8 +342,72 @@ class TestEvaluatorPrompt:
         assert '"title": "A"' in prompt
 
 
+class TestPydanticValidation:
+    """Pydantic 运行时校验 — 验证非法数据被正确拒绝。"""
+
+    def test_evaluator_rejects_non_numeric_score_key(self) -> None:
+        """Regression: the original crash was int('score') on a bad key."""
+        message = _result_message(
+            {
+                "winner": 0,
+                "scores": {
+                    "score": {"score": 0.9, "justification": "bad key"},
+                    "0": {"score": 0.85, "justification": "ok"},
+                },
+                "reasoning": "test",
+            }
+        )
+        result = parse_with_model(message, EvaluationResult)
+        assert result is not None
+        # Non-numeric keys should be silently dropped by BeforeValidator
+        assert 0 in result.scores
+        assert "score" not in result.scores  # type: ignore[operator]
+
+    def test_evaluator_rejects_missing_winner(self) -> None:
+        with pytest.raises(ValidationError):
+            EvaluationResult.model_validate(
+                {
+                    "scores": {},
+                    "reasoning": "no winner",
+                }
+            )
+
+    def test_review_rejects_invalid_verdict(self) -> None:
+        with pytest.raises(ValidationError):
+            ReviewResult.model_validate(
+                {
+                    "verdict": "INVALID",
+                    "score": 5,
+                    "summary": "test",
+                    "comments": [],
+                }
+            )
+
+    def test_review_rejects_score_out_of_range(self) -> None:
+        with pytest.raises(ValidationError):
+            ReviewResult.model_validate(
+                {
+                    "verdict": "LGTM",
+                    "score": 15,
+                    "summary": "test",
+                    "comments": [],
+                }
+            )
+
+    def test_backlog_rejects_invalid_priority(self) -> None:
+        with pytest.raises(ValidationError):
+            BacklogItemResult.model_validate(
+                {
+                    "labels": ["bug"],
+                    "priority": "P5",
+                    "complexity": "M",
+                    "ready_to_implement": False,
+                }
+            )
+
+
 class TestStructuredOutputErrorPaths:
-    """parse_structured_output 的 None 返回路径（错误/边界输入）"""
+    """parse_with_model / parse_structured_output 的 None 返回路径（错误/边界输入）"""
 
     def _result(self, data) -> ResultMessage:
         return ResultMessage(
@@ -379,32 +422,30 @@ class TestStructuredOutputErrorPaths:
 
     def _assistant(self, tool_input) -> AssistantMessage:
         return AssistantMessage(
-            model="test-model",
-            content=[ToolUseBlock(id="toolu_1", name="StructuredOutput", input=tool_input)],
+            model="test",
+            content=[ToolUseBlock(id="t1", name="StructuredOutput", input=tool_input)],
         )
 
     def test_result_message_with_none_structured_output_returns_none(self) -> None:
-        result = parse_structured_output(self._result(None), lambda data: data["key"])
+        result = parse_with_model(self._result(None), AuditResult)
         assert result is None
 
     def test_result_message_with_string_structured_output_returns_none(self) -> None:
-        result = parse_structured_output(self._result("not a dict"), lambda data: data["key"])
+        result = parse_with_model(self._result("not a dict"), AuditResult)
         assert result is None
 
     def test_result_message_with_list_structured_output_returns_none(self) -> None:
-        result = parse_structured_output(self._result([1, 2, 3]), lambda data: data["key"])
+        result = parse_with_model(self._result([1, 2, 3]), AuditResult)
         assert result is None
 
     def test_assistant_message_with_empty_content_returns_none(self) -> None:
         msg = AssistantMessage(model="test", content=[])
-        result = parse_structured_output(msg, lambda data: data)
+        result = parse_with_model(msg, BacklogItemResult)
         assert result is None
 
     def test_assistant_message_with_text_block_returns_none(self) -> None:
-        from claude_agent_sdk import TextBlock
-
         msg = AssistantMessage(model="test", content=[TextBlock(text="hello")])
-        result = parse_structured_output(msg, lambda data: data)
+        result = parse_with_model(msg, BacklogItemResult)
         assert result is None
 
     def test_assistant_message_with_wrong_tool_name_returns_none(self) -> None:
@@ -412,7 +453,7 @@ class TestStructuredOutputErrorPaths:
             model="test",
             content=[ToolUseBlock(id="t1", name="OtherTool", input={"key": "val"})],
         )
-        result = parse_structured_output(msg, lambda data: data)
+        result = parse_with_model(msg, BacklogItemResult)
         assert result is None
 
     def test_assistant_message_with_non_dict_tool_input_returns_none(self) -> None:
@@ -420,10 +461,19 @@ class TestStructuredOutputErrorPaths:
             model="test",
             content=[ToolUseBlock(id="t1", name="StructuredOutput", input="bad")],
         )
-        result = parse_structured_output(msg, lambda data: data)
+        result = parse_with_model(msg, BacklogItemResult)
         assert result is None
 
     def test_non_message_object_returns_none(self) -> None:
         for bad_input in [42, "string", [1, 2], {"key": "val"}, None]:
-            result = parse_structured_output(bad_input, lambda data: data)
+            result = parse_with_model(bad_input, BacklogItemResult)
             assert result is None
+
+    # Legacy parse_structured_output backward-compat tests
+    def test_legacy_parse_structured_output_none(self) -> None:
+        result = parse_structured_output(self._result(None), lambda data: data["key"])
+        assert result is None
+
+    def test_legacy_parse_structured_output_string(self) -> None:
+        result = parse_structured_output(self._result("not a dict"), lambda data: data["key"])
+        assert result is None

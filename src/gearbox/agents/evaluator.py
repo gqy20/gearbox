@@ -1,59 +1,14 @@
 """Evaluator Agent — 通用评估器，评判多个结果的优劣"""
 
 import json
-from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
-# =============================================================================
-# Schema 定义
-# =============================================================================
+from gearbox.agents.schemas import EvaluationResult as _EvaluationResultModel
+
+# Re-export for backward compat
+EvaluationResult = _EvaluationResultModel
 
 DEFAULT_EVALUATOR_MAX_TURNS = 29
-
-EVALUATOR_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "winner": {
-            "type": "integer",
-            "description": "最佳结果索引 (0-based)",
-        },
-        "scores": {
-            "type": "object",
-            "additionalProperties": {
-                "type": "object",
-                "properties": {
-                    "score": {"type": "number", "minimum": 0, "maximum": 1},
-                    "justification": {
-                        "type": "string",
-                        "description": "该分数的具体依据或证据",
-                    },
-                },
-                "required": ["score", "justification"],
-            },
-            "description": "每个结果的评分 (0-1) 及评分依据",
-        },
-        "reasoning": {
-            "type": "string",
-            "description": "详细推理过程，不少于 100 字，必须包含：为什么 winner 比其他好？其他结果被拒绝的具体原因？",
-        },
-        "consensus": {
-            "type": "array",
-            "description": "多个结果一致认为重要的项",
-            "items": {"type": "string"},
-        },
-    },
-    "required": ["winner", "scores", "reasoning"],
-}
-
-
-@dataclass
-class EvaluationResult:
-    """评估结果"""
-
-    winner: int  # 最佳结果索引
-    scores: dict[int, dict[str, Any]]  # 每个结果的评分及依据 {"score": 0.8, "justification": "..."}
-    reasoning: str  # 推理过程
-    consensus: list[str] = field(default_factory=list)  # 共识项
 
 
 # =============================================================================
@@ -116,8 +71,8 @@ def build_evaluation_prompt(
 
 def _format_result_for_prompt(result: Any) -> str:
     """将结果格式化为 prompt 文本"""
-    if is_dataclass(result) and not isinstance(result, type):
-        data = asdict(result)
+    if hasattr(result, "model_dump"):
+        data = result.model_dump()
     elif hasattr(result, "__dict__"):
         data = {
             k: v for k, v in result.__dict__.items() if not k.startswith("_") and not callable(v)
@@ -161,8 +116,8 @@ async def run_evaluator(
         query,
     )
 
+    from gearbox.agents.schemas import output_format_schema, parse_with_model
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
     from gearbox.config import get_anthropic_model
 
     model = model or get_anthropic_model()
@@ -174,7 +129,7 @@ async def run_evaluator(
             model=model,
             system_prompt=SYSTEM_PROMPT,
             max_turns=max_turns,
-            output_format=json_schema_output(EVALUATOR_SCHEMA),
+            output_format=output_format_schema(EvaluationResult),
         ),
         agent_name="evaluator",
     )
@@ -191,21 +146,7 @@ async def run_evaluator(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
-                parsed = parse_structured_output(
-                    message,
-                    lambda data: EvaluationResult(
-                        winner=int(data.get("winner", 0)),
-                        scores={
-                            int(k): {
-                                "score": float(v.get("score", 0)),
-                                "justification": v.get("justification", ""),
-                            }
-                            for k, v in data.get("scores", {}).items()
-                        },
-                        reasoning=data.get("reasoning", ""),
-                        consensus=data.get("consensus", []),
-                    ),
-                )
+                parsed = parse_with_model(message, EvaluationResult)
                 if parsed is not None:
                     structured = parsed
                     break

@@ -2,66 +2,13 @@
 
 import json
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-# =============================================================================
-# Schema 定义
-# =============================================================================
+from gearbox.agents.schemas import ImplementResult as _ImplementResultModel
 
-OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "branch_name": {
-            "type": "string",
-            "description": "创建的分支名，格式 feat/issue-{number} 或 gearbox/implement-{number}",
-        },
-        "summary": {
-            "type": "string",
-            "description": "本次修改的简要说明",
-        },
-        "files_changed": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "修改的文件路径列表",
-        },
-        "pr_url": {
-            "type": ["string", "null"],
-            "description": "创建的 PR URL，尚未创建时为 null",
-        },
-        "ready_for_review": {
-            "type": "boolean",
-            "description": "是否已提交并准备好等待 review",
-        },
-        "failure_reason": {
-            "type": ["string", "null"],
-            "description": "无法完成时的原因说明（阻塞点、分析失败等）",
-        },
-        "blocked_reason": {
-            "type": ["string", "null"],
-            "description": "如果实现被阻塞，填写具体原因",
-        },
-    },
-    "required": ["branch_name", "summary", "files_changed", "ready_for_review"],
-}
-
-# =============================================================================
-# 数据模型
-# =============================================================================
-
-
-@dataclass
-class ImplementResult:
-    """Implement Agent 执行结果"""
-
-    branch_name: str
-    summary: str
-    files_changed: list[str]
-    pr_url: str | None
-    ready_for_review: bool
-    failure_reason: str | None = None
-    blocked_reason: str | None = None
+# Re-export for backward compat
+ImplementResult = _ImplementResultModel
 
 
 def write_implement_result(result: ImplementResult, output_path: Path) -> None:
@@ -76,15 +23,7 @@ def load_implement_result(path: Path) -> ImplementResult:
     from gearbox.agents.shared.artifacts import read_json_artifact
 
     data = read_json_artifact(path)
-    return ImplementResult(
-        branch_name=cast(str, data.get("branch_name", "")),
-        summary=cast(str, data.get("summary", "")),
-        files_changed=cast(list[str], data.get("files_changed", [])),
-        pr_url=cast(str | None, data.get("pr_url")),
-        ready_for_review=cast(bool, data.get("ready_for_review", False)),
-        failure_reason=cast(str | None, data.get("failure_reason")),
-        blocked_reason=cast(str | None, data.get("blocked_reason")),
-    )
+    return ImplementResult.model_validate(data)
 
 
 # =============================================================================
@@ -194,8 +133,8 @@ async def run_implement(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    from gearbox.agents.schemas import output_format_schema, parse_with_model
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
 
     project_root = Path.cwd()
     issue = _gh_issue_view(repo, issue_number)
@@ -218,7 +157,7 @@ async def run_implement(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
-            output_format=json_schema_output(OUTPUT_SCHEMA),
+            output_format=output_format_schema(ImplementResult),
             allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
             permission_mode="acceptEdits",
             skills="all",
@@ -239,18 +178,7 @@ async def run_implement(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
-                parsed = parse_structured_output(
-                    message,
-                    lambda data: ImplementResult(
-                        branch_name=data.get("branch_name", ""),
-                        summary=data.get("summary", ""),
-                        files_changed=data.get("files_changed", []),
-                        pr_url=data.get("pr_url"),
-                        ready_for_review=data.get("ready_for_review", False),
-                        failure_reason=data.get("failure_reason"),
-                        blocked_reason=data.get("blocked_reason"),
-                    ),
-                )
+                parsed = parse_with_model(message, ImplementResult)
                 if parsed is not None:
                     structured = parsed
                     break

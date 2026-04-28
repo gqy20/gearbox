@@ -2,81 +2,15 @@
 
 import json
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-# =============================================================================
-# Schema 定义
-# =============================================================================
+from gearbox.agents.schemas import ReviewComment as _ReviewCommentModel
+from gearbox.agents.schemas import ReviewResult as _ReviewResultModel
 
-OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "verdict": {
-            "type": "string",
-            "enum": ["LGTM", "Request Changes", "Comment Only"],
-            "description": "审查结论",
-        },
-        "score": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 10,
-            "description": "代码质量评分 0-10",
-        },
-        "summary": {
-            "type": "string",
-            "description": "总体评价摘要",
-        },
-        "comments": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "file": {"type": "string"},
-                    "line": {"type": ["integer", "null"]},
-                    "body": {"type": "string"},
-                    "severity": {
-                        "type": "string",
-                        "enum": ["blocker", "warning", "info"],
-                    },
-                },
-                "required": ["file", "body", "severity"],
-            },
-            "description": "具体审查意见列表",
-        },
-        "failure_reason": {
-            "type": ["string", "null"],
-            "description": "无法完成审查时的原因说明",
-        },
-    },
-    "required": ["verdict", "score", "summary", "comments"],
-}
-
-# =============================================================================
-# 数据模型
-# =============================================================================
-
-
-@dataclass
-class ReviewComment:
-    """单条审查意见"""
-
-    file: str
-    line: int | None
-    body: str
-    severity: str  # blocker/warning/info
-
-
-@dataclass
-class ReviewResult:
-    """Review Agent 结果"""
-
-    verdict: str
-    score: int
-    summary: str
-    comments: list[ReviewComment]
-    failure_reason: str | None = None
+# Re-export for backward compat
+ReviewComment = _ReviewCommentModel
+ReviewResult = _ReviewResultModel
 
 
 def _coerce_optional_line(value: object) -> int | None:
@@ -97,21 +31,7 @@ def load_review_result(path: Path) -> ReviewResult:
     from gearbox.agents.shared.artifacts import read_json_artifact
 
     data = read_json_artifact(path)
-    return ReviewResult(
-        verdict=cast(str, data.get("verdict", "Comment Only")),
-        score=cast(int, data.get("score", 5)),
-        summary=cast(str, data.get("summary", "")),
-        comments=[
-            ReviewComment(
-                file=cast(str, comment.get("file", "")),
-                line=_coerce_optional_line(comment.get("line")),
-                body=cast(str, comment.get("body", "")),
-                severity=cast(str, comment.get("severity", "info")),
-            )
-            for comment in cast(list[dict[str, object]], data.get("comments", []))
-        ],
-        failure_reason=cast(str | None, data.get("failure_reason")),
-    )
+    return ReviewResult.model_validate(data)
 
 
 # =============================================================================
@@ -202,8 +122,8 @@ async def run_review(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
+    from gearbox.agents.schemas import output_format_schema, parse_with_model
     from gearbox.agents.shared.runtime import prepare_agent_options
-    from gearbox.agents.shared.structured import json_schema_output, parse_structured_output
 
     project_root = Path(__file__).resolve().parents[3]
     pr_info = _gh_pr_view(repo, pr_number)
@@ -233,7 +153,7 @@ async def run_review(
         ClaudeAgentOptions(
             model=model,
             max_turns=max_turns,
-            output_format=json_schema_output(OUTPUT_SCHEMA),
+            output_format=output_format_schema(ReviewResult),
             allowed_tools=["Read", "Grep", "Glob"],
             skills="all",
             cwd=project_root,
@@ -253,24 +173,7 @@ async def run_review(
         async for message in query(prompt=prompt, options=options):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
-                parsed = parse_structured_output(
-                    message,
-                    lambda data: ReviewResult(
-                        verdict=cast(str, data.get("verdict", "Comment Only")),
-                        score=cast(int, data.get("score", 5)),
-                        summary=cast(str, data.get("summary", "")),
-                        comments=[
-                            ReviewComment(
-                                file=cast(str, comment.get("file", "")),
-                                line=_coerce_optional_line(comment.get("line")),
-                                body=cast(str, comment.get("body", "")),
-                                severity=cast(str, comment.get("severity", "info")),
-                            )
-                            for comment in cast(list[dict[str, object]], data.get("comments", []))
-                        ],
-                        failure_reason=cast(str | None, data.get("failure_reason")),
-                    ),
-                )
+                parsed = parse_with_model(message, ReviewResult)
                 if parsed is not None:
                     structured = parsed
                     break

@@ -1,7 +1,9 @@
 """测试 Claude Agent SDK 日志适配。"""
 
+import logging
 import os
 
+import pytest
 from claude_agent_sdk import ClaudeAgentOptions, StreamEvent
 
 from gearbox.agents.shared.runtime import SdkEventLogger, prepare_agent_options
@@ -27,6 +29,34 @@ class TestPrepareSdkOptions:
         finally:
             del os.environ["ANTHROPIC_AUTH_TOKEN"]
             del os.environ["ANTHROPIC_BASE_URL"]
+
+    def test_warns_on_non_claude_model(self, caplog: pytest.LogCaptureFixture) -> None:
+        """非 claude-* 前缀的模型应发出 warning 日志"""
+        with caplog.at_level(logging.WARNING):
+            prepare_agent_options(
+                ClaudeAgentOptions(model="glm-5-turbo"),
+                agent_name="audit",
+            )
+        warnings_found = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "claude" in r.message.lower()
+        ]
+        assert len(warnings_found) > 0, (
+            "Expected a warning when using a non-Claude model with claude-agent-sdk"
+        )
+
+    def test_no_warning_for_claude_model(self, caplog: pytest.LogCaptureFixture) -> None:
+        """claude-* 前缀的模型不应发出 warning"""
+        with caplog.at_level(logging.WARNING):
+            prepare_agent_options(
+                ClaudeAgentOptions(model="claude-sonnet-4-6"),
+                agent_name="audit",
+            )
+        warnings_found = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings_found) == 0, (
+            f"Unexpected warnings for Claude model: {[r.message for r in warnings_found]}"
+        )
 
 
 class TestSdkEventLogger:

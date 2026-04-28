@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import replace
@@ -21,6 +22,8 @@ from claude_agent_sdk import (
 )
 
 from gearbox.config import get_anthropic_api_key, get_anthropic_base_url
+
+logger = logging.getLogger(__name__)
 
 _HEARTBEAT_INTERVAL_SECONDS = 20.0
 _HEARTBEAT_IDLE_THRESHOLD_SECONDS = 20.0
@@ -389,8 +392,18 @@ def prepare_agent_options(
     agent_name: str,
 ) -> tuple[ClaudeAgentOptions, SdkEventLogger]:
     """为 SDK 选项注入统一环境变量、partial messages 和 stderr 日志回调。"""
-    logger = SdkEventLogger(agent_name)
+    sdk_logger = SdkEventLogger(agent_name)
     env = dict(options.env)
+
+    # 非 claude-* 模型可能与 SDK 的 structured output / tool use 不兼容
+    if options.model and not options.model.startswith("claude-"):
+        logger.warning(
+            "Model '%s' is not a Claude model (agent=%s). "
+            "claude-agent-sdk features such as structured output and tool use "
+            "may not work correctly with non-Claude backends.",
+            options.model,
+            agent_name,
+        )
 
     api_key = get_anthropic_api_key()
     base_url = get_anthropic_base_url()
@@ -403,8 +416,8 @@ def prepare_agent_options(
         replace(
             options,
             env=env,
-            stderr=logger.stderr_callback,
+            stderr=sdk_logger.stderr_callback,
             include_partial_messages=True,
         ),
-        logger,
+        sdk_logger,
     )

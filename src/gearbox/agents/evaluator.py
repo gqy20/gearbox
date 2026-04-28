@@ -95,7 +95,7 @@ async def run_evaluator(
     result_type: str,
     result_names: list[str] | None = None,
     *,
-    model: str = "claude-sonnet-4-6",
+    model: str | None = None,
     max_turns: int = DEFAULT_EVALUATOR_MAX_TURNS,
 ) -> EvaluationResult:
     """
@@ -105,7 +105,7 @@ async def run_evaluator(
         results: 待评估的结果列表
         result_type: 结果类型描述
         result_names: 可选的名称列表
-        model: 使用的模型
+        model: 使用的模型（默认使用 get_anthropic_model()）
         max_turns: 最大对话轮次
 
     Returns:
@@ -120,7 +120,8 @@ async def run_evaluator(
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.config import get_anthropic_model
 
-    model = model or get_anthropic_model()
+    if model is None:
+        model = get_anthropic_model()
 
     prompt = build_evaluation_prompt(results, result_type, result_names)
 

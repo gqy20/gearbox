@@ -101,6 +101,38 @@ class TestAnthropicModel:
         assert isinstance(model, str)
         assert len(model) > 0
 
+    def test_default_is_claude_model(self) -> None:
+        """默认模型应为 Claude 模型，与 claude-agent-sdk 兼容"""
+        # 确保无环境变量和配置干扰
+        env_keys = ["ANTHROPIC_MODEL", "XDG_CONFIG_HOME"]
+        saved = {k: os.environ.pop(k, None) for k in env_keys}
+        try:
+            model = get_anthropic_model()
+            # 默认值必须以 claude- 开头，确保 SDK 兼容性
+            assert model.startswith("claude-"), (
+                f"Default model '{model}' is not a Claude model; "
+                f"claude-agent-sdk requires Claude models for structured output / tool use"
+            )
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
+
+    def test_default_matches_anthropic_provider(self) -> None:
+        """最终 fallback 默认值应与 PROVIDERS['anthropic']['model'] 一致"""
+        env_keys = ["ANTHROPIC_MODEL", "XDG_CONFIG_HOME"]
+        saved = {k: os.environ.pop(k, None) for k in env_keys}
+        try:
+            model = get_anthropic_model()
+            assert model == PROVIDERS["anthropic"]["model"], (
+                f"Default model '{model}' does not match anthropic provider default "
+                f"'{PROVIDERS['anthropic']['model']}'"
+            )
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
+
     def test_env_override(self) -> None:
         os.environ["ANTHROPIC_MODEL"] = "test-model"
         try:

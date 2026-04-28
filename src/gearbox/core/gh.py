@@ -603,6 +603,31 @@ def ensure_git_author() -> None:
         text=True,
     ).stdout.strip()
 
+    actor_id: str | None = None
+    if not name or not email:
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_PAT")
+        if token:
+            try:
+                result = subprocess.run(
+                    [
+                        "gh",
+                        "api",
+                        "user",
+                        "--jq",
+                        ".login,.id",
+                    ],
+                    env={**os.environ, "GH_TOKEN": token, "NO_COLOR": "1"},
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                parts = result.stdout.strip().split(",")
+                if len(parts) == 2 and parts[0]:
+                    name = name or parts[0]
+                    actor_id = actor_id or parts[1]
+            except Exception:
+                pass
+
     if not name:
         actor = os.environ.get("GITHUB_ACTOR") or "github-actions"
         subprocess.run(["git", "config", "user.name", actor], check=True)

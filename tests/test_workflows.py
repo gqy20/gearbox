@@ -228,15 +228,12 @@ class TestDispatchWorkflow:
         assert "--add-label ready-to-implement" in workflow
         assert "Gearbox dispatch failed" in workflow
 
-    def test_dispatch_workflow_enables_auto_merge_after_pr_creation(self) -> None:
+    def test_dispatch_workflow_does_not_auto_merge(self) -> None:
         root = _root()
         workflow = (root / ".github" / "workflows" / "dispatch.yml").read_text(encoding="utf-8")
 
-        assert "enable-auto-merge:" in workflow
-        assert "gh pr list" in workflow
-        assert "gh pr merge" in workflow
-        assert "--auto" in workflow
-        assert "--squash" in workflow
+        assert "enable-auto-merge:" not in workflow
+        assert "gh pr merge" not in workflow
 
     def test_dispatch_schedule_has_no_priority_restriction(self) -> None:
         root = _root()

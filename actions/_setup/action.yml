@@ -121,7 +121,7 @@ runs:
 
       if [ -n "$TOOLS" ]; then
         echo "📦 Installing: $TOOLS"
-        sudo apt-get update -qq && sudo apt-get install -y -qq $TOOLS
+        sudo apt-get update -qq && sudo apt-get install -y -qq "$TOOLS"
         echo "✅ System tools installed"
       else
         echo "✅ System tools already installed"

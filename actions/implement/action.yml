@@ -70,6 +70,13 @@ runs:
       ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
     run: |
       set -e
+      source "$GITHUB_ACTION_PATH/../_lib/validate.sh"
+
+      validate_repo "${{ inputs.repo }}"
+      validate_number "issue_number" "${{ inputs.issue_number }}"
+      if [ -n "${{ inputs.base_branch }}" ]; then
+        validate_path "${{ inputs.base_branch }}"
+      fi
 
       if [ -n "$ANTHROPIC_API_KEY" ]; then
         export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"

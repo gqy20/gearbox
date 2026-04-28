@@ -85,6 +85,13 @@ runs:
       GH_TOKEN: ${{ github.token }}
     run: |
       set -e
+      source "$GITHUB_ACTION_PATH/../_lib/validate.sh"
+
+      validate_repo "${{ inputs.repo }}"
+      validate_repo_list "${{ inputs.benchmarks }}"
+      if [ -n "${{ inputs.system_prompt }}" ]; then
+        validate_path "${{ inputs.system_prompt }}"
+      fi
 
       INPUT_OUTPUT_DIR="${{ inputs.output_dir }}"
       case "$INPUT_OUTPUT_DIR" in

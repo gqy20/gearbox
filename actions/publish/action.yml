@@ -22,6 +22,10 @@ runs:
     id: publish
     shell: bash
     run: |
+      set -e
+      source "$GITHUB_ACTION_PATH/../_lib/validate.sh"
       export PATH="$HOME/.local/bin:$PATH"
+
+      validate_path "${{ inputs.input_path }}"
       uv run --directory "${GITHUB_ACTION_PATH}/../.." gearbox publish-issues --input "${{ inputs.input_path }}"
       echo "status=success" >> $GITHUB_OUTPUT

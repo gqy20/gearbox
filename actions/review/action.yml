@@ -55,6 +55,10 @@ runs:
       GH_TOKEN: ${{ github.token }}
     run: |
       set -e
+      source "$GITHUB_ACTION_PATH/../_lib/validate.sh"
+
+      validate_repo "${{ inputs.repo }}"
+      validate_number "pr_number" "${{ inputs.pr_number }}"
 
       if [ -n "$ANTHROPIC_API_KEY" ]; then
         export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"

@@ -181,7 +181,7 @@ async def run_backlog_item(
     from gearbox.core.gh import list_open_issues
 
     issue = _gh_issue_view(repo, issue_number)
-    all_issues = list_open_issues(repo, limit=50)
+    all_issues = list_open_issues(repo, limit=50) or []
     issues_summary = format_issues_summary(all_issues, current_issue_number=issue_number)
 
     prompt = f"""## 当前 Issue 信息

@@ -265,7 +265,7 @@ async def run_audit(
             from gearbox.agents.shared.prompt_helpers import format_issues_summary
             from gearbox.core.gh import list_open_issues
 
-            existing_issues = list_open_issues(repo, limit=200)
+            existing_issues = list_open_issues(repo, limit=200) or []
             if existing_issues:
                 click.echo(f"📋 已有 open Issues: {len(existing_issues)} 个")
                 existing_issues_str = format_issues_summary(

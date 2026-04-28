@@ -1,10 +1,15 @@
 """GitHub 操作模块 - 集中管理所有 gh/git 操作"""
 
 import json
+import logging
 import os
 import subprocess
+import time
 from dataclasses import dataclass
-from typing import Any
+from functools import wraps
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +49,59 @@ BACKLOG_LABEL_METADATA: dict[str, tuple[str, str]] = {
 }
 
 MANAGED_BACKLOG_LABELS = frozenset(BACKLOG_LABEL_METADATA)
+
+# 需要重试的函数名集合（瞬态故障自动重试）
+_RETRYABLE_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        "list_open_issues",
+        "get_repo_labels",
+        "get_issue_labels",
+        "get_issue_label_events",
+    }
+)
+
+_MAX_RETRIES = 2
+_RETRY_BASE_DELAY = 0.5  # seconds
+
+
+def _with_retry(func: Callable[..., Any]) -> Callable[..., Any]:
+    """为函数包装指数退避重试逻辑。"""
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return func(*args, **kwargs)
+            except (subprocess.CalledProcessError, OSError) as exc:
+                if attempt < _MAX_RETRIES:
+                    delay = _RETRY_BASE_DELAY * (2**attempt)
+                    logger.warning(
+                        "%s (attempt %d/%d, retrying in %.1fs): %s",
+                        func.__name__,
+                        attempt + 1,
+                        _MAX_RETRIES + 1,
+                        delay,
+                        _extract_error_detail(exc),
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.warning(
+                        "%s failed after %d attempts: %s",
+                        func.__name__,
+                        _MAX_RETRIES + 1,
+                        _extract_error_detail(exc),
+                    )
+        return None  # type: ignore[return-value]
+
+    return wrapper
+
+
+def _extract_error_detail(exc: Exception) -> str:
+    """从异常中提取可读的错误详情。"""
+    if isinstance(exc, subprocess.CalledProcessError):
+        stderr = exc.stderr.strip() if isinstance(exc.stderr, str) else ""
+        return stderr or str(exc)
+    return str(exc)
 
 
 def _label_metadata(label: str) -> tuple[str, str]:
@@ -149,7 +207,9 @@ def post_issue_comment(
         )
         return PostReviewResult(success=True)
     except subprocess.CalledProcessError as e:
-        return PostReviewResult(success=False, url=e.stderr.strip())
+        detail = _extract_error_detail(e)
+        logger.warning("post_issue_comment failed for %s#%d: %s", repo, issue_number, detail)
+        return PostReviewResult(success=False, url=detail)
 
 
 def add_issue_labels(
@@ -161,9 +221,13 @@ def add_issue_labels(
     if not labels:
         return PostReviewResult(success=True)
 
-    # 验证标签是否存在
+    # 验证标签是否存在（查询失败时跳过验证，直接尝试添加）
     existing_labels = get_repo_labels(repo)
-    unknown_labels = [label for label in labels if label not in existing_labels]
+    unknown_labels: list[str] = []
+    if existing_labels is not None:
+        unknown_labels = [label for label in labels if label not in existing_labels]
+    else:
+        logger.warning("get_repo_labels returned None for %s, skipping label existence check", repo)
     if unknown_labels:
         import sys
 
@@ -227,9 +291,11 @@ def remove_issue_labels(
         return PostReviewResult(success=False, url=e.stderr.strip())
 
 
-def get_issue_labels(repo: str, issue_number: int) -> list[str]:
-    """获取 Issue 当前标签列表。"""
-    try:
+def get_issue_labels(repo: str, issue_number: int) -> list[str] | None:
+    """获取 Issue 当前标签列表。失败返回 None，成功（含空列表）返回 list。"""
+
+    @_with_retry
+    def _query() -> list[str]:
         result = subprocess.run(
             [
                 "gh",
@@ -249,8 +315,14 @@ def get_issue_labels(repo: str, issue_number: int) -> list[str]:
         )
         labels = json.loads(result.stdout)
         return [str(label) for label in labels]
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
-        return []
+
+    try:
+        return _query()  # type: ignore[no-any-return]
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        logger.warning(
+            "get_issue_labels failed for %s#%d: %s", repo, issue_number, _extract_error_detail(e)
+        )
+        return None
 
 
 @dataclass
@@ -265,9 +337,12 @@ def get_issue_label_events(
     issue_number: int,
     labels: set[str],
     since_days: int = 2,
-) -> list[LabelEvent]:
-    """获取指定标签在近 N 天内的变更事件（labeled/unlabeled）。"""
-    try:
+) -> list[LabelEvent] | None:
+    """获取指定标签在近 N 天内的变更事件（labeled/unlabeled）。
+    失败返回 None，成功返回 list（可能为空）。"""
+
+    @_with_retry
+    def _query() -> list[LabelEvent]:
         result = subprocess.run(
             [
                 "gh",
@@ -294,14 +369,23 @@ def get_issue_label_events(
                     )
                 )
         return events
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
-        return []
+
+    try:
+        return _query()  # type: ignore[no-any-return]
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        logger.warning(
+            "get_issue_label_events failed for %s#%d: %s",
+            repo,
+            issue_number,
+            _extract_error_detail(e),
+        )
+        return None
 
 
 def list_open_issues(
     repo: str, labels: list[str] | None = None, limit: int = 100
-) -> list[IssueSummary]:
-    """列出开放 Issue 摘要。"""
+) -> list[IssueSummary] | None:
+    """列出开放 Issue 摘要。失败返回 None，成功返回 list（可能为空）。"""
     cmd = [
         "gh",
         "issue",
@@ -318,7 +402,8 @@ def list_open_issues(
     for label in labels or []:
         cmd.extend(["--label", label])
 
-    try:
+    @_with_retry
+    def _query() -> list[IssueSummary]:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         issues = json.loads(result.stdout)
         return [
@@ -331,8 +416,12 @@ def list_open_issues(
             )
             for issue in issues
         ]
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
-        return []
+
+    try:
+        return _query()  # type: ignore[no-any-return]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as e:
+        logger.warning("list_open_issues failed for %s: %s", repo, _extract_error_detail(e))
+        return None
 
 
 def get_issue_summary(repo: str, issue_number: int) -> IssueSummary | None:
@@ -363,7 +452,13 @@ def get_issue_summary(repo: str, issue_number: int) -> IssueSummary | None:
             url=str(issue.get("url", "")),
             created_at=str(issue.get("createdAt", "")),
         )
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as e:
+        logger.warning(
+            "get_issue_summary failed for %s#%d: %s",
+            repo,
+            issue_number,
+            _extract_error_detail(e),
+        )
         return None
 
 
@@ -374,6 +469,14 @@ def replace_managed_issue_labels(
 ) -> PostReviewResult:
     """幂等替换 Gearbox 管理标签，再添加新的分类标签。"""
     current_labels = get_issue_labels(repo, issue_number)
+    # 查询失败时假设没有当前标签，避免误删
+    if current_labels is None:
+        logger.warning(
+            "get_issue_labels returned None for %s#%d, assuming no current labels",
+            repo,
+            issue_number,
+        )
+        current_labels = []
     next_labels = list(dict.fromkeys(labels))
     managed_to_remove = [
         label
@@ -388,17 +491,19 @@ def replace_managed_issue_labels(
     return add_issue_labels(repo, issue_number, next_labels)
 
 
-def get_repo_labels(repo: str) -> list[str]:
+def get_repo_labels(repo: str) -> list[str] | None:
     """
-    获取仓库现有的标签列表。
+    获取仓库现有的标签列表。失败返回 None，成功返回 list（可能为空）。
 
     Args:
         repo: 仓库标识
 
     Returns:
-        标签名称列表
+        标签名称列表或 None（表示查询失败）
     """
-    try:
+
+    @_with_retry
+    def _query() -> list[str]:
         result = subprocess.run(
             ["gh", "label", "list", "--repo", repo, "--json", "name"],
             check=True,
@@ -407,8 +512,12 @@ def get_repo_labels(repo: str) -> list[str]:
         )
         labels = json.loads(result.stdout)
         return [label["name"] for label in labels]
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
-        return []
+
+    try:
+        return _query()  # type: ignore[no-any-return]
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        logger.warning("get_repo_labels failed for %s: %s", repo, _extract_error_detail(e))
+        return None
 
 
 def prepare_branch(base_branch: str, temp_branch: str) -> None:

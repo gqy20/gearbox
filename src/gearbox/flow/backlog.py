@@ -22,7 +22,7 @@ def _needs_reclassification(
 ) -> bool:
     """如果分类标签在近 N 天内有变更记录，返回 False（不需要重新分类）。"""
     events = get_issue_label_events(repo, issue_number, CLASSIFICATION_LABELS, since_days)
-    if not events:
+    if not events:  # None (failure) or [] (no events) → skip reclassification check
         return False  # 没有任何变更记录，视为需要重新评估
     cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
     for event in events:
@@ -81,6 +81,6 @@ def build_backlog_plan(repo: str, max_items: int = 5, since_days: int = 2) -> Ba
     if max_items < 1:
         raise ValueError("max_items must be a positive integer")
 
-    issues = list_open_issues(repo)
+    issues = list_open_issues(repo) or []
     items, skipped_count = select_backlog_items(repo, issues, max_items, since_days)
     return BacklogPlan(repo=repo, items=items, skipped_count=skipped_count)

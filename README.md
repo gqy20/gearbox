@@ -8,6 +8,20 @@ Gearbox 是开发母仓，用于维护源码、测试、文档、内部 workflow
 Audit -> Issue -> Backlog -> Implement -> Review -> Merge -> Report
 ```
 
+## 项目概述
+
+**1. 核心痛点**
+
+传统开源项目从发现问题到代码合入全链路依赖人工：Issue 积压无人分类排优先级、开发者手动实现耗时数天、Code Review 成为吞吐瓶颈且合并决策缺乏标准化流程。Gearbox 基于 **Claude Agent SDK** 构建了全自动化闭环飞轮——从审计发现代码问题、自动创建 Issue、AI 分类排优先、调度实现、并行多方案竞争选优、AI Code Review，到 Review 通过后事件驱动自动合并，实现零人工干预。**项目当前仍在调试迭代阶段**，其前身 [gqy20/flywheel](https://github.com/gqy20/flywheel) 已完成多轮端到端实测与核心架构验证，后续正式迁移至 Gearbox 仓库继续迭代优化。
+
+**2. 核心逻辑流**
+
+系统基于 **Claude Agent SDK** 的 `query()` 接口驱动 5 个独立 Agent，形成 **Audit → Backlog → Dispatch → Implement → Review → Merge → Cleanup** 的完整流水线。**Audit 阶段**（每小时定时）通过静态扫描器获取仓库指纹后注入 Agent Prompt，3 个并行 Agent 审计并输出结构化 issues.json。**Backlog 阶段**（每2小时）3 个并行 AI Agent 对 Issue 自动打标（P0-P3 优先级 / S-M-L 复杂度 / 状态标签）。**Dispatch 阶段**（每小时**正式运行**）从 ready backlog 筛选 Issue 后直接进入 Implement（仅手动触发时默认 dry-run）。**Implement 阶段**对每个 Issue 启动 **3 个并行 Agent 竞争实现**（各最多 80 轮对话），Select Agent 选最优方案创建 PR。**Review 阶段**（PR 打开/同步/重新打开时**自动触发**）3 个并行 AI Review Agent 审查 PR diff，输出 verdict 与分级评论。**Merge 阶段**LGTM 判定触发 `pull_request_review` 事件，Auto-Merge 工作流经五层门控后执行 `--auto --squash`，CI 通过后自动合并并关闭关联 Issue。**与前身 flywheel 对比**：flywheel 采用 scan→evaluate→fix(3路并行)→仲裁合并的 Orchestrator 单链路编排模式（日均 ~200M tokens），Gearbox 在此经验上重构为模块化多 Agent 架构，新增独立 Backlog 分类、AI Code Review 和事件驱动 Auto-Merge 能力。
+
+**3. 运行规模与资源消耗**
+
+基于 GitHub Actions 实际运行日志：单次 Audit ~355K tokens、Review ~114K tokens、Dispatch 含 Implement ~160K-200K+ tokens。调度频率：Audit 每小时 1 次（~24 次/天）、Backlog 每2小时 1 次（~12 次/天）、Dispatch 每小时正式运行（~24 次/天）、Review 随 PR 自动触发（与 Dispatch 绑定，~24 次/天）。综合估算**单目标仓库日均总消耗约 50M–80M tokens**。通过熔断机制控制异常成本，面向更广泛仓库场景持续打磨。
+
 ## 完整流程
 
 ```mermaid

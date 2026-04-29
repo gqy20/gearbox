@@ -1,6 +1,8 @@
 """测试 config 模块"""
 
 import os
+import stat
+import warnings
 from pathlib import Path
 
 from gearbox.config import (
@@ -176,3 +178,69 @@ class TestAgentDefaults:
         assert "implement" in AGENT_DEFAULTS["max_turns"]
         assert "audit" in AGENT_DEFAULTS["max_turns"]
         assert AGENT_DEFAULTS["max_turns"]["implement"] == 80
+
+
+class TestConfigFilePermissions:
+    """测试配置文件权限限制 (Issue #40)"""
+
+    def test_save_config_sets_file_permissions_0o600(self, temp_home: Path) -> None:
+        """save_config 写入后应将配置文件权限设为 0o600（仅 owner 可读写）"""
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+
+        save_config({"anthropic_api_key": "sk-test-key", "github_token": "ghp_test"})
+
+        config_file = get_config_path()
+        mode = stat.S_IMODE(config_file.stat().st_mode)
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+    def test_save_config_restricts_directory_permissions(self, temp_home: Path) -> None:
+        """save_config 应限制配置目录权限为 0o700"""
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+
+        save_config({"test_key": "test_value"})
+
+        config_dir = get_config_path().parent
+        dir_mode = stat.S_IMODE(config_dir.stat().st_mode)
+        # 目录应仅允许 owner 访问
+        assert dir_mode == 0o700, f"Expected directory 0o700, got {oct(dir_mode)}"
+
+    def test_save_config_with_sensitive_data_is_not_world_readable(
+        self,
+        temp_home: Path,
+    ) -> None:
+        """包含敏感数据的配置文件不应被其他用户读取"""
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+
+        save_config(
+            {
+                "anthropic_api_key": "sk-secret-12345",
+                "github_token": "ghp_secret_token",
+            }
+        )
+
+        config_file = get_config_path()
+        mode = stat.S_IMODE(config_file.stat().st_mode)
+        # 确保组和其他用户无任何权限
+        assert mode & stat.S_IRGRP == 0, "Group should not have read permission"
+        assert mode & stat.S_IWGRP == 0, "Group should not have write permission"
+        assert mode & stat.S_IROTH == 0, "Others should not have read permission"
+        assert mode & stat.S_IWOTH == 0, "Others should not have write permission"
+
+    def test_load_config_warns_on_insecure_permissions(self, temp_home: Path) -> None:
+        """load_config 在文件权限过宽时应发出警告"""
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+
+        # 手动创建一个权限过宽的配置文件
+        config_file = config_dir / "config.toml"
+        config_file.write_text('key = "value"', encoding="utf-8")
+        config_file.chmod(0o644)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            load_config()
+            warning_messages = [str(x.message) for x in w]
+            assert any("permission" in msg.lower() or "权限" in msg for msg in warning_messages), (
+                f"Expected a permission warning but got: {[str(x.message) for x in w]}"
+            )

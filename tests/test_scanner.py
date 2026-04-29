@@ -506,3 +506,37 @@ class TestFallbackFileCounts:
 
         files, lines = _fallback_file_counts(tmp_path)
         assert files == 1  # only real.py, .git and __pycache__ excluded
+
+    def test_skips_files_over_size_threshold(self, tmp_path: Path) -> None:
+        """Files larger than 10 MB should be skipped to prevent OOM (Issue #35)."""
+        (tmp_path / "small.py").write_text("x = 1\n", encoding="utf-8")
+        # Create a file > 10 MB without reading it all into memory at once
+        large = tmp_path / "huge.bin"
+        with open(large, "wb") as f:
+            f.write(b"x" * (10 * 1024 * 1024 + 1))  # 10 MB + 1 byte
+
+        files, lines = _fallback_file_counts(tmp_path)
+        assert files == 1  # only small.py counted
+        assert lines == 1
+
+    def test_excludes_additional_large_dirs(self, tmp_path: Path) -> None:
+        """Common large output dirs should be excluded (Issue #35)."""
+        extra_dirs = [".next", "coverage", ".tox", ".cache", "htmlcov", "storybook-static"]
+        for d in extra_dirs:
+            (tmp_path / d).mkdir()
+            (tmp_path / d / "big.txt").write_text("data\n", encoding="utf-8")
+        (tmp_path / "real.py").write_text("# ok\n", encoding="utf-8")
+
+        files, lines = _fallback_file_counts(tmp_path)
+        assert files == 1
+        assert lines == 1
+
+    def test_does_not_read_full_content_for_line_count(self, tmp_path: Path) -> None:
+        """Line counting should not require loading entire file into memory."""
+        # Write a moderately sized file
+        content = "\n".join([f"line {i}" for i in range(500)])
+        (tmp_path / "data.py").write_text(content, encoding="utf-8")
+
+        files, lines = _fallback_file_counts(tmp_path)
+        assert files == 1
+        assert lines == 500

@@ -74,6 +74,58 @@ class TestDetectProjectType:
         _, _, has_docker, _ = detect_project_type(tmp_path)
         assert has_docker is True
 
+    def test_docker_compose_yaml_detection(self, tmp_path: Path) -> None:
+        """Issue #34: docker-compose.yaml should also trigger has_docker=True"""
+        (tmp_path / "docker-compose.yaml").touch()
+        _, _, has_docker, _ = detect_project_type(tmp_path)
+        assert has_docker is True
+
+    # ------------------------------------------------------------------
+    # has_security_config detection  (Issue #34)
+    # ------------------------------------------------------------------
+
+    def test_no_security_config_returns_false(self, tmp_path: Path) -> None:
+        """Empty repo should report no security config"""
+        _, _, _, sec = detect_project_type(tmp_path)
+        assert sec is False
+
+    def test_security_md_detected(self, tmp_path: Path) -> None:
+        """SECURITY.md at repo root triggers has_security_config=True"""
+        (tmp_path / "SECURITY.md").write_text("# Security Policy\n", encoding="utf-8")
+        _, _, _, sec = detect_project_type(tmp_path)
+        assert sec is True
+
+    def test_codeowners_detected(self, tmp_path: Path) -> None:
+        """.github/CODEOWNERS triggers has_security_config=True"""
+        (tmp_path / ".github" / "CODEOWNERS").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".github" / "CODEOWNERS").write_text("* @team\n", encoding="utf-8")
+        _, _, _, sec = detect_project_type(tmp_path)
+        assert sec is True
+
+    def test_security_workflow_detected(self, tmp_path: Path) -> None:
+        """.github/workflows/codeql.yml or similar security workflow triggers detection"""
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "codeql.yml").write_text("name: CodeQL\n", encoding="utf-8")
+        _, _, _, sec = detect_project_type(tmp_path)
+        assert sec is True
+
+    def test_security_policy_workflow_detected(self, tmp_path: Path) -> None:
+        """.github/workflows/security-policy.yml triggers detection"""
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "security-policy.yml").write_text("name: Security\n", encoding="utf-8")
+        _, _, _, sec = detect_project_type(tmp_path)
+        assert sec is True
+
+    def test_multiple_security_files_detected(self, tmp_path: Path) -> None:
+        """Multiple security files still returns True (not double-counted)"""
+        (tmp_path / "SECURITY.md").touch()
+        (tmp_path / ".github" / "CODEOWNERS").mkdir(parents=True)
+        (tmp_path / ".github" / "CODEOWNERS").touch()
+        _, _, _, sec = detect_project_type(tmp_path)
+        assert sec is True
+
 
 # ---------------------------------------------------------------------------
 # _read_pyproject / _project_name / _has_optional_dev_group

@@ -92,22 +92,62 @@ def _has_optional_dev_group(repo_path: Path) -> bool:
     return isinstance(groups, dict) and "dev" in groups
 
 
+def _detect_security_config(repo_path: Path) -> bool:
+    """Detect whether the repository contains security configuration files.
+
+    Checks for:
+    - ``SECURITY.md`` at repo root
+    - ``.github/CODEOWNERS``
+    - Security-related workflow files under ``.github/workflows/``
+      (codeql.yml, security-policy.yml, security-audit.yml, etc.)
+    """
+    # Root-level security policy file
+    if (repo_path / "SECURITY.md").exists():
+        return True
+
+    # Code ownership / review assignment
+    codeowners = repo_path / ".github" / "CODEOWNERS"
+    if codeowners.exists():
+        return True
+
+    # Security-focused CI/CD workflows
+    security_workflow_names = {
+        "codeql",
+        "security-policy",
+        "security-audit",
+        "dependency-review",
+        "secret-scan",
+    }
+    workflows_dir = repo_path / ".github" / "workflows"
+    if workflows_dir.is_dir():
+        for wf in workflows_dir.iterdir():
+            if wf.suffix in (".yml", ".yaml") and wf.stem in security_workflow_names:
+                return True
+
+    return False
+
+
 def detect_project_type(repo_path: Path) -> tuple[str, str, bool, bool]:
     """检测项目类型和包管理器"""
     has_py = (repo_path / "pyproject.toml").exists() or (repo_path / "requirements.txt").exists()
     has_ts = (repo_path / "package.json").exists()
     has_go = (repo_path / "go.mod").exists()
-    has_docker = (repo_path / "Dockerfile").exists() or (repo_path / "docker-compose.yml").exists()
+    has_docker = (
+        (repo_path / "Dockerfile").exists()
+        or (repo_path / "docker-compose.yml").exists()
+        or (repo_path / "docker-compose.yaml").exists()
+    )
+    has_security_config = _detect_security_config(repo_path)
 
     if has_py and has_ts:
-        return "mixed", "multiple", has_docker, False
+        return "mixed", "multiple", has_docker, has_security_config
     elif has_py:
-        return "python", "pip", has_docker, False
+        return "python", "pip", has_docker, has_security_config
     elif has_ts:
-        return "typescript", "npm", has_docker, False
+        return "typescript", "npm", has_docker, has_security_config
     elif has_go:
-        return "go", "go mod", has_docker, False
-    return "unknown", "", has_docker, False
+        return "go", "go mod", has_docker, has_security_config
+    return "unknown", "", has_docker, has_security_config
 
 
 def _fallback_file_counts(repo_path: Path) -> tuple[int, int]:

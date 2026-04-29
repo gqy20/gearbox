@@ -277,7 +277,7 @@ class TestStructuredOutputParsing:
             return options, FakeLogger()
 
         monkeypatch.setattr(implement, "_gh_issue_view", lambda *args: {"title": "T", "body": "B"})
-        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        monkeypatch.setattr("gearbox.agents.shared.runtime.query", fake_query)
         monkeypatch.setattr(
             "gearbox.agents.shared.runtime.prepare_agent_options",
             fake_prepare_agent_options,

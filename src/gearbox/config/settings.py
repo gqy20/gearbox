@@ -1,6 +1,8 @@
 """配置管理 - 读写用户配置"""
 
 import os
+import stat
+import warnings
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,8 +28,13 @@ def _config_file() -> Path:
 
 
 def ensure_config_dir() -> None:
-    """确保配置目录存在"""
-    _config_dir().mkdir(parents=True, exist_ok=True)
+    """确保配置目录存在，并限制目录权限为仅 owner 可访问（0o700）"""
+    config_dir = _config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # 限制配置目录权限，防止其他用户读取其中的敏感文件
+    current_mode = stat.S_IMODE(config_dir.stat().st_mode)
+    if current_mode != 0o700:
+        config_dir.chmod(0o700)
 
 
 def get_config_path() -> Path:
@@ -36,10 +43,13 @@ def get_config_path() -> Path:
 
 
 def load_config() -> dict[str, Any]:
-    """加载配置文件"""
+    """加载配置文件，并在权限过宽时发出警告"""
     config_file = get_config_path()
     if not config_file.exists():
         return {}
+
+    # 检查文件权限是否安全（仅 owner 可读写）
+    _warn_if_insecure_permissions(config_file)
 
     try:
         import tomli
@@ -52,12 +62,32 @@ def load_config() -> dict[str, Any]:
         return {}
 
 
+def _warn_if_insecure_permissions(config_file: Path) -> None:
+    """如果配置文件权限过宽，发出 UserWarning 警告"""
+    try:
+        mode = stat.S_IMODE(config_file.stat().st_mode)
+        # 检查组或其他用户是否有任何读/写权限
+        if mode & (stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH):
+            warnings.warn(
+                f"Config file {config_file} has insecure permissions {oct(mode)}. "
+                "Recommended: 0o600 (owner read/write only). "
+                "Run: chmod 600 " + str(config_file),
+                UserWarning,
+                stacklevel=3,
+            )
+    except OSError:
+        pass  # 无法读取权限时静默跳过
+
+
 def save_config(config: dict[str, Any]) -> None:
-    """保存配置文件"""
+    """保存配置文件，并限制文件权限为仅 owner 可读写（0o600）"""
     ensure_config_dir()
 
-    with open(get_config_path(), "wb") as f:
+    config_file = get_config_path()
+    with open(config_file, "wb") as f:
         tomli_w.dump(config, f)
+    # 限制文件权限：仅 owner 可读写，防止多用户环境下凭证泄露
+    os.chmod(config_file, 0o600)
 
 
 def get_github_token() -> str | None:

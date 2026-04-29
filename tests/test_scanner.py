@@ -211,9 +211,47 @@ class TestToolRunners:
             findings, status = run_semgrep(tmp_path)
 
         assert status == "ok"
-        # semgrep 运行两个配置（auto + p/security），每个都返回相同结果
-        assert len(findings) == 2
+        # auto 和 p/security 返回相同 finding 时应去重，只保留一份
+        assert len(findings) == 1
         assert findings[0]["id"] == "1"
+
+    def test_semgrep_deduplicates_overlapping_findings(self, tmp_path: Path) -> None:
+        """两个配置返回重叠结果时，去重后只保留独立 finding（Issue #38）"""
+        finding_a = {
+            "id": "A",
+            "check_id": "X",
+            "path": "foo.py",
+            "start": {"line": 10},
+            "message": "dup",
+        }
+        finding_b = {
+            "id": "B",
+            "check_id": "Y",
+            "path": "bar.py",
+            "start": {"line": 5},
+            "message": "unique",
+        }
+
+        call_count = 0
+
+        def _fake_multi(cmd, cwd, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # auto config returns both A and B
+                return 0, json.dumps({"results": [finding_a, finding_b]}), ""
+            else:
+                # p/security config returns only A (subset)
+                return 0, json.dumps({"results": [finding_a]}), ""
+
+        with patch("gearbox.agents.shared.scanner._run_command", _fake_multi):
+            findings, status = run_semgrep(tmp_path)
+
+        assert status == "ok"
+        # A 出现在两次扫描中但只应计入一次，B 只出现一次 → 共 2 条
+        assert len(findings) == 2
+        ids = {f["id"] for f in findings}
+        assert ids == {"A", "B"}
 
     def test_semgrep_no_findings_but_succeeded(self, tmp_path: Path) -> None:
         fake = self._fake_run(0, json.dumps({"results": []}))

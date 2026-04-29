@@ -478,6 +478,87 @@ class TestFormatScanSummary:
         assert output["_stats"]["scanned_tools"]["trivy"] is True
         assert output["_stats"]["scanned_tools"]["deptry"] is True
 
+    def test_truncates_long_tool_status_errors_to_200_chars(self) -> None:
+        """Issue #46: tool_statuses 中超长错误信息应截断至 200 字符"""
+        scan = self._base_scan()
+        long_err = "x" * 500
+        scan.tool_statuses["trivy"] = long_err
+
+        output = json.loads(format_scan_summary(scan))
+        actual = output["_stats"]["tool_statuses"]["trivy"]
+
+        assert len(actual) <= 200
+        assert actual.endswith("…")
+
+    def test_short_tool_status_not_truncated(self) -> None:
+        """短错误信息不应被截断"""
+        scan = self._base_scan()
+        scan.tool_statuses["trivy"] = "timeout"
+
+        output = json.loads(format_scan_summary(scan))
+        assert output["_stats"]["tool_statuses"]["trivy"] == "timeout"
+
+    def test_large_payload_switches_to_summary_mode(self) -> None:
+        """Issue #46: 当 JSON payload 超过 4KB 时启用摘要模式，仅保留统计计数"""
+        scan = self._base_scan()
+        # 构造大量数据使 payload 远超 4KB
+        scan.trivy_vulnerabilities = [
+            {
+                "VulnerabilityID": f"CVE-{i:05d}",
+                "Severity": "CRITICAL" if i % 2 == 0 else "HIGH",
+                "Title": f"Critical vulnerability number {i} with a very long description text",
+            }
+            for i in range(50)
+        ]
+        scan.semgrep_findings = [
+            {
+                "id": f"S-{i}",
+                "severity": "ERROR" if i % 3 == 0 else "WARNING",
+                "check_id": f"python.lang.security.injection.{i}",
+                "message": f"This is a long semgrep finding message that describes issue {i}",
+            }
+            for i in range(50)
+        ]
+        scan.deptry_issues = [
+            {
+                "type": "deprecated",
+                "error": {"code": f"DEP{i:04d}", "message": f"Dependency issue {i}" * 5},
+            }
+            for i in range(30)
+        ]
+        scan.languages = {f"Lang{i}": {"code": 10000 + i, "files": 500 + i} for i in range(15)}
+
+        raw = format_scan_summary(scan)
+        output = json.loads(raw)
+
+        # 摘要模式下 payload 应在合理范围内（不超过 4KB + 少量余量）
+        assert len(raw.encode("utf-8")) <= 4500, (
+            f"Summary mode payload too large: {len(raw.encode('utf-8'))} bytes"
+        )
+
+        # 摘要模式仍保留关键统计信息
+        assert output["_stats"]["total_vulnerabilities"] == 50
+        assert output["_stats"]["total_code_issues"] == 50
+        assert output["_stats"]["total_dependency_issues"] == 30
+
+        # 摘要模式丢弃具体 finding 详情，只保留计数或 severity 分布
+        # vulnerabilities 列表应为空或仅含 severity 分布摘要
+        assert isinstance(output.get("vulnerabilities"), list)
+
+    def test_small_payload_remains_detailed(self) -> None:
+        """小仓库的 payload 不应触发摘要模式，保持完整详情"""
+        scan = self._base_scan()
+        raw = format_scan_summary(scan)
+        output = json.loads(raw)
+
+        # 小数据不应触发摘要模式截断
+        assert len(output["vulnerabilities"]) == 2
+        assert len(output["code_issues"]) == 2
+        assert len(output["dependency_issues"]) == 1
+        # 应包含完整 finding 字段
+        assert output["vulnerabilities"][0]["id"] == "CVE-001"
+        assert output["code_issues"][0]["rule"] == ""
+
 
 # ---------------------------------------------------------------------------
 # _fallback_file_counts

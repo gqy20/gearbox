@@ -366,9 +366,41 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
     return result
 
 
+_MAX_SUMMARY_BYTES = 4096
+_MAX_TOOL_STATUS_LEN = 200
+
+
+def _truncate_status(value: str, max_len: int = _MAX_TOOL_STATUS_LEN) -> str:
+    """截断工具状态错误信息至指定长度（含省略号）"""
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 1] + "…"
+
+
+def _build_severity_distribution(
+    items: list[dict[str, Any]],
+    severity_key: str = "severity",
+) -> dict[str, int]:
+    """从列表中提取 severity 分布统计"""
+    dist: dict[str, int] = {}
+    for item in items:
+        sev = str(item.get(severity_key, "")).upper()
+        if sev:
+            dist[sev] = dist.get(sev, 0) + 1
+    return dict(sorted(dist.items()))
+
+
 def format_scan_summary(scan: RepoScanResult) -> str:
-    """将扫描结果格式化为 JSON（供 Agent 直接解析）"""
+    """将扫描结果格式化为 JSON（供 Agent 直接解析）
+
+    当序列化后的 payload 超过 ``_MAX_SUMMARY_BYTES`` 时自动切换为摘要模式：
+    仅保留统计计数与 severity 分布，丢弃具体 finding 详情，防止大仓库
+    扫描结果挤占 Agent 上下文窗口（Issue #46）。
+    """
     import json
+
+    # 截断 tool_statuses 中的长错误信息
+    truncated_statuses = {k: _truncate_status(v) for k, v in scan.tool_statuses.items()}
 
     payload: dict[str, Any] = {
         "project_type": scan.project_type,
@@ -425,8 +457,48 @@ def format_scan_summary(scan: RepoScanResult) -> str:
                 "deptry": scan.deptry_scanned,
                 "govulncheck": scan.govulncheck_scanned,
             },
-            "tool_statuses": scan.tool_statuses,
+            "tool_statuses": truncated_statuses,
         },
     }
 
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    raw = json.dumps(payload, ensure_ascii=False, indent=2)
+
+    # 总大小上限校验：超过阈值时切换为摘要模式
+    if len(raw.encode("utf-8")) > _MAX_SUMMARY_BYTES:
+        summary_payload: dict[str, Any] = {
+            "project_type": scan.project_type,
+            "package_manager": scan.package_manager,
+            "total_files": scan.total_files,
+            "total_lines": scan.total_lines,
+            "has_docker": scan.has_docker,
+            "languages": {
+                lang: {"code": stats.get("code", 0), "files": stats.get("nFiles", 0)}
+                for lang, stats in sorted(
+                    scan.languages.items(),
+                    key=lambda x: x[1].get("code", 0),
+                    reverse=True,
+                )[:5]
+            },
+            "vulnerabilities": [],
+            "govulncheck_vulns": [],
+            "code_issues": [],
+            "dependency_issues": [],
+            "_stats": {
+                "total_vulnerabilities": len(scan.trivy_vulnerabilities),
+                "total_code_issues": len(scan.semgrep_findings),
+                "total_dependency_issues": len(scan.deptry_issues),
+                "severity_distribution": {
+                    "vulnerabilities": _build_severity_distribution(
+                        scan.trivy_vulnerabilities, "Severity"
+                    ),
+                    "code_issues": _build_severity_distribution(scan.semgrep_findings, "severity"),
+                    "dependency_issues": _build_severity_distribution(scan.deptry_issues, "type"),
+                },
+                "scanned_tools": payload["_stats"]["scanned_tools"],
+                "tool_statuses": truncated_statuses,
+                "summary_mode": True,
+            },
+        }
+        raw = json.dumps(summary_payload, ensure_ascii=False, indent=2)
+
+    return raw

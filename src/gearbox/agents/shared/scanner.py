@@ -161,9 +161,21 @@ def run_cloc(repo_path: Path) -> tuple[dict[str, Any], str]:
     return {}, detail
 
 
+def _semgrep_finding_key(f: dict[str, Any]) -> tuple:
+    """生成 finding 的去重键：(check_id, path, line, message)"""
+    start = f.get("start", {})
+    return (
+        f.get("check_id", ""),
+        f.get("path", ""),
+        start.get("line", 0) if isinstance(start, dict) else 0,
+        f.get("message", ""),
+    )
+
+
 def run_semgrep(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
     """执行 semgrep 扫描"""
     findings: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
     had_success = False
     last_error = "command_failed"
     for config in ["auto", "p/security"]:
@@ -176,7 +188,11 @@ def run_semgrep(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
             had_success = True
             try:
                 data = json.loads(stdout)
-                findings.extend(data.get("results", []))  # type: ignore[arg-type]
+                for result in data.get("results", []):  # type: ignore[arg-type]
+                    key = _semgrep_finding_key(result)
+                    if key not in seen:
+                        seen.add(key)
+                        findings.append(result)
             except json.JSONDecodeError:
                 return findings, "parse_failed"
         else:

@@ -3,8 +3,66 @@
 import json
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Rate-limit retry configuration (Issue #45)
+# ---------------------------------------------------------------------------
+_RETRY_MAX_ATTEMPTS: int = 3
+_RETRY_BASE_DELAY: float = 1.0  # seconds, doubled each attempt
+
+
+def _is_rate_limit_error(error: subprocess.CalledProcessError) -> bool:
+    """判断是否为 GitHub API 限流错误（可重试）。"""
+    stderr = error.stderr.strip() if isinstance(error.stderr, str) else ""
+    stdout = error.stdout.strip() if isinstance(error.stdout, str) else ""
+    msg = (stderr + " " + stdout).lower()
+    return any(
+        phrase in msg
+        for phrase in (
+            "rate limit",
+            "secondary rate limit",
+            "api rate limit exceeded",
+            "abuse detection",
+        )
+    )
+
+
+def _run_with_retry(
+    cmd: list[str],
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str]:
+    """带指数退避重试的 subprocess.run 封装。
+
+    仅对 GitHub API 限流类错误进行重试；其他错误立即抛出。
+    """
+    last_exception: subprocess.CalledProcessError | None = None
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            return subprocess.run(cmd, **kwargs)
+        except subprocess.CalledProcessError as exc:
+            last_exception = exc
+            if not _is_rate_limit_error(exc) or attempt >= _RETRY_MAX_ATTEMPTS:
+                raise
+            delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            time.sleep(delay)
+    # Should never reach here because the loop raises on last attempt
+    raise last_exception  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Label cache with TTL (Issue #45)
+# ---------------------------------------------------------------------------
+
+_LABEL_CACHE_TTL: float = 60.0  # seconds
+_label_cache: dict[str, tuple[float, list[str]]] = {}  # repo -> (timestamp, labels)
+
+
+def clear_label_cache() -> None:
+    """清除标签缓存，供测试和需要强制刷新时使用。"""
+    _label_cache.clear()
 
 
 @dataclass
@@ -161,7 +219,7 @@ def add_issue_labels(
     if not labels:
         return PostReviewResult(success=True)
 
-    # 验证标签是否存在
+    # 验证标签是否存在（使用缓存版本）
     existing_labels = get_repo_labels(repo)
     unknown_labels = [label for label in labels if label not in existing_labels]
     if unknown_labels:
@@ -176,6 +234,76 @@ def add_issue_labels(
             if not create_result.success:
                 print(f"⚠️ 创建标签失败: {label}: {create_result.url}", file=sys.stderr)
 
+    return _add_labels_to_issue(repo, issue_number, labels)
+
+
+def batch_add_issue_labels(
+    repo: str,
+    issues: list[tuple[int, list[str]]],
+) -> list[PostReviewResult]:
+    """批量为多个 Issue 添加标签（Issue #45）。
+
+    优化点：
+    - 仅调用一次 ``get_repo_labels()``（利用 TTL 缓存）
+    - 先一次性创建所有缺失标签，再逐 Issue 添加
+
+    Args:
+        repo: 仓库标识
+        issues: (issue_number, labels) 列表
+
+    Returns:
+        每个 Issue 对应的 PostReviewResult 列表
+    """
+    if not issues:
+        return []
+
+    # Collect all unique labels needed across all issues
+    all_labels: set[str] = set()
+    for _, labels in issues:
+        all_labels.update(labels)
+
+    if not all_labels:
+        return [PostReviewResult(success=True) for _ in issues]
+
+    # Single label lookup (cached)
+    existing_labels = set(get_repo_labels(repo))
+    unknown_labels = sorted(all_labels - existing_labels)
+
+    # Bulk-create all missing labels upfront
+    if unknown_labels:
+        import sys
+
+        print(
+            f"⚠️ 警告: 以下标签在仓库中不存在，正在创建: {', '.join(unknown_labels)}",
+            file=sys.stderr,
+        )
+        for label in unknown_labels:
+            create_result = create_repo_label(repo, label)
+            if not create_result.success:
+                print(
+                    f"⚠️ 创建标签失败: {label}: {create_result.url}",
+                    file=sys.stderr,
+                )
+
+    # Add labels to each issue individually
+    results: list[PostReviewResult] = []
+    for issue_number, labels in issues:
+        filtered = [lb for lb in labels if lb in all_labels]
+        if not filtered:
+            results.append(PostReviewResult(success=True))
+            continue
+        result = _add_labels_to_issue(repo, issue_number, filtered)
+        results.append(result)
+
+    return results
+
+
+def _add_labels_to_issue(
+    repo: str,
+    issue_number: int,
+    labels: list[str],
+) -> PostReviewResult:
+    """为单个 Issue 添加标签（内部方法，不检查/创建标签）。"""
     try:
         subprocess.run(
             [
@@ -390,7 +518,7 @@ def replace_managed_issue_labels(
 
 def get_repo_labels(repo: str) -> list[str]:
     """
-    获取仓库现有的标签列表。
+    获取仓库现有的标签列表（带 60s TTL 缓存）。
 
     Args:
         repo: 仓库标识
@@ -398,15 +526,26 @@ def get_repo_labels(repo: str) -> list[str]:
     Returns:
         标签名称列表
     """
+    # Check cache first (Issue #45)
+    cached = _label_cache.get(repo)
+    if cached is not None:
+        timestamp, labels = cached
+        if time.monotonic() - timestamp < _LABEL_CACHE_TTL:
+            return labels
+        # Expired – remove stale entry
+        del _label_cache[repo]
+
     try:
-        result = subprocess.run(
+        result = _run_with_retry(
             ["gh", "label", "list", "--repo", repo, "--json", "name"],
             check=True,
             capture_output=True,
             text=True,
         )
         labels = json.loads(result.stdout)
-        return [label["name"] for label in labels]
+        label_names = [label["name"] for label in labels]
+        _label_cache[repo] = (time.monotonic(), label_names)
+        return label_names
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return []
 

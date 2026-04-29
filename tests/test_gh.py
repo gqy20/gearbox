@@ -237,6 +237,9 @@ class TestGetRepoLabels:
     ) -> None:
         mock_run = MagicMock(side_effect=subprocess.CalledProcessError(4, "gh"))
         monkeypatch.setattr(subprocess, "run", mock_run)
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
 
         assert get_repo_labels("owner/repo") == []
 
@@ -536,3 +539,263 @@ class TestValidIssueLabels:
         from gearbox.core.gh import VALID_ISSUE_LABELS
 
         assert isinstance(VALID_ISSUE_LABELS, (set, frozenset))
+
+
+# ---------------------------------------------------------------------------
+# Tests for TTL cache on get_repo_labels (Issue #45)
+# ---------------------------------------------------------------------------
+
+
+class TestGetRepoLabelsCache:
+    """测试 get_repo_labels 的 TTL 缓存行为。"""
+
+    def test_second_call_within_ttl_uses_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """短时间内第二次调用不应再发起 subprocess 调用。"""
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            return MagicMock(returncode=0, stdout='[{"name":"bug"},{"name":"P1"}]')
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        # Ensure cache is clear before test
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
+
+        get_repo_labels("owner/repo")
+        assert call_count == 1
+
+        get_repo_labels("owner/repo")
+        assert call_count == 1, "Second call within TTL should use cache"
+
+    def test_different_repos_have_separate_cache_entries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """不同仓库的标签缓存应相互独立。"""
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            repo = cmd[cmd.index("--repo") + 1] if "--repo" in cmd else ""
+            if "repo-a" in repo:
+                return MagicMock(returncode=0, stdout='[{"name":"bug"}]')
+            return MagicMock(returncode=0, stdout='[{"name":"feat"}]')
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
+
+        get_repo_labels("owner/repo-a")
+        get_repo_labels("owner/repo-b")
+        assert call_count == 2
+
+        # Both cached now
+        get_repo_labels("owner/repo-a")
+        get_repo_labels("owner/repo-b")
+        assert call_count == 2, "Both repos should be cached"
+
+    def test_cache_can_be_cleared(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """手动清除缓存后应重新拉取。"""
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            return MagicMock(returncode=0, stdout='[{"name":"bug"}]')
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
+
+        get_repo_labels("owner/repo")
+        assert call_count == 1
+
+        clear_label_cache()
+        get_repo_labels("owner/repo")
+        assert call_count == 2, "After clearing cache, should re-fetch"
+
+
+class TestBatchAddIssueLabels:
+    """测试批量添加 Issue 标签（Issue #45）。"""
+
+    def test_calls_get_repo_labels_only_once_for_multiple_issues(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """批量操作应对同一仓库只调用一次 get_repo_labels。"""
+        label_fetch_count = 0
+
+        def fake_get_labels(repo: str) -> list[str]:
+            nonlocal label_fetch_count
+            label_fetch_count += 1
+            return ["bug"]
+
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", fake_get_labels)
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        from gearbox.core.gh import batch_add_issue_labels
+
+        batch_add_issue_labels(
+            "owner/repo",
+            [
+                (1, ["bug", "P1"]),
+                (2, ["bug", "P2"]),
+                (3, ["P3", "complexity:S"]),
+            ],
+        )
+
+        assert label_fetch_count == 1, "Should fetch labels only once for batch"
+
+    def test_creates_all_missing_labels_before_adding_to_any_issue(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """应先一次性创建所有缺失标签，再逐个给 Issue 添加标签。"""
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        from gearbox.core.gh import batch_add_issue_labels
+
+        batch_add_issue_labels(
+            "owner/repo",
+            [
+                (1, ["P1", "complexity:M"]),
+                (2, ["P2", "complexity:S"]),
+            ],
+        )
+
+        # All label creates should come before any issue edit
+        create_indices = [i for i, c in enumerate(commands) if c[0:3] == ["gh", "label", "create"]]
+        edit_indices = [i for i, c in enumerate(commands) if c[0:3] == ["gh", "issue", "edit"]]
+
+        assert len(create_indices) >= 4  # P1, complexity:M, P2, complexity:S
+        if create_indices and edit_indices:
+            assert max(create_indices) < min(edit_indices), (
+                "All label creates must precede issue edits"
+            )
+
+    def test_returns_per_issue_results(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """每个 Issue 应返回独立的结果。"""
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            if cmd[0:3] == ["gh", "issue", "edit"] and "42" in cmd:
+                raise subprocess.CalledProcessError(1, cmd, stderr="not found")
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        from gearbox.core.gh import batch_add_issue_labels
+
+        results = batch_add_issue_labels(
+            "owner/repo",
+            [
+                (1, ["bug"]),
+                (42, ["bug"]),
+            ],
+        )
+
+        assert len(results) == 2
+        assert results[0].success is True
+        assert results[1].success is False
+
+
+class TestGhRetryWithBackoff:
+    """测试 gh API 调用的指数退避重试（Issue #45）。"""
+
+    def test_succeeds_on_first_try(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """首次成功不触发重试。"""
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            return MagicMock(returncode=0, stdout='[{"name":"bug"}]')
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
+
+        get_repo_labels("owner/repo")
+        assert call_count == 1
+
+    def test_retries_on_rate_limit_and_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """遇到 rate limit 应自动重试并最终成功。"""
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise subprocess.CalledProcessError(
+                    1,
+                    cmd,
+                    stderr="API rate limit exceeded",
+                )
+            return MagicMock(returncode=0, stdout='[{"name":"bug"}]')
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
+
+        # Use a very short retry config so tests run fast
+        import gearbox.core.gh as gh_module
+
+        original_max = gh_module._RETRY_MAX_ATTEMPTS
+        original_base = gh_module._RETRY_BASE_DELAY
+        gh_module._RETRY_MAX_ATTEMPTS = 3
+        gh_module._RETRY_BASE_DELAY = 0.001
+
+        try:
+            result = get_repo_labels("owner/repo")
+            assert result == ["bug"]
+            assert call_count == 2
+        finally:
+            gh_module._RETRY_MAX_ATTEMPTS = original_max
+            gh_module._RETRY_BASE_DELAY = original_base
+
+    def test_fails_after_max_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """超过最大重试次数后应返回错误结果。"""
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            raise subprocess.CalledProcessError(1, cmd, stderr="API rate limit exceeded")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        from gearbox.core.gh import clear_label_cache
+
+        clear_label_cache()
+
+        import gearbox.core.gh as gh_module
+
+        original_max = gh_module._RETRY_MAX_ATTEMPTS
+        original_base = gh_module._RETRY_BASE_DELAY
+        gh_module._RETRY_MAX_ATTEMPTS = 3
+        gh_module._RETRY_BASE_DELAY = 0.001
+
+        try:
+            result = get_repo_labels("owner/repo")
+            assert result == [], "Should return empty after all retries exhausted"
+            assert call_count == 3
+        finally:
+            gh_module._RETRY_MAX_ATTEMPTS = original_max
+            gh_module._RETRY_BASE_DELAY = original_base

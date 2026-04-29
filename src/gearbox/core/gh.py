@@ -747,6 +747,49 @@ VALID_ISSUE_LABELS = {
 }
 
 
+def find_existing_issue(repo: str, title: str) -> IssueSummary | None:
+    """查找仓库中是否已存在相同标题的开放 Issue。
+
+    Args:
+        repo: 仓库标识
+        title: 要匹配的 Issue 标题
+
+    Returns:
+        匹配的 IssueSummary，不存在则返回 None
+    """
+    cmd = [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--search",
+        f'"{title}" in:title',
+        "--json",
+        "number,title,labels,url,createdAt",
+    ]
+
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        issues = json.loads(result.stdout)
+        if not issues:
+            return None
+        issue = issues[0]
+        return IssueSummary(
+            number=int(issue["number"]),
+            title=str(issue["title"]),
+            labels=[str(label["name"]) for label in issue.get("labels", [])],
+            url=str(issue.get("url", "")),
+            created_at=str(issue.get("createdAt", "")),
+        )
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
 def create_issue(
     repo: str,
     title: str,
@@ -756,10 +799,16 @@ def create_issue(
     """
     创建 GitHub Issue。
 
-    先不带标签创建 Issue（确保一定能创建成功），
+    先检查是否存在相同标题的开放 Issue，若已存在则跳过创建并返回已有 Issue URL。
+    否则先不带标签创建 Issue（确保一定能创建成功），
     成功后单独调用 add_issue_labels 添加标签（自动创建缺失标签）。
     """
     import re
+
+    # 去重：检查是否已存在相同标题的 Issue
+    existing = find_existing_issue(repo, title)
+    if existing is not None:
+        return CreatePrResult(success=True, pr_url=existing.url)
 
     cmd = [
         "gh",

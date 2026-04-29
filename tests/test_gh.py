@@ -16,6 +16,7 @@ from gearbox.core.gh import (
     create_issue,
     finalize_and_create_pr,
     finalize_and_push,
+    find_existing_issue,
     get_issue_summary,
     get_repo_labels,
     list_open_issues,
@@ -294,6 +295,9 @@ class TestCreateIssue:
         def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             del kwargs
             commands.append(cmd)
+            # 去重查询返回空（无重复）
+            if cmd[0:3] == ["gh", "issue", "list"]:
+                return MagicMock(returncode=0, stdout="[]")
             return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
 
         def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
@@ -307,8 +311,9 @@ class TestCreateIssue:
 
         assert result.success is True
         assert result.pr_url == "https://github.com/owner/repo/issues/5"
-        assert commands[0][0:3] == ["gh", "issue", "create"]
-        assert "--label" not in commands[0]
+        create_cmd = [c for c in commands if c[0:3] == ["gh", "issue", "create"]]
+        assert len(create_cmd) == 1
+        assert "--label" not in create_cmd[0]
         assert label_calls == [("owner/repo", 5, ["enhancement", "P2"])]
 
     def test_skips_label_step_when_no_labels(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -318,6 +323,8 @@ class TestCreateIssue:
         def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             del kwargs
             commands.append(cmd)
+            if cmd[0:3] == ["gh", "issue", "list"]:
+                return MagicMock(returncode=0, stdout="[]")
             return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
 
         def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
@@ -330,7 +337,8 @@ class TestCreateIssue:
         result = create_issue("owner/repo", "Title", "Body", None)
 
         assert result.success is True
-        assert len(commands) == 1
+        # 去重查询 + create，共 2 次 subprocess 调用
+        assert len(commands) == 2
         assert label_calls == []
 
     def test_filters_invalid_labels_before_adding(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -338,6 +346,8 @@ class TestCreateIssue:
 
         def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             del kwargs
+            if cmd[0:3] == ["gh", "issue", "list"]:
+                return MagicMock(returncode=0, stdout="[]")
             return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/42\n")
 
         def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
@@ -352,11 +362,13 @@ class TestCreateIssue:
         assert label_calls == [("owner/repo", 42, ["enhancement", "P1"])]
 
     def test_returns_failure_when_create_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            MagicMock(side_effect=subprocess.CalledProcessError(1, "gh", stderr="not found")),
-        )
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            if cmd[0:3] == ["gh", "issue", "list"]:
+                return MagicMock(returncode=0, stdout="[]")
+            raise subprocess.CalledProcessError(1, "gh", stderr="not found")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
 
         result = create_issue("owner/repo", "Title", "Body", ["enhancement"])
 
@@ -366,6 +378,8 @@ class TestCreateIssue:
     def test_succeeds_even_if_labels_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
             del kwargs
+            if cmd[0:3] == ["gh", "issue", "list"]:
+                return MagicMock(returncode=0, stdout="[]")
             return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
 
         def fake_add_labels(*args: Any) -> PostReviewResult:
@@ -377,6 +391,112 @@ class TestCreateIssue:
         result = create_issue("owner/repo", "Title", "Body", ["enhancement"])
 
         assert result.success is True
+
+    def test_skips_creation_when_duplicate_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """当已存在相同标题的 Issue 时，create_issue 应跳过创建并返回已有 Issue 的 URL。"""
+
+        def fake_find_existing(repo: str, title: str) -> IssueSummary | None:
+            if title == "Duplicate Title":
+                return IssueSummary(
+                    number=10,
+                    title="Duplicate Title",
+                    labels=[],
+                    url="https://github.com/owner/repo/issues/10",
+                    created_at="2026-04-28T00:00:00Z",
+                )
+            return None
+
+        monkeypatch.setattr("gearbox.core.gh.find_existing_issue", fake_find_existing)
+
+        result = create_issue("owner/repo", "Duplicate Title", "Body", ["enhancement"])
+
+        assert result.success is True
+        assert result.pr_url == "https://github.com/owner/repo/issues/10"
+
+    def test_creates_new_issue_when_no_duplicate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """当不存在相同标题的 Issue 时，create_issue 应正常创建。"""
+        commands: list[list[str]] = []
+        label_calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_find_existing(repo: str, title: str) -> IssueSummary | None:
+            return None
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/5\n")
+
+        def fake_add_labels(repo: str, issue_number: int, labels: list[str]) -> PostReviewResult:
+            label_calls.append((repo, issue_number, labels))
+            return PostReviewResult(True)
+
+        monkeypatch.setattr("gearbox.core.gh.find_existing_issue", fake_find_existing)
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("gearbox.core.gh.add_issue_labels", fake_add_labels)
+
+        result = create_issue("owner/repo", "New Title", "Body", ["P1"])
+
+        assert result.success is True
+        assert result.pr_url == "https://github.com/owner/repo/issues/5"
+        assert commands[0][0:3] == ["gh", "issue", "create"]
+        assert label_calls == [("owner/repo", 5, ["P1"])]
+
+
+class TestFindExistingIssue:
+    """测试 find_existing_issue 去重查询"""
+
+    def test_returns_matching_issue_by_title(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(
+            return_value=MagicMock(
+                stdout=(
+                    '[{"number":7,"title":"Exact Match","labels":[],'
+                    '"url":"https://github.com/o/r/issues/7","createdAt":"2026-04-26T00:00:00Z"}]'
+                )
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = find_existing_issue("owner/repo", "Exact Match")
+
+        assert result is not None
+        assert result.number == 7
+        assert result.title == "Exact Match"
+
+    def test_returns_none_when_no_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(return_value=MagicMock(stdout="[]"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = find_existing_issue("owner/repo", "Nonexistent Title")
+
+        assert result is None
+
+    def test_returns_none_on_api_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_run = MagicMock(side_effect=subprocess.CalledProcessError(1, "gh"))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = find_existing_issue("owner/repo", "Any Title")
+
+        assert result is None
+
+    def test_uses_search_with_title_in_quotes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            captured.append(cmd)
+            return MagicMock(returncode=0, stdout="[]")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        find_existing_issue("owner/repo", "My Issue Title")
+
+        assert len(captured) == 1
+        cmd = captured[0]
+        assert cmd[0:3] == ["gh", "issue", "list"]
+        assert "--search" in cmd
+        # 标题应被引号包裹以精确匹配
+        search_idx = cmd.index("--search")
+        assert '"My Issue Title"' in cmd[search_idx + 1]
 
 
 class TestFinalizeAndCreatePr:

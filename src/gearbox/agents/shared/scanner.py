@@ -111,6 +111,9 @@ def detect_project_type(repo_path: Path) -> tuple[str, str, bool, bool]:
 
 
 def _fallback_file_counts(repo_path: Path) -> tuple[int, int]:
+    # Maximum file size to read (10 MB); larger files are skipped to prevent OOM.
+    _max_file_bytes = 10 * 1024 * 1024
+
     excluded_dirs = {
         ".git",
         "__pycache__",
@@ -121,6 +124,13 @@ def _fallback_file_counts(repo_path: Path) -> tuple[int, int]:
         ".venv",
         ".mypy_cache",
         ".ruff_cache",
+        # Additional large / generated directories (Issue #35)
+        ".next",
+        "coverage",
+        ".tox",
+        ".cache",
+        "htmlcov",
+        "storybook-static",
     }
     total_files = 0
     total_lines = 0
@@ -130,11 +140,22 @@ def _fallback_file_counts(repo_path: Path) -> tuple[int, int]:
             continue
         if any(part in excluded_dirs for part in path.parts):
             continue
+        # Skip files exceeding size threshold to avoid OOM on large repos
+        try:
+            if path.stat().st_size > _max_file_bytes:
+                continue
+        except OSError:
+            continue
         total_files += 1
         try:
-            total_lines += len(path.read_text(encoding="utf-8", errors="ignore").splitlines())
+            # Count lines by iterating (streaming) — never loads full file into memory
+            nlines = 0
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for _ in f:
+                    nlines += 1
+            total_lines += nlines
         except Exception:
-            continue
+            pass
 
     return total_files, total_lines
 

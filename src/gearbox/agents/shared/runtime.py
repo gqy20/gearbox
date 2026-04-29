@@ -18,9 +18,28 @@ from claude_agent_sdk import (
     TaskProgressMessage,
     TaskStartedMessage,
     TextBlock,
+    query,
 )
 
 from gearbox.config import get_anthropic_api_key, get_anthropic_base_url
+
+
+class CostBudgetExceededError(RuntimeError):
+    """Agent 执行成本超过预算上限时抛出。"""
+
+    def __init__(
+        self,
+        message: str = "Cost budget exceeded",
+        *,
+        cost_usd: float | None = None,
+        limit_usd: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.cost_usd = cost_usd
+        self.limit_usd = limit_usd
+
+
+_DEFAULT_COST_WARNING_THRESHOLD_USD = 2.0
 
 _HEARTBEAT_INTERVAL_SECONDS = 20.0
 _HEARTBEAT_IDLE_THRESHOLD_SECONDS = 20.0
@@ -132,8 +151,15 @@ def _safe_get(mapping: Any, *path: str) -> Any | None:
 class SdkEventLogger:
     """把 SDK 原生事件转成适合终端和 GitHub Actions 的日志。"""
 
-    def __init__(self, agent_name: str) -> None:
+    def __init__(
+        self,
+        agent_name: str,
+        *,
+        cost_warning_threshold_usd: float = _DEFAULT_COST_WARNING_THRESHOLD_USD,
+    ) -> None:
         self.agent_name = agent_name
+        self.cost_warning_threshold_usd = cost_warning_threshold_usd
+        self._cost_warning_emitted = False
         self._open_task_ids: set[str] = set()
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
@@ -222,6 +248,19 @@ class SdkEventLogger:
         self.close_open_groups()
         self._stop_heartbeat()
         self._log("done", "agent execution finished")
+
+    def _check_cost_threshold(self, message: ResultMessage) -> None:
+        """当累计成本超过阈值时发出 GitHub Actions ::warning::。"""
+        if (
+            not self._cost_warning_emitted
+            and message.total_cost_usd is not None
+            and message.total_cost_usd >= self.cost_warning_threshold_usd
+        ):
+            self._cost_warning_emitted = True
+            _print_line(
+                f"::warning::[{self.agent_name}] cost threshold exceeded: "
+                f"${message.total_cost_usd:.2f} >= ${self.cost_warning_threshold_usd:.2f}"
+            )
 
     def close_open_groups(self) -> None:
         while self._open_task_ids:
@@ -337,6 +376,7 @@ class SdkEventLogger:
 
         if isinstance(message, ResultMessage):
             self._flush_stream_text()
+            self._check_cost_threshold(message)
             fields = [
                 f"turns={message.num_turns}",
                 f"duration_ms={message.duration_ms}",
@@ -408,3 +448,51 @@ def prepare_agent_options(
         ),
         logger,
     )
+
+
+async def query_with_budget(
+    prompt: str,
+    options: ClaudeAgentOptions,
+    *,
+    max_cost_usd: float | None = None,
+) -> Any:
+    """包装 SDK ``query()``，在应用层强制执行成本预算上限。
+
+    与 :func:`claude_agent_sdk.query` 接口一致——同样是异步生成器，
+    逐条 yield 消息。在每条消息上检查 ``total_cost_usd``，
+    一旦累计成本超过 *max_cost_usd*，立即停止迭代并抛出
+    :class:`CostBudgetExceededError`。
+
+    用法与 ``query()`` 完全兼容，可直接替换::
+
+        # Before
+        async for msg in query(prompt, options): ...
+
+        # After
+        async for msg in query_with_budget(prompt, options, max_cost_usd=5.0): ...
+
+    Args:
+        prompt: Agent 提示词。
+        options: SDK 选项（含 model、max_turns 等）。
+        max_cost_usd: 成本上限（美元）。为 ``None`` 时不做限制。
+
+    Yields:
+        与底层 ``query()`` 相同的消息对象。
+
+    Raises:
+        CostBudgetExceededError: 当累计成本超过 *max_cost_usd* 时。
+    """
+    if max_cost_usd is not None and max_cost_usd <= 0:
+        raise ValueError("max_cost_usd must be positive or None")
+
+    async for message in query(prompt=prompt, options=options):
+        yield message
+
+        if max_cost_usd is not None:
+            cost = getattr(message, "total_cost_usd", None)
+            if isinstance(cost, (int, float)) and cost > max_cost_usd:
+                raise CostBudgetExceededError(
+                    f"Agent cost ${cost:.2f} exceeded budget ${max_cost_usd:.2f}",
+                    cost_usd=float(cost),
+                    limit_usd=max_cost_usd,
+                )

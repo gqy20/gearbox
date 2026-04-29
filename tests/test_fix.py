@@ -390,7 +390,7 @@ class TestFixAgent:
             "gearbox.agents.fix._gh_pr_view",
             lambda *a, **k: {"title": "T", "body": "B", "headRefName": "feat/issue-1"},
         )
-        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        monkeypatch.setattr("gearbox.agents.shared.runtime.query", fake_query)
         monkeypatch.setattr("gearbox.agents.shared.runtime.prepare_agent_options", fake_prepare)
 
         import asyncio
@@ -434,7 +434,7 @@ class TestFixAgent:
             capture_options(opts)
             return opts, FakeLogger()
 
-        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        monkeypatch.setattr("gearbox.agents.shared.runtime.query", fake_query)
         monkeypatch.setattr("gearbox.agents.shared.runtime.prepare_agent_options", fake_prepare)
 
         import asyncio
@@ -474,7 +474,7 @@ class TestFixAgent:
         monkeypatch.setattr(
             "gearbox.agents.fix._gh_pr_view", lambda *a, **k: {"title": "T", "headRefName": "f/i-1"}
         )
-        monkeypatch.setattr("claude_agent_sdk.query", fake_query_no_structured)
+        monkeypatch.setattr("gearbox.agents.shared.runtime.query", fake_query_no_structured)
         monkeypatch.setattr("gearbox.agents.shared.runtime.prepare_agent_options", fake_prepare)
 
         import asyncio

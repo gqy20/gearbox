@@ -96,6 +96,7 @@ async def run_fix(
     *,
     model: str = "claude-sonnet-4-6",
     max_turns: int = DEFAULT_FIX_MAX_TURNS,
+    max_cost_usd: float | None = 5.0,
 ) -> FixResult:
     """
     执行 Fix Agent — 根据 Review 反馈修补 PR。
@@ -105,13 +106,14 @@ async def run_fix(
         pr_number: PR 编号
         model: 使用的模型
         max_turns: 最大对话轮次
+        max_cost_usd: 成本上限（美元），None 表示不限制
 
     Returns:
         FixResult 结构
     """
-    from claude_agent_sdk import ClaudeAgentOptions, query
+    from claude_agent_sdk import ClaudeAgentOptions
 
-    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.runtime import prepare_agent_options, query_with_budget
     from gearbox.config import get_anthropic_model
 
     resolved_model = model or get_anthropic_model()
@@ -144,7 +146,11 @@ async def run_fix(
     structured: FixResult | None = None
 
     try:
-        async for message in query(prompt=prompt, options=options):
+        async for message in query_with_budget(
+            prompt=prompt,
+            options=options,
+            max_cost_usd=max_cost_usd,
+        ):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
                 parsed = parse_with_model(message, FixResult)

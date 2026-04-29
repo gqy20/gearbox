@@ -179,6 +179,7 @@ async def run_audit(
     *,
     model: str | None = None,
     max_turns: int = 20,
+    max_cost_usd: float | None = 5.0,
     system_prompt: str | None = None,
     enable_prescan: bool = True,
 ) -> AuditResult:
@@ -191,19 +192,17 @@ async def run_audit(
         output_dir: 输出目录
         model: 使用的模型
         max_turns: 最大对话轮次
+        max_cost_usd: 成本上限（美元），None 表示不限制
         system_prompt: 自定义 System Prompt（可选，默认使用内置）
         enable_prescan: 是否启用预扫描（默认 True）
 
     Returns:
         AuditResult 结构
     """
-    from claude_agent_sdk import (
-        ClaudeAgentOptions,
-        query,
-    )
+    from claude_agent_sdk import ClaudeAgentOptions
 
     from gearbox.agents.schemas import output_format_schema, parse_with_model
-    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.runtime import prepare_agent_options, query_with_budget
     from gearbox.agents.shared.scanner import (
         format_scan_summary,
         scan_repository,
@@ -326,7 +325,11 @@ async def run_audit(
         total_cost: float | None = None
 
         try:
-            async for message in query(prompt=prompt, options=options):
+            async for message in query_with_budget(
+                prompt=prompt,
+                options=options,
+                max_cost_usd=max_cost_usd,
+            ):
                 sdk_logger.handle_message(message, echo_assistant_text=False)
                 total_cost = getattr(message, "total_cost_usd", total_cost)
                 if structured is None:

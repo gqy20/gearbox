@@ -115,6 +115,7 @@ async def run_implement(
     run_id: int = 0,
     base_branch: str = "main",
     max_turns: int = 80,
+    max_cost_usd: float | None = 15.0,
 ) -> ImplementResult:
     """
     执行 Issue 实现。
@@ -125,16 +126,17 @@ async def run_implement(
         model: 使用的模型
         base_branch: PR 目标分支
         max_turns: 最大对话轮次
+        max_cost_usd: 成本上限（美元），None 表示不限制
 
     Returns:
         ImplementResult 结构
     """
     from pathlib import Path
 
-    from claude_agent_sdk import ClaudeAgentOptions, query
+    from claude_agent_sdk import ClaudeAgentOptions
 
     from gearbox.agents.schemas import output_format_schema, parse_with_model
-    from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.runtime import prepare_agent_options, query_with_budget
 
     project_root = Path.cwd()
     issue = _gh_issue_view(repo, issue_number)
@@ -173,15 +175,35 @@ async def run_implement(
     )
 
     structured: ImplementResult | None = None
+    _max_turns_without_output = max_turns // 2  # e.g. 40 turns for max_turns=80
 
     try:
-        async for message in query(prompt=prompt, options=options):
+        turn_count = 0
+        async for message in query_with_budget(
+            prompt=prompt,
+            options=options,
+            max_cost_usd=max_cost_usd,
+        ):
             sdk_logger.handle_message(message, echo_assistant_text=False)
             if structured is None:
                 parsed = parse_with_model(message, ImplementResult)
                 if parsed is not None:
                     structured = parsed
                     break
+
+            # Track turns for structured output timeout fallback
+            if hasattr(message, "num_turns"):
+                turn_count = message.num_turns
+                if (
+                    turn_count > 0
+                    and turn_count % _max_turns_without_output == 0
+                    and structured is None
+                ):
+                    sdk_logger._log(
+                        "budget-warning",
+                        f"no structured output after {turn_count} turns "
+                        f"(threshold={_max_turns_without_output}), continuing...",
+                    )
     finally:
         sdk_logger.log_completion()
 

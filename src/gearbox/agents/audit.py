@@ -22,6 +22,49 @@ OUTPUT_FILES = ("profile.json", "comparison.md", "issues.json")
 # Benchmark 缓存
 _BENCHMARK_CACHE_DIR = Path.home() / ".cache" / "gearbox" / "benchmarks"
 
+# Allowed characters in repo identifiers: alphanumeric, hyphen, underscore, forward slash
+_VALID_REPO_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_/")
+_INVALID_REPO_PATTERNS = ("..", "//")
+
+
+def _sanitize_repo_name(repo: str) -> str:
+    """Validate and sanitize a repo identifier for safe use as a cache filename.
+
+    Only ``[a-zA-Z0-9_-/]`` characters are accepted.  Sequences that could
+    enable path traversal (``..``, ``//``) or a bare ``.`` are rejected.
+
+    Raises:
+        ValueError: If *repo* contains disallowed characters or patterns.
+    """
+    if not repo:
+        raise ValueError("repo must not be empty")
+
+    if any(p in repo for p in _INVALID_REPO_PATTERNS):
+        raise ValueError(f"invalid repo: {repo!r} contains path-traversal pattern")
+
+    # Reject standalone dot (could be used to create hidden files)
+    stripped = repo.strip()
+    if stripped == ".":
+        raise ValueError(f"invalid repo: {repo!r}")
+
+    invalid_chars = set(stripped) - _VALID_REPO_CHARS
+    if invalid_chars:
+        raise ValueError(
+            f"invalid repo: {repo!r} contains disallowed characters: {sorted(invalid_chars)!r}"
+        )
+
+    return stripped
+
+
+def _benchmark_cache_path(repo: str) -> Path:
+    """Return the cache file path for *repo*, with boundary assertion."""
+    sanitized = _sanitize_repo_name(repo)
+    cache_file = _BENCHMARK_CACHE_DIR / f"{sanitized.replace('/', '_')}.json"
+    resolved = cache_file.resolve()
+    if not resolved.is_relative_to(_BENCHMARK_CACHE_DIR.resolve()):
+        raise ValueError(f"resolved cache path {resolved} escapes {_BENCHMARK_CACHE_DIR}")
+    return cache_file
+
 
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
     """由宿主进程统一写出 audit 产物文件。"""
@@ -58,7 +101,11 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
 
 def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] | None:
     """获取缓存的对标仓库列表"""
-    cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
+    try:
+        cache_file = _benchmark_cache_path(repo)
+    except ValueError:
+        # Reject path-traversal repo names silently
+        return None
     if cache_file.exists():
         try:
             data = json.loads(cache_file.read_text())
@@ -72,7 +119,11 @@ def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] 
 
 def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
     """缓存对标仓库列表"""
-    cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
+    try:
+        cache_file = _benchmark_cache_path(repo)
+    except ValueError:
+        # Silently reject malicious repo names — do not write anywhere
+        return
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(
         json.dumps(

@@ -1,12 +1,15 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
+import logging
+import os
 import shutil
 import tempfile
 import time
 from pathlib import Path
 
 import click
+from pydantic import BaseModel, Field, ValidationError
 
 from gearbox.agents.schemas import AuditResult as _AuditResultModel
 from gearbox.agents.schemas import Issue as _IssueModel
@@ -19,8 +22,23 @@ Issue = _IssueModel
 
 OUTPUT_FILES = ("profile.json", "comparison.md", "issues.json")
 
+logger = logging.getLogger(__name__)
+
 # Benchmark 缓存
 _BENCHMARK_CACHE_DIR = Path.home() / ".cache" / "gearbox" / "benchmarks"
+_BENCHMARK_TTL_SECONDS = 7 * 24 * 3600  # 7 days
+
+
+class BenchmarkCache(BaseModel):
+    """Schema-validated benchmark cache entry.
+
+    Wraps raw JSON cache data with Pydantic validation so that corrupted,
+    partially-written, or manually-edited cache files are rejected at read
+    time rather than causing KeyError / AttributeError crashes downstream.
+    """
+
+    benchmarks: list[str] = Field(default_factory=list)
+    cached_at: float
 
 
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
@@ -57,31 +75,75 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
 
 
 def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] | None:
-    """获取缓存的对标仓库列表"""
+    """获取缓存的对标仓库列表，带 Schema 校验。
+
+    Returns ``None`` when the cache is missing, expired, corrupted, or fails
+    schema validation — never propagates a malformed dict downstream.
+    """
     cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
-    if cache_file.exists():
-        try:
-            data = json.loads(cache_file.read_text())
-            # 缓存有效期 7 天
-            if time.time() - data.get("cached_at", 0) < 7 * 24 * 3600:
-                return data.get("benchmarks")  # type: ignore[return-value, no-any-return]
-        except Exception:
-            pass
-    return None
+    if not cache_file.exists():
+        return None
+
+    try:
+        raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        cached = BenchmarkCache.model_validate(raw)
+    except (json.JSONDecodeError, ValidationError, OSError) as exc:
+        logger.debug("Benchmark cache %s invalid: %s", cache_file, exc)
+        return None
+
+    if time.time() - cached.cached_at >= _BENCHMARK_TTL_SECONDS:
+        return None
+
+    return cached.benchmarks
 
 
 def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
-    """缓存对标仓库列表"""
+    """原子写入对标仓库列表缓存。
+
+    Writes to a temporary file in the same directory then renames to avoid
+    leaving a partially-written file on crash / OOM / disk-full.
+    """
     cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(
-        json.dumps(
-            {
-                "benchmarks": benchmarks,
-                "cached_at": time.time(),
-            }
-        )
+
+    payload = BenchmarkCache(benchmarks=benchmarks, cached_at=time.time()).model_dump_json()
+
+    # Atomic write: temp file + rename
+    fd, tmp_path = tempfile.mkstemp(
+        suffix=".tmp", prefix=".gearbox-benchmark-", dir=cache_file.parent
     )
+    try:
+        os.write(fd, payload.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp_path, cache_file)
+
+
+def _cleanup_benchmark_cache() -> int:
+    """Remove expired or corrupted benchmark cache files.
+
+    Returns the number of files removed.
+    """
+    if not _BENCHMARK_CACHE_DIR.is_dir():
+        return 0
+
+    removed = 0
+    now = time.time()
+    for entry in _BENCHMARK_CACHE_DIR.iterdir():
+        if not entry.is_file() or not entry.suffix == ".json":
+            continue
+        try:
+            raw = json.loads(entry.read_text(encoding="utf-8"))
+            cached = BenchmarkCache.model_validate(raw)
+            if now - cached.cached_at >= _BENCHMARK_TTL_SECONDS:
+                entry.unlink()
+                removed += 1
+        except (json.JSONDecodeError, ValidationError, OSError):
+            # Corrupted or unreadable — remove it
+            entry.unlink()
+            removed += 1
+    return removed
 
 
 def load_audit_result(output_dir: Path) -> AuditResult:

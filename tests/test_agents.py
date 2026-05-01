@@ -469,6 +469,38 @@ class TestStructuredOutputErrorPaths:
             result = parse_with_model(bad_input, BacklogItemResult)
             assert result is None
 
+    def test_shared_structured_parse_with_model_is_deprecated(self) -> None:
+        """shared.structured.parse_with_model 应发出 DeprecationWarning 并委托给 schemas."""
+        import warnings
+
+        from gearbox.agents.schemas import parse_with_model as schemas_parse
+        from gearbox.agents.shared.structured import parse_with_model as shared_parse
+
+        message = self._result(
+            {"labels": ["bug"], "priority": "P1", "complexity": "S", "ready_to_implement": False}
+        )
+
+        # 调用 shared 版本应发出 DeprecationWarning
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = shared_parse(message, BacklogItemResult)
+            # 确认功能正常（向后兼容）
+            assert result is not None
+            assert result.priority == "P1"
+            # 确认发出了 DeprecationWarning
+            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            assert len(deprecation_warnings) >= 1
+            assert "deprecated" in str(deprecation_warnings[0].message).lower()
+
+        # schemas 版本不应发出警告，且结果一致
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            schemas_result = schemas_parse(message, BacklogItemResult)
+            dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            assert len(dep_warnings) == 0
+        assert schemas_result is not None
+        assert result.model_dump() == schemas_result.model_dump()
+
     # Legacy parse_structured_output backward-compat tests
     def test_legacy_parse_structured_output_none(self) -> None:
         result = parse_structured_output(self._result(None), lambda data: data["key"])

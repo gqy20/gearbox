@@ -44,7 +44,7 @@ runs:
         echo "✅ ctx7 already installed"
       else
         echo "📦 Installing ctx7..."
-        npm install -g ctx7
+        npm install -g ctx7@0.4.0
         echo "✅ ctx7 installed"
       fi
 
@@ -58,7 +58,7 @@ runs:
         echo "✅ semgrep already installed: $(semgrep --version)"
       else
         echo "📦 Installing semgrep..."
-        uv tool install semgrep
+        uv tool install semgrep==1.161.0
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         export PATH="$HOME/.local/bin:$PATH"
         echo "✅ semgrep installed: $(semgrep --version)"
@@ -73,7 +73,7 @@ runs:
         echo "✅ ts-prune already installed"
       else
         echo "📦 Installing ts-prune..."
-        npm install -g ts-prune
+        npm install -g ts-prune@0.10.3
         echo "✅ ts-prune installed"
       fi
 
@@ -87,7 +87,7 @@ runs:
         echo "✅ deptry already installed: $(deptry --version)"
       else
         echo "📦 Installing deptry..."
-        uv tool install deptry
+        uv tool install deptry==0.25.1
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         export PATH="$HOME/.local/bin:$PATH"
         echo "✅ deptry installed: $(deptry --version)"
@@ -107,7 +107,7 @@ runs:
         echo "✅ govulncheck already installed"
       else
         echo "📦 Installing govulncheck..."
-        go install golang.org/x/vuln/cmd/govulncheck@latest
+        go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
         echo "✅ govulncheck installed"
       fi
 
@@ -130,12 +130,12 @@ runs:
   - name: Verify scanner tools
     shell: bash
     run: |
-      echo "=== Scanner Tool Status ==="
-      echo "ctx7:      $(command -v ctx7 && ctx7 --version 2>/dev/null || echo 'not found')"
-      echo "semgrep:   $(command -v semgrep && semgrep --version 2>/dev/null || echo 'not found')"
-      echo "ts-prune:  $(command -v ts-prune || echo 'not found')"
-      echo "deptry:    $(command -v deptry && deptry --version 2>/dev/null || echo 'not found')"
-      echo "govulncheck: $(command -v govulncheck || echo 'not found')"
-      echo "cloc:      $(command -v cloc && cloc --version 2>/dev/null | head -1 || echo 'not found')"
-      echo "trivy:     $(command -v trivy && trivy --version 2>/dev/null || echo 'not found')"
-      echo "==========================="
+      echo "=== Scanner Tool Versions (pinned) ==="
+      echo "ctx7:        $(command -v ctx7 && ctx7 --version 2>/dev/null || echo 'not found')"
+      echo "semgrep:     $(command -v semgrep && semgrep --version 2>/dev/null | head -1 || echo 'not found')"
+      echo "ts-prune:    $(command -v ts-prune && ts-prune --version 2>/dev/null || echo 'not found')"
+      echo "deptry:      $(command -v deptry && deptry --version 2>/dev/null || echo 'not found')"
+      echo "govulncheck: $(command -v govulncheck && govulncheck -version 2>/dev/null || echo 'not found')"
+      echo "cloc:        $(command -v cloc && cloc --version 2>/dev/null | head -1 || echo 'not found')"
+      echo "trivy:       $(command -v trivy && trivy --version 2>/dev/null || echo 'not found')"
+      echo "======================================"

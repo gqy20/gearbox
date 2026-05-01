@@ -248,6 +248,60 @@ class TestDispatchWorkflow:
         )
 
 
+class TestSetupAction:
+    """Tests for actions/_setup/action.yml — scanner tool version pinning."""
+
+    def _read_setup(self) -> str:
+        return (_root() / "actions" / "_setup" / "action.yml").read_text(encoding="utf-8")
+
+    def test_npm_tools_are_version_pinned(self) -> None:
+        """Every `npm install -g <pkg>` must include an @version suffix."""
+        setup = self._read_setup()
+        # Find all npm install lines
+        npm_lines = [line for line in setup.splitlines() if "npm install -g" in line]
+        for line in npm_lines:
+            # Must match pattern like ctx7@1.2.3 or ts-prune@3.1.0
+            assert re.search(r"npm install -g \S+@\d", line), (
+                f"Unpinned npm install: {line.strip()}"
+            )
+
+    def test_uv_tools_are_version_pinned(self) -> None:
+        """Every `uv tool install <pkg>` must use == pin format."""
+        setup = self._read_setup()
+        uv_lines = [line for line in setup.splitlines() if "uv tool install" in line]
+        for line in uv_lines:
+            # Must match pattern like semgrep==1.90.0 or deptry==0.21.0
+            assert re.search(r"uv tool install \S+==\d", line), (
+                f"Unpinned uv tool install: {line.strip()}"
+            )
+
+    def test_go_install_uses_pinned_version_not_latest(self) -> None:
+        """go install must use @vX.Y.Z tag, not @latest."""
+        setup = self._read_setup()
+        go_lines = [line for line in setup.splitlines() if "go install" in line]
+        for line in go_lines:
+            assert "@latest" not in line, f"go install uses @latest: {line.strip()}"
+            # Must contain a pinned version like @v1.0.8
+            assert re.search(r"go install \S+@v\d", line), f"Unpinned go install: {line.strip()}"
+
+    def test_verify_step_outputs_tool_versions(self) -> None:
+        """The Verify step should log each tool's version for traceability."""
+        setup = self._read_setup()
+        assert "Scanner Tool Versions" in setup
+        assert "--version" in setup  # at least some tools log versions
+
+    def test_no_floating_latest_in_any_install_command(self) -> None:
+        """No install command should use floating @latest."""
+        setup = self._read_setup()
+        for i, line in enumerate(setup.splitlines(), 1):
+            if ("install" in line and "@latest" in line) or (
+                "apt-get install" in line and "-y" in line
+            ):
+                # System packages via apt are allowed but should be noted;
+                # the key constraint is no @latest for language package managers.
+                assert "@latest" not in line, f"Line {i} uses floating @latest: {line.strip()}"
+
+
 class TestAutoMergeWorkflow:
     def test_auto_merge_triggers_on_pull_request_review_submitted(self) -> None:
         root = _root()

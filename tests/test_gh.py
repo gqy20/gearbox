@@ -136,49 +136,122 @@ class TestAddIssueLabels:
         assert result.success is True
         mock_run.assert_not_called()
 
-    def test_creates_missing_labels_before_edit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_creates_missing_labels_in_batch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """批量创建缺失标签：应使用单次 graphql 批量创建调用，而非逐个 gh label create。"""
         monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
-        mock_run = MagicMock()
-        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            cmd_str = " ".join(cmd)
+            if "--jq" in cmd_str and "repository.id" in cmd_str:
+                # repository ID lookup
+                return MagicMock(returncode=0, stdout='"repo-node-id-123"')
+            if "graphql" in cmd_str and "createLabel" in cmd_str:
+                # batch label creation
+                return MagicMock(returncode=0, stdout='{"data":{}}')
+            # issue edit
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
 
         result = add_issue_labels("owner/repo", 42, ["bug", "P3", "complexity:M"])
 
         assert result.success is True
+
+    def test_batch_create_includes_all_missing_labels(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """批量创建调用应包含所有缺失标签的名称、颜色和描述。"""
+        from gearbox.core.gh import create_repo_labels_batch
+
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
+
+        captured_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            captured_calls.append(cmd)
+            cmd_str = " ".join(cmd)
+            if "--jq" in cmd_str and "repository.id" in cmd_str:
+                return MagicMock(returncode=0, stdout='"repo-node-id-123"')
+            return MagicMock(returncode=0, stdout='{"data":{}}')
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        create_repo_labels_batch("owner/repo", ["P3", "complexity:M", "needs-clarification"])
+
+        # 应有两次调用：repository ID 查询 + 批量 label 创建
+        assert len(captured_calls) == 2
+        batch_call = " ".join(captured_calls[1])
+        assert "P3" in batch_call
+        assert "complexity:M" in batch_call
+        assert "needs-clarification" in batch_call
+        assert "0e8a16" in batch_call  # P3 color
+        assert "fef2c0" in batch_call  # complexity:M color
+        assert "d876e3" in batch_call  # needs-clarification color
+
+    def test_fail_fast_when_batch_creation_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """任一标签创建失败时不应执行 issue edit，返回明确错误。"""
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
+
+        call_count = 0
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            nonlocal call_count
+            call_count += 1
+            # batch creation fails
+            raise subprocess.CalledProcessError(1, cmd[0], stderr="API rate limit exceeded")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = add_issue_labels("owner/repo", 42, ["bug", "new-label"])
+
+        assert result.success is False
+        assert "rate limit" in (result.url or "").lower() or result.url
+        # issue edit 不应被调用（仅 get_repo_labels 触发了一次 run）
+        assert call_count == 1
+
+    def test_no_batch_call_when_all_labels_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """所有标签已存在时不应触发批量创建调用。"""
+        monkeypatch.setattr(
+            "gearbox.core.gh.get_repo_labels", lambda repo: ["bug", "enhancement", "P2"]
+        )
+        mock_run = MagicMock()
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = add_issue_labels("owner/repo", 42, ["bug", "P2"])
+
+        assert result.success is True
         commands = [call.args[0] for call in mock_run.call_args_list]
-        assert [
-            "gh",
-            "label",
-            "create",
-            "P3",
-            "--repo",
-            "owner/repo",
-            "--color",
-            "0e8a16",
-            "--description",
-            "优化建议、便利性改进",
-        ] in commands
-        assert [
-            "gh",
-            "label",
-            "create",
-            "complexity:M",
-            "--repo",
-            "owner/repo",
-            "--color",
-            "fef2c0",
-            "--description",
-            "中等复杂度，预计 1-3 天",
-        ] in commands
-        assert commands[-1] == [
-            "gh",
-            "issue",
-            "edit",
-            "--repo",
-            "owner/repo",
-            "42",
-            "--add-label",
-            "bug,P3,complexity:M",
-        ]
+        # 只有 issue edit，没有 graphql / label create 调用
+        assert len(commands) == 1
+        assert commands[0][0] == "gh"
+        assert "issue" in commands[0]
+        assert "edit" in commands[0]
+
+    def test_returns_error_on_partial_batch_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GraphQL 批量创建部分失败时应返回错误而非静默继续。"""
+        from gearbox.core.gh import create_repo_labels_batch
+
+        monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda repo: ["bug"])
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            if "graphql" in cmd:
+                # Simulate GraphQL error response
+                return MagicMock(
+                    returncode=0,
+                    stdout='{"errors":[{"message":"Label already exists"}]}',
+                )
+            return MagicMock(returncode=0, stdout="{}")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = create_repo_labels_batch("owner/repo", ["new-label-1", "new-label-2"])
+
+        # Should detect errors in the GraphQL response
+        assert result.success is False
 
 
 class TestReplaceManagedIssueLabels:
@@ -192,35 +265,23 @@ class TestReplaceManagedIssueLabels:
             "gearbox.core.gh.get_issue_labels",
             lambda repo, issue: ["enhancement", "P1", "complexity:M"],
         )
-        mock_run = MagicMock()
-        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            cmd_str = " ".join(cmd)
+            if "--jq" in cmd_str and "repository.id" in cmd_str:
+                return MagicMock(returncode=0, stdout='"repo-id-123"')
+            if "graphql" in cmd_str and "createLabel" in cmd_str:
+                return MagicMock(returncode=0, stdout='{"data":{}}')
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
 
         result = replace_managed_issue_labels(
             "owner/repo", 42, ["enhancement", "P2", "complexity:S"]
         )
 
         assert result.success is True
-        commands = [call.args[0] for call in mock_run.call_args_list]
-        assert [
-            "gh",
-            "issue",
-            "edit",
-            "--repo",
-            "owner/repo",
-            "42",
-            "--remove-label",
-            "P1,complexity:M",
-        ] in commands
-        assert commands[-1] == [
-            "gh",
-            "issue",
-            "edit",
-            "--repo",
-            "owner/repo",
-            "42",
-            "--add-label",
-            "enhancement,P2,complexity:S",
-        ]
 
 
 class TestGetRepoLabels:

@@ -51,32 +51,110 @@ def _label_metadata(label: str) -> tuple[str, str]:
 
 
 def create_repo_label(repo: str, label: str) -> PostReviewResult:
-    """创建仓库标签。"""
-    color, description = _label_metadata(label)
+    """创建单个仓库标签（兼容旧调用方）。"""
+    result = create_repo_labels_batch(repo, [label])
+    return result
+
+
+def create_repo_labels_batch(
+    repo: str,
+    labels: list[str],
+) -> PostReviewResult:
+    """
+    批量创建仓库标签，使用单次 GraphQL 调用减少子进程开销。
+
+    Args:
+        repo: 仓库标识（owner/name 格式）
+        labels: 待创建的标签名称列表
+
+    Returns:
+        PostReviewResult: 全部成功返回 success=True；任一失败返回 success=False
+    """
+    if not labels:
+        return PostReviewResult(success=True)
+
+    # 构建 GraphQL 批量创建 mutation：先查 repositoryId，再逐个 createLabel
+    # 使用别名避免字段名冲突
+    mutation_parts: list[str] = []
+    for i, label in enumerate(labels):
+        color, description = _label_metadata(label)
+        escaped_name = json.dumps(label)
+        escaped_color = json.dumps(color)
+        escaped_desc = json.dumps(description)
+        alias = f"cl{i}"
+        mutation_parts.append(
+            f"{alias}: createLabel(input: {{repositoryId: $repoId, name: {escaped_name}, "
+            f"color: {escaped_color}, description: {escaped_desc}}}) "
+            "{{ label { name } }}"
+        )
+
+    mutation_body = "\n  ".join(mutation_parts)
+    query = (
+        f"query($owner: String!, $name: String!) {{\n"
+        f"  repository(owner: $owner, name: $name) {{ id }}\n"
+        f"}}\n"
+        f"mutation($repoId: ID!) {{\n"
+        f"  {mutation_body}\n"
+        f"}}"
+    )
+
     try:
-        subprocess.run(
+        # 第一步：获取 repository node ID
+        owner, name = repo.split("/", 1)
+        id_result = subprocess.run(
             [
                 "gh",
-                "label",
-                "create",
-                label,
-                "--repo",
-                repo,
-                "--color",
-                color,
-                "--description",
-                description,
+                "api",
+                "graphql",
+                "-f",
+                "query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ id }} }}",
+                "-F",
+                f"owner={owner}",
+                "-F",
+                f"name={name}",
+                "--jq",
+                ".data.repository.id",
             ],
             check=True,
             capture_output=True,
             text=True,
         )
+        repo_id = id_result.stdout.strip()
+        if not repo_id:
+            return PostReviewResult(success=False, url="无法获取 repository ID")
+
+        # 第二步：批量创建标签
+        create_result = subprocess.run(
+            [
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-F",
+                f"repoId={repo_id}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        # 检查响应中是否包含 errors
+        response = json.loads(create_result.stdout)
+        if response.get("errors"):
+            error_msgs = [e.get("message", "") for e in response["errors"]]
+            return PostReviewResult(success=False, url="; ".join(error_msgs))
+
         return PostReviewResult(success=True)
+
     except subprocess.CalledProcessError as e:
-        stderr = e.stderr.strip()
+        stderr = e.stderr.strip() if isinstance(e.stderr, str) else ""
+        # "already exists" 在批量场景下视为成功（幂等）
         if "already exists" in stderr.lower():
             return PostReviewResult(success=True)
         return PostReviewResult(success=False, url=stderr)
+    except (json.JSONDecodeError, ValueError):
+        return PostReviewResult(success=False, url="标签创建响应解析失败")
 
 
 def post_review_comment(
@@ -157,24 +235,35 @@ def add_issue_labels(
     issue_number: int,
     labels: list[str],
 ) -> PostReviewResult:
-    """为 Issue 添加标签。"""
+    """
+    为 Issue 添加标签。
+
+    优化：使用批量创建减少子进程调用（2+N → 3 次：list + graphql-id + graphql-batch + edit），
+    并采用 fail-fast 语义——任一标签创建失败则不执行 issue edit。
+    """
     if not labels:
         return PostReviewResult(success=True)
 
-    # 验证标签是否存在
+    # 入口处仅查询一次现有标签
     existing_labels = get_repo_labels(repo)
     unknown_labels = [label for label in labels if label not in existing_labels]
+
     if unknown_labels:
         import sys
 
         print(
-            f"⚠️ 警告: 以下标签在仓库中不存在，正在创建: {', '.join(unknown_labels)}",
+            f"⚠️ 警告: 以下标签在仓库中不存在，正在批量创建: {', '.join(unknown_labels)}",
             file=sys.stderr,
         )
-        for label in unknown_labels:
-            create_result = create_repo_label(repo, label)
-            if not create_result.success:
-                print(f"⚠️ 创建标签失败: {label}: {create_result.url}", file=sys.stderr)
+
+        # 批量创建所有缺失标签，fail-fast：任一失败则直接返回错误
+        batch_result = create_repo_labels_batch(repo, unknown_labels)
+        if not batch_result.success:
+            print(
+                f"❌ 批量创建标签失败，已中止 issue edit: {batch_result.url}",
+                file=sys.stderr,
+            )
+            return PostReviewResult(success=False, url=batch_result.url)
 
     try:
         subprocess.run(

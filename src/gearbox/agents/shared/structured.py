@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, TypeVar, cast
+import warnings
+from typing import Any, Callable, TypeVar
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
-from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -32,21 +32,19 @@ def parse_structured_output(
 def parse_with_model(message: object, model_class: type[T]) -> T | None:
     """提取 structured output 并通过 Pydantic model_validate 校验。
 
-    比手写 lambda 更安全：类型错误会抛出精确的 ValidationError，
-    而不是模糊的 ValueError 或 KeyError。
+    .. deprecated::
+        此函数已迁移至 :mod:`gearbox.agents.schemas`。
+        该实现现在委托给 :func:`gearbox.agents.schemas.parse_with_model`，
+        是唯一的 canonical 实现。
     """
-    raw = _extract_raw_dict(message)
-    if raw is None:
-        return None
-    try:
-        return cast(T, model_class.model_validate(raw))  # type: ignore[attr-defined]
-    except ValidationError as e:
-        logger.warning(
-            "Structured output validation failed for %s: %s",
-            model_class.__name__,
-            e,
-        )
-        raise
+    warnings.warn(
+        "parse_with_model is deprecated: use gearbox.agents.schemas.parse_with_model instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from gearbox.agents.schemas import parse_with_model as _canonical
+
+    return _canonical(message, model_class)  # type: ignore[type-var]
 
 
 def _extract_raw_dict(message: object) -> dict[str, Any] | None:

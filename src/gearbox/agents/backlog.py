@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, cast
 
+import click
+
 from gearbox.agents.schemas import BacklogItemResult as _BacklogItemResultModel
 
 # Re-export for backward compat
@@ -184,6 +186,31 @@ async def run_backlog_item(
     all_issues = list_open_issues(repo, limit=50)
     issues_summary = format_issues_summary(all_issues, current_issue_number=issue_number)
 
+    clone_root: Path | None = None
+    clone_dir: tempfile.TemporaryDirectory[str] | None = None
+    clone_failed = False
+
+    # 仅远程仓库（owner/repo 格式）需要克隆，本地路径不具备 GitHub API 上下文
+    if "/" in repo:
+        try:
+            clone_root, clone_dir = clone_repository(repo)
+        except (RuntimeError, OSError) as exc:
+            click.echo(
+                f"⚠️ 克隆目标仓库 {repo} 失败 "
+                f"({exc.__class__.__name__}: {exc})，"
+                f"将回退到当前工作目录，Agent 将基于 Issue 正文进行分类。",
+                err=True,
+            )
+            clone_failed = True
+
+    cwd = clone_root if clone_root else Path.cwd()
+
+    _clone_fallback_notice = (
+        "\n> **注意**: 当前未加载目标仓库源码（克隆失败），请基于 Issue 正文和标签进行分类。\n"
+        if clone_failed
+        else ""
+    )
+
     prompt = f"""## 当前 Issue 信息
 
 **仓库**: {repo}
@@ -197,20 +224,8 @@ async def run_backlog_item(
 
 ## {issues_summary}
 
----
+{_clone_fallback_notice}---
 {SYSTEM_PROMPT}"""
-
-    clone_root: Path | None = None
-    clone_dir: tempfile.TemporaryDirectory[str] | None = None
-
-    # 仅远程仓库（owner/repo 格式）需要克隆，本地路径不具备 GitHub API 上下文
-    if "/" in repo:
-        try:
-            clone_root, clone_dir = clone_repository(repo)
-        except Exception:
-            pass  # 克隆失败时 cwd 未定义，由 Agent 自行处理
-
-    cwd = clone_root if clone_root else Path.cwd()
 
     options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(

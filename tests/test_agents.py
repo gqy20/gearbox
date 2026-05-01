@@ -477,3 +477,138 @@ class TestStructuredOutputErrorPaths:
     def test_legacy_parse_structured_output_string(self) -> None:
         result = parse_structured_output(self._result("not a dict"), lambda data: data["key"])
         assert result is None
+
+
+class TestBacklogCloneFailure:
+    """验证 run_backlog_item 在克隆失败时的行为（Issue #55）。"""
+
+    def test_clone_failure_logs_warning_and_injects_fallback_context(
+        self, monkeypatch, capsys
+    ) -> None:
+        """克隆失败时应输出 warning 日志，并在 prompt 中注入回退上下文标注。"""
+        import asyncio
+
+        captured_prompt: dict[str, str] = {}
+        captured_options: dict[str, object] = {}
+
+        async def fake_query(*args, **kwargs):
+            captured_prompt["text"] = args[0] if args else kwargs.get("prompt", "")
+            captured_options.update(
+                kwargs.get("options", {}).__dict__ if "options" in kwargs else {}
+            )
+            yield _result_message(
+                {
+                    "labels": ["bug"],
+                    "priority": "P2",
+                    "complexity": "S",
+                    "ready_to_implement": False,
+                }
+            )
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                pass
+
+            def handle_message(self, *args, **kwargs) -> None:
+                pass
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            return options, FakeLogger()
+
+        # 让 clone_repository 抛出 RuntimeError
+        def fake_clone_raises(repo):
+            raise RuntimeError(f"clone failed for {repo}: not found")
+
+        monkeypatch.setattr(
+            backlog,
+            "_gh_issue_view",
+            lambda *a, **kw: {
+                "title": "Test Issue",
+                "body": "Something is broken",
+                "labels": ["bug"],
+            },
+        )
+        monkeypatch.setattr("gearbox.core.gh.list_open_issues", lambda *a, **kw: [])
+        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.setattr(
+            "gearbox.agents.shared.clone_repository",
+            fake_clone_raises,
+        )
+
+        result = asyncio.run(backlog.run_backlog_item("owner/nonexistent", 42, model="test-model"))
+
+        # 1. 函数不应崩溃，应正常返回结果
+        assert result is not None
+        assert result.labels == ["bug"]
+
+        # 2. 应输出 warning 级别日志（包含 clone 失败信息）
+        output = capsys.readouterr()
+        assert "clone" in output.err.lower() or "clone" in output.out.lower()
+
+        # 3. prompt 中应包含回退上下文标注
+        prompt_text = captured_prompt.get("text", "")
+        assert "未加载目标仓库源码" in prompt_text or "未加载" in prompt_text
+
+    def test_clone_failure_catches_specific_exceptions_not_bare_exception(
+        self, monkeypatch, capsys
+    ) -> None:
+        """验证克隆失败时捕获的是特定异常类型而非 bare Exception。"""
+        import asyncio
+
+        async def fake_query(*args, **kwargs):
+            yield _result_message(
+                {
+                    "labels": ["enhancement"],
+                    "priority": "P3",
+                    "complexity": "S",
+                    "ready_to_implement": False,
+                }
+            )
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                pass
+
+            def handle_message(self, *args, **kwargs) -> None:
+                pass
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            return options, FakeLogger()
+
+        # 用 OSError 测试——应在特定异常捕获范围内
+        def fake_clone_oserror(repo):
+            raise OSError("network unreachable")
+
+        monkeypatch.setattr(
+            backlog,
+            "_gh_issue_view",
+            lambda *a, **kw: {
+                "title": "Test",
+                "body": "Body",
+                "labels": [],
+            },
+        )
+        monkeypatch.setattr("gearbox.core.gh.list_open_issues", lambda *a, **kw: [])
+        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.setattr(
+            "gearbox.agents.shared.clone_repository",
+            fake_clone_oserror,
+        )
+
+        # 不应抛出异常，应优雅降级
+        result = asyncio.run(backlog.run_backlog_item("owner/repo", 1, model="test-model"))
+        assert result is not None

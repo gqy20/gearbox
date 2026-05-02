@@ -1,10 +1,13 @@
 """配置管理 - 读写用户配置"""
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, cast
 
 import tomli_w
+
+logger = logging.getLogger(__name__)
 
 # Agent 默认参数（CLI 和 Action 均引用此处的值）
 AGENT_DEFAULTS: dict[str, Any] = {
@@ -48,7 +51,10 @@ def load_config() -> dict[str, Any]:
             return tomli.load(f)
     except ImportError:
         return {}
-    except Exception:
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        logger.warning("Failed to load config from %s: %s", config_file, exc)
         return {}
 
 

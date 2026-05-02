@@ -1,10 +1,17 @@
 """配置管理 - 读写用户配置"""
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, cast
 
 import tomli_w
+
+logger = logging.getLogger(__name__)
+
+# 模块级惰性缓存 (Issue #60)
+_cached_config: dict[str, Any] | None = None
+_cache_mtime: float = 0.0
 
 # Agent 默认参数（CLI 和 Action 均引用此处的值）
 AGENT_DEFAULTS: dict[str, Any] = {
@@ -36,20 +43,51 @@ def get_config_path() -> Path:
 
 
 def load_config() -> dict[str, Any]:
-    """加载配置文件"""
+    """加载配置文件（带 mtime 惰性缓存，避免重复 I/O）"""
+    global _cached_config, _cache_mtime
+
     config_file = get_config_path()
+
+    # 文件不存在时返回空字典（不缓存，因为文件可能被创建）
     if not config_file.exists():
+        _cached_config = None
+        _cache_mtime = 0.0
         return {}
 
+    try:
+        current_mtime = os.path.getmtime(config_file)
+    except OSError:
+        current_mtime = 0.0
+
+    # 缓存命中：文件未变更
+    if _cached_config is not None and current_mtime == _cache_mtime and current_mtime > 0:
+        logger.debug("config cache hit (mtime=%s)", current_mtime)
+        return _cached_config
+
+    # 缓存未命中或文件已变更，重新加载
     try:
         import tomli
 
         with open(config_file, "rb") as f:
-            return tomli.load(f)
+            _cached_config = tomli.load(f)
+        _cache_mtime = current_mtime
+        logger.debug("config cache miss – reloaded (mtime=%s)", current_mtime)
+        return _cached_config
     except ImportError:
         return {}
     except Exception:
         return {}
+
+
+def reload_config() -> dict[str, Any]:
+    """强制重新加载配置文件，清除缓存。
+
+    用于需要热更新配置的场景（如用户手动编辑后）。
+    """
+    global _cached_config, _cache_mtime
+    _cached_config = None
+    _cache_mtime = 0.0
+    return load_config()
 
 
 def save_config(config: dict[str, Any]) -> None:

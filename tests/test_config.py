@@ -1,7 +1,11 @@
 """测试 config 模块"""
 
+import logging
 import os
+import time
 from pathlib import Path
+
+import pytest
 
 from gearbox.config import (
     AGENT_DEFAULTS,
@@ -12,6 +16,7 @@ from gearbox.config import (
     get_config_path,
     get_github_token,
     load_config,
+    reload_config,
     save_config,
 )
 
@@ -176,3 +181,75 @@ class TestAgentDefaults:
         assert "implement" in AGENT_DEFAULTS["max_turns"]
         assert "audit" in AGENT_DEFAULTS["max_turns"]
         assert AGENT_DEFAULTS["max_turns"]["implement"] == 80
+
+
+class TestConfigCache:
+    """测试配置缓存行为 (Issue #60)"""
+
+    def test_multiple_loads_return_cached_object(self, temp_home: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """连续多次 load_config 应返回缓存对象（同一 identity），避免重复 I/O"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        save_config({"anthropic_model": "cached-model-v1"})
+
+        with caplog.at_level(logging.DEBUG, logger="gearbox.config.settings"):
+            first = load_config()
+            second = load_config()
+            third = load_config()
+
+        # 后续调用应返回同一对象（缓存命中）
+        assert first is second is third
+        # 应有 cache hit 日志
+        assert any("cache hit" in r.message.lower() for r in caplog.records)
+
+    def test_cache_invalidated_on_file_change(self, temp_home: Path) -> None:
+        """文件修改后，下次 load_config 应重新读取"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        save_config({"anthropic_model": "model-v1"})
+
+        first = load_config()
+        assert first["anthropic_model"] == "model-v1"
+
+        # 修改文件
+        time.sleep(0.05)  # 确保 mtime 变化
+        save_config({"anthropic_model": "model-v2"})
+
+        second = load_config()
+        assert second["anthropic_model"] == "model-v2"
+        # 对象 identity 不同（缓存失效后重新加载）
+        assert first is not second
+
+    def test_reload_config_forces_refresh(self, temp_home: Path) -> None:
+        """reload_config() 应强制刷新缓存，即使文件未变"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        save_config({"key": "original"})
+
+        first = load_config()
+
+        # 不改文件，强制 reload
+        reloaded = reload_config()
+        assert reloaded["key"] == "original"
+        # reload 返回新对象
+        assert first is not reloaded
+
+    def test_getters_use_cache_consistently(self, temp_home: Path) -> None:
+        """getter 函数在单次事务内应读到一致的配置快照（无 TOCTOU）"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        save_config({
+            "anthropic_api_key": "key-for-model-x",
+            "anthropic_model": "model-x",
+        })
+
+        # 连续调用多个 getter，应全部命中缓存并返回一致数据
+        key1 = get_anthropic_api_key()
+        model1 = get_anthropic_model()
+        key2 = get_anthropic_api_key()
+        model2 = get_anthropic_model()
+
+        assert key1 == "key-for-model-x"
+        assert model1 == "model-x"
+        assert key1 == key2
+        assert model1 == model2

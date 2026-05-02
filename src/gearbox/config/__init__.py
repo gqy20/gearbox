@@ -9,6 +9,7 @@ from .settings import (
     get_config_path,
     get_github_token,
     load_config,
+    reload_config,
     save_config,
     set_anthropic_api_key,
     set_anthropic_base_url,
@@ -30,6 +31,7 @@ __all__ = [
     "set_anthropic_model",
     "set_provider",
     "load_config",
+    "reload_config",
     "save_config",
     "get_config_path",
 ]

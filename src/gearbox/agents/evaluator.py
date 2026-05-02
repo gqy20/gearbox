@@ -1,14 +1,124 @@
 """Evaluator Agent — 通用评估器，评判多个结果的优劣"""
 
+from __future__ import annotations
+
 import json
+import logging
+from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from gearbox.agents.schemas import EvaluationResult as _EvaluationResultModel
+
+logger = logging.getLogger(__name__)
 
 # Re-export for backward compat
 EvaluationResult = _EvaluationResultModel
 
 DEFAULT_EVALUATOR_MAX_TURNS = 29
+
+# Core fields required per result type for completeness scoring
+_CORE_FIELDS: dict[str, list[str]] = {
+    "implement": ["branch_name", "summary"],
+    "audit": ["repo", "issues"],
+    "review": ["verdict", "score", "summary"],
+    "backlog": ["labels", "priority"],
+}
+
+
+@dataclass
+class CandidateInfo:
+    """Per-candidate metadata produced by validation."""
+
+    index: int
+    serialization_size: int
+    completeness: float
+    missing_fields: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ValidationResult:
+    """Result of validating a list of candidate results."""
+
+    valid: bool
+    candidates: list[CandidateInfo]
+    completeness_report: list[float] = field(default_factory=list)
+
+
+def validate_results(
+    results: list[Any],
+    result_type: str,
+) -> ValidationResult:
+    """Validate candidate results before sending to evaluator.
+
+    Checks:
+    1. Results list is not empty
+    2. All elements are BaseModel instances (consistent serialisation)
+    3. Each element serialises to a non-empty dict
+    4. Core fields for *result_type* are present and non-empty
+
+    Returns a ``ValidationResult`` with per-candidate metadata including
+    completeness scores (0.0–1.0) that can be injected into the prompt.
+
+    Raises:
+        ValueError: if *results* is empty.
+        ValidationError: if any element is not a BaseModel instance.
+    """
+    if not results:
+        raise ValueError("results must not be empty")
+
+    core_fields = _CORE_FIELDS.get(result_type, [])
+    candidates: list[CandidateInfo] = []
+    completeness_report: list[float] = []
+
+    for i, result in enumerate(results):
+        # --- type consistency guard ---
+        if not isinstance(result, BaseModel):
+            raise TypeError(
+                f"results[{i}] must be a BaseModel instance, got {type(result).__name__}",
+            )
+
+        data = result.model_dump()
+        if not isinstance(data, dict) or len(data) == 0:
+            raise ValidationError(
+                f"results[{i}] serialised to an empty or non-dict value",
+            )
+
+        # --- core-field completeness ---
+        missing: list[str] = []
+        for fname in core_fields:
+            val = data.get(fname)
+            if val is None or val == "":
+                missing.append(fname)
+
+        completeness = 1.0 - (len(missing) / max(len(core_fields), 1))
+        ser_size = len(json.dumps(data, ensure_ascii=False))
+
+        info = CandidateInfo(
+            index=i,
+            serialization_size=ser_size,
+            completeness=completeness,
+            missing_fields=missing,
+        )
+        candidates.append(info)
+        completeness_report.append(completeness)
+
+        level = logging.DEBUG if completeness >= 1.0 else logging.WARNING
+        logger.log(
+            level,
+            "candidate[%d]: serialization_size=%d, completeness=%.2f, missing_fields=%s",
+            i,
+            ser_size,
+            completeness,
+            missing,
+        )
+
+    return ValidationResult(
+        valid=True,
+        candidates=candidates,
+        completeness_report=completeness_report,
+    )
 
 
 # =============================================================================
@@ -43,6 +153,8 @@ def build_evaluation_prompt(
     results: list[Any],
     result_type: str,
     result_names: list[str] | None = None,
+    *,
+    validation: ValidationResult | None = None,
 ) -> str:
     """
     构建评估 prompt。
@@ -51,6 +163,7 @@ def build_evaluation_prompt(
         results: 结果列表
         result_type: 结果类型描述（如 "Audit 结果"、"Backlog 结果"）
         result_names: 可选的名称列表（如 ["质量角度", "安全角度"]）
+        validation: Optional pre-validation result for completeness annotations.
 
     Returns:
         完整的评估 prompt
@@ -62,6 +175,18 @@ def build_evaluation_prompt(
     for i, result in enumerate(results):
         name = result_names[i] if result_names and i < len(result_names) else f"结果 {i}"
         prompt_parts.append(f"\n## {name} (索引: {i})\n")
+
+        # Inject completeness warning when validation metadata is available
+        if validation is not None:
+            cand = validation.candidates[i]
+            if cand.completeness < 1.0:
+                prompt_parts.append(
+                    f"> ⚠️ 此结果不完整 (完整度 {cand.completeness:.0%})，"
+                    f"缺失字段: {', '.join(cand.missing_fields) or '无'}。\n"
+                )
+            else:
+                prompt_parts.append(f"> ✅ 完整度 {cand.completeness:.0%}\n")
+
         prompt_parts.append(_format_result_for_prompt(result))
 
     prompt_parts.append(f"\n{SYSTEM_PROMPT}")
@@ -111,6 +236,14 @@ async def run_evaluator(
     Returns:
         EvaluationResult
     """
+    # --- input consistency pre-validation ---
+    validation = validate_results(results, result_type)
+    logger.info(
+        "Evaluator input validated: %d candidates, avg_completeness=%.2f",
+        len(results),
+        sum(validation.completeness_report) / len(validation.completeness_report),
+    )
+
     from claude_agent_sdk import (
         ClaudeAgentOptions,
         query,
@@ -122,7 +255,12 @@ async def run_evaluator(
 
     model = model or get_anthropic_model()
 
-    prompt = build_evaluation_prompt(results, result_type, result_names)
+    prompt = build_evaluation_prompt(
+        results,
+        result_type,
+        result_names,
+        validation=validation,
+    )
 
     options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(

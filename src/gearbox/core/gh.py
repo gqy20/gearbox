@@ -646,6 +646,9 @@ def ensure_git_author() -> None:
 
 def configure_authenticated_origin(repo: str) -> None:
     """Prefer GH_TOKEN for git push so checkout credentials do not shadow PAT scopes."""
+    from gearbox.agents.shared.git import validate_repo_identifier
+
+    validate_repo_identifier(repo)
     token = os.environ.get("GH_TOKEN")
     if not token:
         return

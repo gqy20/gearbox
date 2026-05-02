@@ -23,6 +23,33 @@ OUTPUT_FILES = ("profile.json", "comparison.md", "issues.json")
 _BENCHMARK_CACHE_DIR = Path.home() / ".cache" / "gearbox" / "benchmarks"
 
 
+def _safe_cache_filename(repo: str) -> str:
+    """将 repo 标识符转换为安全的缓存文件名。
+
+    替换 ``/`` 为 ``_``，并移除路径遍历字符，防止缓存文件写到意外位置。
+    """
+    safe = repo.replace("/", "_").replace("..", "").replace("\\", "_")
+    if not safe or safe.startswith(("_", ".", "-")):
+        safe = f"_repo_{safe}"
+    return safe
+
+
+def _assert_cache_path_safe(cache_file: Path, base_dir: Path) -> None:
+    """断言解析后的缓存路径在基准目录内，防止路径遍历攻击。
+
+    Args:
+        cache_file: 已 resolve 的缓存文件路径
+        base_dir: 已 resolve 的基准目录（如 _BENCHMARK_CACHE_DIR）
+
+    Raises:
+        ValueError: 当路径不在 base_dir 内时
+    """
+    try:
+        cache_file.resolve().relative_to(base_dir.resolve())
+    except ValueError:
+        raise ValueError(f"缓存路径 {cache_file} 不在允许的目录 {base_dir} 内 (可能的路径遍历攻击)")
+
+
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
     """由宿主进程统一写出 audit 产物文件。"""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -58,9 +85,10 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
 
 def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] | None:
     """获取缓存的对标仓库列表"""
-    cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
+    cache_file = _BENCHMARK_CACHE_DIR / f"{_safe_cache_filename(repo)}.json"
     if cache_file.exists():
         try:
+            _assert_cache_path_safe(cache_file, _BENCHMARK_CACHE_DIR)
             data = json.loads(cache_file.read_text())
             # 缓存有效期 7 天
             if time.time() - data.get("cached_at", 0) < 7 * 24 * 3600:
@@ -72,8 +100,9 @@ def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] 
 
 def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
     """缓存对标仓库列表"""
-    cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
+    cache_file = _BENCHMARK_CACHE_DIR / f"{_safe_cache_filename(repo)}.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
+    _assert_cache_path_safe(cache_file, _BENCHMARK_CACHE_DIR)
     cache_file.write_text(
         json.dumps(
             {

@@ -4,8 +4,90 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from gearbox.agents.shared import clone_repository, scanner
+from gearbox.agents.shared.git import validate_repo_identifier
 from gearbox.agents.shared.scanner import scan_repository
+
+# =============================================================================
+# validate_repo_identifier tests
+# =============================================================================
+
+
+class TestValidateRepoIdentifier:
+    """测试仓库标识符格式校验。"""
+
+    def test_valid_owner_repo_format(self) -> None:
+        """标准 owner/repo 格式应通过校验。"""
+        validate_repo_identifier("owner/repo")
+        validate_repo_identifier("gqy20/gearbox")
+        validate_repo_identifier("abc123/def-456.repo")
+
+    def test_valid_owner_repo_with_underscore_and_dot(self) -> None:
+        """允许下划线和点号的 owner/repo 格式。"""
+        validate_repo_identifier("my_org.my_repo/sub_package")
+
+    def test_rejects_empty_string(self) -> None:
+        """空字符串应被拒绝。"""
+        with pytest.raises(ValueError, match="repo.*格式"):
+            validate_repo_identifier("")
+
+    def test_rejects_no_slash(self) -> None:
+        """缺少斜杠的字符串应被拒绝（非本地路径时）。"""
+        with pytest.raises(ValueError, match="repo.*格式"):
+            validate_repo_identifier("justaname")
+
+    def test_rejects_multiple_slashes(self) -> None:
+        """多个斜杠的路径式字符串应被拒绝。"""
+        with pytest.raises(ValueError, match="repo.*格式"):
+            validate_repo_identifier("a/b/c")
+
+    def test_rejects_path_traversal(self) -> None:
+        """包含 .. 路径遍历的值应被拒绝。"""
+        with pytest.raises(ValueError, match="repo.*格式"):
+            validate_repo_identifier("../etc/passwd")
+
+    def test_rejects_special_characters(self) -> None:
+        """包含特殊字符的值应被拒绝。"""
+        with pytest.raises(ValueError, match="repo.*格式"):
+            validate_repo_identifier("owner/repo;rm -rf /")
+
+    def test_accepts_local_existing_path(self, tmp_path: Path) -> None:
+        """已存在的本地路径应通过校验。"""
+        validate_repo_identifier(str(tmp_path))
+
+    def test_rejects_non_local_non_owner_repo(self) -> None:
+        """既不是本地路径也不是 owner/repo 格式的值应被拒绝。"""
+        with pytest.raises(ValueError, match="repo.*格式"):
+            validate_repo_identifier("not-a-valid-repo-identifier")
+
+
+class TestCachePathSecurity:
+    """测试缓存路径安全防护。"""
+
+    def test_cache_filename_sanitizes_slash(self) -> None:
+        """缓存文件名中的 / 应被替换为 _ 。"""
+        from gearbox.agents.audit import _safe_cache_filename
+
+        result = _safe_cache_filename("owner/repo")
+        assert "/" not in result
+        assert result == "owner_repo"
+
+    def test_cache_path_resolves_within_cache_dir(self, tmp_path: Path) -> None:
+        """解析后的缓存路径必须在缓存目录内，防止路径遍历。"""
+        from gearbox.agents.audit import _assert_cache_path_safe
+
+        # 正常情况不应抛异常
+        _assert_cache_path_safe(tmp_path / "owner_repo.json", tmp_path)
+
+    def test_cache_path_rejects_traversal(self, tmp_path: Path) -> None:
+        """包含 .. 的路径应被拒绝。"""
+        from gearbox.agents.audit import _assert_cache_path_safe
+
+        traversal_path = tmp_path / ".." / "etc" / "passwd.json"
+        with pytest.raises(ValueError, match="路径遍历"):
+            _assert_cache_path_safe(traversal_path.resolve(), tmp_path)
 
 
 def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:

@@ -1,7 +1,10 @@
 """测试 config 模块"""
 
+import logging
 import os
 from pathlib import Path
+
+import pytest
 
 from gearbox.config import (
     AGENT_DEFAULTS,
@@ -34,6 +37,33 @@ class TestLoadConfig:
     def test_returns_dict(self) -> None:
         result = load_config()
         assert isinstance(result, dict)
+
+    def test_logs_warning_on_corrupt_toml(self, temp_home: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """损坏的 TOML 配置文件应记录 warning 日志，而非静默吞没异常"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("this is not valid [toml\n")
+
+        with caplog.at_level(logging.WARNING, logger="gearbox.config"):
+            result = load_config()
+
+        assert result == {}
+        assert any(
+            "Failed to load config" in rec.message for rec in caplog.records
+        ), f"Expected warning log about failed config load, got: {[rec.message for rec in caplog.records]}"
+
+    def test_no_warning_when_file_not_found(self, temp_home: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """配置文件不存在时不应记录警告"""
+        # 不创建配置文件，确保它不存在
+
+        with caplog.at_level(logging.WARNING, logger="gearbox.config"):
+            result = load_config()
+
+        assert result == {}
+        assert not any(
+            "Failed to load config" in rec.message for rec in caplog.records
+        )
 
 
 class TestSaveConfig:

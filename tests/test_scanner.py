@@ -1,8 +1,11 @@
 """测试 agents/shared/scanner.py 静态分析扫描器"""
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from gearbox.agents.shared.scanner import (
     RepoScanResult,
@@ -506,3 +509,95 @@ class TestFallbackFileCounts:
 
         files, lines = _fallback_file_counts(tmp_path)
         assert files == 1  # only real.py, .git and __pycache__ excluded
+
+
+# ---------------------------------------------------------------------------
+# RepoScanResult.partial_failure
+# ---------------------------------------------------------------------------
+
+
+class TestPartialFailure:
+    """partial_failure 派生属性 — 检测工具部分失败"""
+
+    def test_all_ok_returns_false(self) -> None:
+        result = RepoScanResult(
+            repo_path="/tmp/repo",
+            tool_statuses={"cloc": "ok", "deptry": "ok", "trivy": "ok", "semgrep": "ok"},
+        )
+        assert result.partial_failure is False
+
+    def test_exception_prefix_triggers_true(self) -> None:
+        result = RepoScanResult(
+            repo_path="/tmp/repo",
+            tool_statuses={"cloc": "ok", "semgrep": "exception:No such file"},
+        )
+        assert result.partial_failure is True
+
+    def test_command_failed_triggers_true(self) -> None:
+        result = RepoScanResult(
+            repo_path="/tmp/repo",
+            tool_statuses={"cloc": "ok", "trivy": "command_failed"},
+        )
+        assert result.partial_failure is True
+
+    def test_skipped_does_not_trigger(self) -> None:
+        result = RepoScanResult(
+            repo_path="/tmp/repo",
+            tool_statuses={"cloc": "ok", "deptry": "skipped", "trivy": "skipped"},
+        )
+        assert result.partial_failure is False
+
+    def test_empty_statuses_returns_false(self) -> None:
+        result = RepoScanResult(repo_path="/tmp/repo")
+        assert result.partial_failure is False
+
+    def test_mixed_ok_and_failure_returns_true(self) -> None:
+        """cloc 成功但 semgrep/trivy 全部异常 → partial_failure=True"""
+        result = RepoScanResult(
+            repo_path="/tmp/repo",
+            tool_statuses={
+                "cloc": "ok",
+                "semgrep": "exception:broken rules",
+                "trivy": "command_failed",
+                "deptry": "exception:fs error",
+            },
+        )
+        assert result.partial_failure is True
+
+
+# ---------------------------------------------------------------------------
+# scan_repository 异常日志
+# ---------------------------------------------------------------------------
+
+
+class TestExceptionLogging:
+    """ThreadPoolExecutor 异常应输出完整 traceback 到日志"""
+
+    def test_exception_logs_full_traceback(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """异常时 logger.exception 应被调用，包含完整堆栈信息"""
+
+        def failing_tool(_path):
+            raise RuntimeError("tool crashed")
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=({}, "ok")),
+            patch("gearbox.agents.shared.scanner.run_deptry", side_effect=failing_tool),
+            patch("gearbox.agents.shared.scanner.run_trivy", return_value=([], "ok")),
+        ):
+            with caplog.at_level(logging.ERROR, logger="gearbox.agents.shared.scanner"):
+                scan_repository(tmp_path)
+
+        # 验证日志中包含 exception 级别记录（logger.exception 输出 ERROR 级别）
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(error_records) > 0, "Expected at least one ERROR-level log record"
+        # 日志消息应包含工具名
+        messages = [r.message for r in error_records]
+        assert any("deptry" in m for m in messages), (
+            f"Expected 'deptry' in error logs, got: {messages}"
+        )

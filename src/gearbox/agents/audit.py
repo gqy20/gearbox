@@ -1,6 +1,7 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
+import logging
 import shutil
 import tempfile
 import time
@@ -229,6 +230,12 @@ async def run_audit(
                 scan_result = scan_repository(clone_root)
                 scan_summary = format_scan_summary(scan_result)
                 click.echo("✅ 扫描完成")
+
+                if scan_result.partial_failure:
+                    logging.getLogger(__name__).warning(
+                        "Scan completed with partial failures: %s",
+                        scan_result.tool_statuses,
+                    )
 
                 click.echo(
                     f"📊 扫描结果: {scan_result.total_files} 文件, "

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, cast
 
 import tomli
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +47,14 @@ class RepoScanResult:
     has_docker: bool = False
     has_security_config: bool = False
     tool_statuses: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def partial_failure(self) -> bool:
+        """当任一工具状态包含 exception: 或 command_failed 时为 True"""
+        return any(
+            v.startswith("exception:") or v == "command_failed" or v.startswith("command_failed:")
+            for v in self.tool_statuses.values()
+        )
 
 
 def _run_command(
@@ -361,6 +372,7 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
                         result.govulncheck_vulns = result_data
                         result.govulncheck_scanned = True
                 except Exception as exc:
+                    logger.exception("Scanner tool %s failed", tool_name, exc_info=exc)
                     result.tool_statuses[tool_name] = f"exception:{exc}"
 
     return result

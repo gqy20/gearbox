@@ -45,6 +45,10 @@ class RepoScanResult:
     has_security_config: bool = False
     tool_statuses: dict[str, str] = field(default_factory=dict)
 
+    # CJK 排除元信息（Issue #66）
+    _excluded_cjk_files: int = 0
+    _excluded_cjk_lines: int = 0
+
 
 def _run_command(
     cmd: list[str],
@@ -295,19 +299,24 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
     cloc_data, cloc_status = run_cloc(repo_path)
     result.tool_statuses["cloc"] = cloc_status
     if cloc_data.get("CJK", {}).get("nFiles", 0) > 0:
-        # 跳过 CJK 统计(第三方库)
+        # 跳过 CJK 统计(第三方库)，并同步扣除 total_files / total_lines (Issue #66)
+        cjk_stats = cloc_data["CJK"]
+        result._excluded_cjk_files = cjk_stats.get("nFiles", 0)
+        result._excluded_cjk_lines = (
+            cjk_stats.get("code", 0) + cjk_stats.get("blank", 0) + cjk_stats.get("comment", 0)
+        )
         langs = {k: v for k, v in cloc_data.items() if k not in ("CJK", "SUM", "header")}
     else:
         langs = {k: v for k, v in cloc_data.items() if k not in ("SUM", "header")}
 
     result.languages = langs
     if "SUM" in cloc_data:
-        result.total_files = cloc_data["SUM"].get("nFiles", 0)
+        result.total_files = cloc_data["SUM"].get("nFiles", 0) - result._excluded_cjk_files
         result.total_lines = (
             cloc_data["SUM"].get("code", 0)
             + cloc_data["SUM"].get("blank", 0)
             + cloc_data["SUM"].get("comment", 0)
-        )
+        ) - result._excluded_cjk_lines
     else:
         result.total_files, result.total_lines = _fallback_file_counts(repo_path)
         result.tool_statuses["cloc"] = f"{cloc_status}+fallback"
@@ -428,5 +437,10 @@ def format_scan_summary(scan: RepoScanResult) -> str:
             "tool_statuses": scan.tool_statuses,
         },
     }
+
+    # Issue #66: 当 CJK 被排除时，在 _stats 中附加元信息
+    if scan._excluded_cjk_files > 0:
+        payload["_stats"]["excluded_cjk_files"] = scan._excluded_cjk_files
+        payload["_stats"]["excluded_cjk_lines"] = scan._excluded_cjk_lines
 
     return json.dumps(payload, ensure_ascii=False, indent=2)

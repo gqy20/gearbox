@@ -391,6 +391,54 @@ class TestScanRepositoryOrchestration:
         assert actual.tool_statuses["semgrep"] == "skipped"
         assert actual.tool_statuses["govulncheck"] == "skipped"
 
+    def test_cjk_excluded_from_languages_syncs_totals(self, tmp_path: Path) -> None:
+        """Issue #66: 排除 CJK 时 total_files/total_lines 应同步扣除，保持数据一致"""
+        cloc_data = {
+            "SUM": {"nFiles": 10, "code": 500, "blank": 50, "comment": 30},
+            "CJK": {"nFiles": 4, "code": 200, "blank": 20, "comment": 10},
+            "Python": {"nFiles": 4, "code": 250, "blank": 20, "comment": 15},
+            "Markdown": {"nFiles": 2, "code": 50, "blank": 10, "comment": 5},
+        }
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=(cloc_data, "ok")),
+        ):
+            actual = scan_repository(tmp_path)
+
+        # CJK 不应出现在 languages 中
+        assert "CJK" not in actual.languages
+        # total_files 应为 SUM(10) - CJK(4) = 6
+        assert actual.total_files == 6
+        # total_lines 应为 SUM(580) - CJK(230) = 350
+        assert actual.total_lines == 350
+        # 各语言文件数之和应等于 total_files
+        lang_file_sum = sum(s.get("nFiles", 0) for s in actual.languages.values())
+        assert lang_file_sum == actual.total_files
+
+    def test_no_cjk_totals_unchanged(self, tmp_path: Path) -> None:
+        """无 CJK 时 totals 不应被修改"""
+        cloc_data = {
+            "SUM": {"nFiles": 5, "code": 100, "blank": 10, "comment": 5},
+            "Python": {"nFiles": 3, "code": 80, "blank": 8, "comment": 4},
+            "Markdown": {"nFiles": 2, "code": 20, "blank": 2, "comment": 1},
+        }
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=(cloc_data, "ok")),
+        ):
+            actual = scan_repository(tmp_path)
+
+        assert actual.total_files == 5
+        assert actual.total_lines == 115
+
     def test_tool_exception_recorded_as_status(self, tmp_path: Path) -> None:
         def failing_deptry(_path):
             raise RuntimeError("boom")
@@ -477,6 +525,26 @@ class TestFormatScanSummary:
         assert output["_stats"]["total_vulnerabilities"] == 2
         assert output["_stats"]["scanned_tools"]["trivy"] is True
         assert output["_stats"]["scanned_tools"]["deptry"] is True
+
+    def test_format_summary_includes_excluded_cjk_info(self) -> None:
+        """Issue #66: format_scan_summary 的 _stats 应包含 excluded_cjk 元信息"""
+        scan = self._base_scan()
+        # 模拟有 CJK 被排除的场景 — 通过直接设置属性测试格式化输出
+        scan._excluded_cjk_files = 4
+        scan._excluded_cjk_lines = 230
+
+        output = json.loads(format_scan_summary(scan))
+
+        assert output["_stats"]["excluded_cjk_files"] == 4
+        assert output["_stats"]["excluded_cjk_lines"] == 230
+
+    def test_format_summary_no_cjk_no_excluded_fields(self) -> None:
+        """无 CJK 排除时 _stats 不应包含 excluded_cjk 字段"""
+        scan = self._base_scan()
+        output = json.loads(format_scan_summary(scan))
+
+        assert "excluded_cjk_files" not in output["_stats"]
+        assert "excluded_cjk_lines" not in output["_stats"]
 
 
 # ---------------------------------------------------------------------------

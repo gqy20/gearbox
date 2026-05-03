@@ -11,9 +11,13 @@ COMPLEXITY_ORDER = {"S": 0, "M": 1, "L": 2}
 BLOCKING_LABELS = {"needs-clarification", "in-progress", "has-pr"}
 
 
-def dispatch_branch_name(issue_number: int) -> str:
-    """Return the deterministic implementation branch for an issue."""
-    return f"feat/issue-{issue_number}-run-0"
+def dispatch_branch_name(issue_number: int, *, run_id: int = 0) -> str:
+    """Return the deterministic implementation branch for an issue.
+
+    The ``run_id`` distinguishes multiple dispatches of the same issue
+    (e.g. Fix Loop retries) so that each attempt gets a unique branch name.
+    """
+    return f"feat/issue-{issue_number}-run-{run_id}"
 
 
 def _label_value(labels: list[str], allowed: dict[str, int], default: str) -> str:

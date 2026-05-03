@@ -204,6 +204,18 @@ def test_dispatch_branch_name_format_for_large_numbers() -> None:
     assert dispatch_branch_name(999) == "feat/issue-999-run-0"
 
 
+def test_dispatch_branch_name_includes_run_id() -> None:
+    """run_id 参数应出现在分支名中，避免同 Issue 重复派发时碰撞"""
+    assert dispatch_branch_name(2, run_id=0) == "feat/issue-2-run-0"
+    assert dispatch_branch_name(2, run_id=1) == "feat/issue-2-run-1"
+    assert dispatch_branch_name(17, run_id=3) == "feat/issue-17-run-3"
+
+
+def test_dispatch_branch_name_default_run_id_is_zero() -> None:
+    """不传 run_id 时默认为 0，保持向后兼容"""
+    assert dispatch_branch_name(5) == "feat/issue-5-run-0"
+
+
 def test_build_dispatch_plan_raises_on_zero_max_items() -> None:
     import pytest
 

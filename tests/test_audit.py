@@ -2,8 +2,10 @@
 
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from gearbox.agents.audit import _cache_benchmarks, _get_cached_benchmarks
 from gearbox.agents.shared import clone_repository, scanner
 from gearbox.agents.shared.scanner import scan_repository
 
@@ -120,3 +122,100 @@ dev = ["pytest"]
     assert "--known-first-party" in captured_cmd
     assert "demo_package" in captured_cmd
     assert "--optional-dependencies-dev-groups" in captured_cmd
+
+
+def test_cache_benchmarks_writes_atomically(tmp_path: Path, monkeypatch) -> None:
+    """_cache_benchmarks must use atomic write (temp file + os.replace).
+
+    Under concurrent writes, every reader must always see either the old data
+    or a complete new JSON document — never a truncated or corrupted file.
+    """
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setattr(
+        "gearbox.agents.audit._BENCHMARK_CACHE_DIR",
+        cache_dir,
+    )
+
+    repo = "owner/repo"
+    benchmarks_a = ["repo-a-1", "repo-a-2"]
+    benchmarks_b = ["repo-b-1", "repo-b-2", "repo-b-3"]
+
+    # Write initial cache so _get_cached_benchmarks has something to read
+    _cache_benchmarks(repo, benchmarks_a)
+    cached = _get_cached_benchmarks(repo)
+    assert cached == benchmarks_a
+
+    errors: list[str] = []
+
+    def writer(label: str, data: list[str]) -> None:
+        try:
+            for _ in range(50):
+                _cache_benchmarks(repo, data)
+                # Immediately after write, the file MUST be valid JSON
+                cache_file = cache_dir / f"{repo.replace('/', '_')}.json"
+                raw = cache_file.read_text(encoding="utf-8")
+                parsed = json.loads(raw)  # will raise on truncation / corruption
+                assert "benchmarks" in parsed
+                assert "cached_at" in parsed
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+
+    def reader() -> None:
+        try:
+            for _ in range(50):
+                result = _get_cached_benchmarks(repo)
+                # Result is either None (stale/expired), benchmarks_a, or benchmarks_b
+                if result is not None:
+                    assert result in (benchmarks_a, benchmarks_b), (
+                        f"Unexpected benchmarks: {result}"
+                    )
+        except Exception as exc:
+            errors.append(f"reader: {exc}")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = [
+            pool.submit(writer, "writer-A", benchmarks_a),
+            pool.submit(writer, "writer-B", benchmarks_b),
+            pool.submit(reader),
+            pool.submit(reader),
+        ]
+        for f in as_completed(futs):
+            f.result()  # re-raise
+
+    assert not errors, f"Concurrent access produced errors: {errors}"
+
+    # Final state must be valid JSON with expected keys
+    final_raw = (cache_dir / f"{repo.replace('/', '_')}.json").read_text(encoding="utf-8")
+    final = json.loads(final_raw)
+    assert "benchmarks" in final
+    assert "cached_at" in final
+
+
+def test_cache_benchmarks_replaces_not_overwrites(tmp_path: Path, monkeypatch) -> None:
+    """Verify that _cache_benchmarks uses os.replace (atomic rename), not Path.write_text.
+
+    We check this indirectly by confirming the inode changes after each write,
+    which only happens with os.replace.  With direct write_text the inode stays
+    the same because the file is opened in-place.
+    """
+
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setattr(
+        "gearbox.agents.audit._BENCHMARK_CACHE_DIR",
+        cache_dir,
+    )
+
+    repo = "owner/inode-test"
+
+    _cache_benchmarks(repo, ["first"])
+    cache_file = cache_dir / f"{repo.replace('/', '_')}.json"
+    inode_before = cache_file.stat().st_ino
+
+    _cache_benchmarks(repo, ["second"])
+    inode_after = cache_file.stat().st_ino
+
+    # Atomic replace creates a new inode; in-place write keeps the same one.
+    assert inode_after != inode_before, (
+        "_cache_benchmarks should use atomic os.replace(), "
+        "but the inode did not change (suggests in-place write_text)"
+    )

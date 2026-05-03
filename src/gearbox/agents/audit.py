@@ -1,6 +1,7 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -71,17 +72,26 @@ def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] 
 
 
 def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
-    """缓存对标仓库列表"""
+    """缓存对标仓库列表（原子写入：写临时文件 → os.replace）"""
     cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(
-        json.dumps(
-            {
-                "benchmarks": benchmarks,
-                "cached_at": time.time(),
-            }
-        )
+    data = json.dumps(
+        {
+            "benchmarks": benchmarks,
+            "cached_at": time.time(),
+        }
     )
+    # Atomic write: write to a temp file in the same directory, then replace.
+    # POSIX guarantees os.replace() is atomic on the same filesystem.
+    fd, tmp_path = tempfile.mkstemp(
+        dir=cache_file.parent, suffix=".tmp", prefix=f"{repo.replace('/', '_')}."
+    )
+    try:
+        os.write(fd, data.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp_path, cache_file)
 
 
 def load_audit_result(output_dir: Path) -> AuditResult:

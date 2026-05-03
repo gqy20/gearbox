@@ -1,10 +1,13 @@
 """GitHub 操作模块 - 集中管理所有 gh/git 操作"""
 
 import json
+import logging
 import os
 import subprocess
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -744,6 +747,9 @@ VALID_ISSUE_LABELS = {
     # Categories
     "security",
     "ci",
+    "refactor",
+    "performance",
+    "cleanup",
 }
 
 
@@ -788,6 +794,12 @@ def create_issue(
 
     issue_number = int(match.group(1))
     filtered = [label for label in labels if label in VALID_ISSUE_LABELS]
+    dropped = [label for label in labels if label not in VALID_ISSUE_LABELS]
+    if dropped:
+        logger.warning(
+            "create_issue: 以下标签不在 VALID_ISSUE_LABELS 白名单中，已被丢弃: %s",
+            ", ".join(dropped),
+        )
     if filtered:
         label_result = add_issue_labels(repo, issue_number, filtered)
         if not label_result.success:

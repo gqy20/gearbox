@@ -536,3 +536,52 @@ class TestValidIssueLabels:
         from gearbox.core.gh import VALID_ISSUE_LABELS
 
         assert isinstance(VALID_ISSUE_LABELS, (set, frozenset))
+
+    def test_contains_backlog_agent_labels(self) -> None:
+        """Backlog Agent SYSTEM_PROMPT 允许产出的标签必须在白名单中。"""
+        backlog_labels = {"refactor", "performance", "cleanup"}
+        assert backlog_labels.issubset(
+            VALID_ISSUE_LABELS
+        ), f"VALID_ISSUE_LABELS 缺少 Backlog Agent 使用的标签: {backlog_labels - VALID_ISSUE_LABELS}"
+
+
+class TestCreateIssueLabelWarning:
+    """测试 create_issue 对被过滤标签的警告日志"""
+
+    def test_warns_when_labels_are_filtered_out(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/42\n")
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        # 不 mock add_issue_labels，让真实过滤逻辑执行
+
+        with caplog.at_level(logging.WARNING, logger="gearbox"):
+            create_issue("owner/repo", "Title", "Body", ["enhancement", "unknown-label", "P1"])
+
+        assert any(
+            "unknown-label" in rec.message and rec.levelno == logging.WARNING
+            for rec in caplog.records
+        ), "被过滤的标签应产生 WARNING 日志"
+
+    def test_does_not_warn_when_all_labels_valid(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            del kwargs
+            return MagicMock(returncode=0, stdout="https://github.com/owner/repo/issues/42\n")
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        with caplog.at_level(logging.WARNING, logger="gearbox"):
+            create_issue("owner/repo", "Title", "Body", ["refactor", "P2"])
+
+        assert not any(
+            rec.levelno == logging.WARNING for rec in caplog.records
+        ), "所有标签合法时不应产生 WARNING 日志"

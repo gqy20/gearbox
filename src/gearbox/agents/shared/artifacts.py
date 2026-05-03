@@ -34,5 +34,6 @@ def write_json_artifact(path: Path, payload: object) -> None:
 
 def read_json_artifact(path: Path) -> dict[str, object]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected dict from {path}, got {type(data).__name__}")
     return data

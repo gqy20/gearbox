@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
@@ -874,6 +875,93 @@ class TestDispatchCommand:
 
         assert result.exit_code == 0
         assert captured["final_branch"] == "feat/issue-7-run-0"
+
+    def test_dispatch_run_cleans_remote_branch_when_pr_creation_fails_after_push(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PR 创建失败（push 已成功）时，except 分支应清理远程分支并记录失败评论。
+
+        验证 Issue #70 的修复：避免遗留孤立远程分支和标签状态不一致。
+        """
+        import subprocess
+
+        from gearbox.agents.implement import ImplementResult
+        from gearbox.core.gh import CreatePrResult, PostReviewResult
+
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.build_dispatch_plan",
+            lambda *args, **kwargs: _make_dispatch_plan(dry_run=False, skipped_count=0),
+        )
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.prepare_working_branch",
+            lambda *args, **kwargs: "gearbox/temp-test",
+        )
+
+        async def fake_run_implement(*args, **kwargs) -> ImplementResult:
+            del args, kwargs
+            return ImplementResult(
+                branch_name="feat/issue-7",
+                summary="Fix CI",
+                files_changed=["ci.yml"],
+                pr_url=None,
+                ready_for_review=True,
+            )
+
+        # finalize_and_create_pr 内部 push 成功但 PR 创建失败 → 模拟此场景
+        def fake_finalize_fails_after_push(**kwargs) -> CreatePrResult:
+            return CreatePrResult(False, error="permission denied")
+
+        cleanup_events: list[tuple[str, list[str] | str]] = []
+
+        def fake_add_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+            del repo, issue
+            cleanup_events.append(("add_labels", labels))
+            return PostReviewResult(True)
+
+        def fake_remove_labels(repo: str, issue: int, labels: list[str]) -> PostReviewResult:
+            del repo, issue
+            cleanup_events.append(("remove_labels", labels))
+            return PostReviewResult(True)
+
+        def fake_post_comment(repo: str, issue: int, body: str) -> PostReviewResult:
+            del repo, issue
+            cleanup_events.append(("comment", body))
+            return PostReviewResult(True)
+
+        git_commands: list[list[str]] = []
+
+        def fake_subprocess_run(cmd: list[str], **kwargs: Any):
+            git_commands.append(cmd)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("gearbox.commands.dispatch.run_implement", fake_run_implement)
+        monkeypatch.setattr(
+            "gearbox.commands.dispatch.finalize_and_create_pr",
+            fake_finalize_fails_after_push,
+        )
+        monkeypatch.setattr("gearbox.commands.dispatch.add_issue_labels", fake_add_labels)
+        monkeypatch.setattr("gearbox.commands.dispatch.remove_issue_labels", fake_remove_labels)
+        monkeypatch.setattr("gearbox.commands.dispatch.post_issue_comment", fake_post_comment)
+        monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+        result = runner.invoke(
+            cli,
+            ["dispatch", "run", "--repo", "owner/repo", "--issue", "7", "--no-dry-run"],
+        )
+
+        assert result.exit_code != 0
+        # 验证 in-progress 标签被移除
+        assert ("remove_labels", ["in-progress"]) in cleanup_events
+        # 验证远程分支被清理
+        delete_cmds = [c for c in git_commands if "delete" in " ".join(c)]
+        assert any("feat/issue-7-run-0" in c for c in delete_cmds), (
+            f"Expected git push origin --delete feat/issue-7-run-0, got commands: {git_commands}"
+        )
+        # 验证失败评论被发布
+        comment_bodies = [e[1] for e in cleanup_events if e[0] == "comment"]
+        assert any("❌" in body for body in comment_bodies), (
+            f"Expected failure comment with ❌ emoji, got: {comment_bodies}"
+        )
 
 
 class TestCleanupCommand:

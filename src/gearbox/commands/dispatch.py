@@ -31,6 +31,37 @@ def _parse_allowed_priorities(value: str) -> set[str] | None:
     return priorities
 
 
+def _cleanup_failed_dispatch(repo: str, issue_number: int, branch_name: str) -> None:
+    """清理 dispatch 失败后遗留的远程分支，并记录失败评论。
+
+    每个清理步骤独立 try/except 包裹，避免清理失败掩盖原始异常。
+    """
+    import subprocess
+
+    # 1. 删除远程分支
+    try:
+        subprocess.run(
+            ["git", "push", "origin", "--delete", branch_name],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        click.echo(f"🧹 已清理远程分支: {branch_name}", err=True)
+    except Exception as exc:
+        click.echo(f"⚠️ 清理远程分支失败 {branch_name}: {exc}", err=True)
+
+    # 2. 发布失败评论
+    try:
+        post_issue_comment(
+            repo,
+            issue_number,
+            f"❌ Gearbox dispatch 失败：已回滚远程分支 `{branch_name}`，请检查日志排查原因。",
+        )
+    except Exception as exc:
+        click.echo(f"⚠️ 发布失败评论失败 #{issue_number}: {exc}", err=True)
+
+
 def _echo_dispatch_plan(plan: DispatchPlan, *, as_json: bool = False) -> None:
     if as_json:
         click.echo(json.dumps(asdict(plan), ensure_ascii=False, indent=2))
@@ -131,6 +162,9 @@ def dispatch_run(
         if not label_result.success:
             click.echo(f"⚠️ 标记 in-progress 失败: {label_result.url}", err=True)
 
+        # 在 try 外初始化，以便 except 分支可访问
+        final_branch: str | None = None
+
         try:
             temp_branch = prepare_working_branch(base_branch)
             result = asyncio.run(
@@ -173,4 +207,7 @@ def dispatch_run(
             click.echo(f"✅ PR created: {pr_result.pr_url}")
         except Exception:
             remove_issue_labels(repo, item.issue_number, ["in-progress"])
+            # 清理可能已推送的远程分支（push 成功但 PR 创建失败的场景）
+            if final_branch:
+                _cleanup_failed_dispatch(repo, item.issue_number, final_branch)
             raise

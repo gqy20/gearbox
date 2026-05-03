@@ -645,27 +645,58 @@ def ensure_git_author() -> None:
 
 
 def configure_authenticated_origin(repo: str) -> None:
-    """Prefer GH_TOKEN for git push so checkout credentials do not shadow PAT scopes."""
+    """Prefer GH_TOKEN for git push so checkout credentials do not shadow PAT scopes.
+
+    The extraheader removal and origin URL update are performed atomically:
+    if ``set-url`` fails, the saved extraheader value is restored so the
+    repository's git credential state is not left broken.
+    """
     token = os.environ.get("GH_TOKEN")
     if not token:
         return
 
-    # actions/checkout injects an extraheader for github.token that overrides
-    # origin credentials. Remove it so PAT scopes on GH_TOKEN are honored.
-    subprocess.run(
-        ["git", "config", "--unset-all", "http.https://github.com/.extraheader"],
+    # Save the current extraheader so we can restore it on failure.
+    saved_header_result = subprocess.run(
+        ["git", "config", "--get", "http.https://github.com/.extraheader"],
+        capture_output=True,
+        text=True,
         check=False,
     )
-    subprocess.run(
-        [
-            "git",
-            "remote",
-            "set-url",
-            "origin",
-            f"https://x-access-token:{token}@github.com/{repo}.git",
-        ],
-        check=True,
+    saved_extraheader = (
+        saved_header_result.stdout.strip() if saved_header_result.returncode == 0 else None
     )
+
+    try:
+        # actions/checkout injects an extraheader for github.token that overrides
+        # origin credentials. Remove it so PAT scopes on GH_TOKEN are honored.
+        subprocess.run(
+            ["git", "config", "--unset-all", "http.https://github.com/.extraheader"],
+            check=False,
+        )
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                f"https://x-access-token:{token}@github.com/{repo}.git",
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        # Restore the saved extraheader to avoid leaving git state broken.
+        if saved_extraheader:
+            subprocess.run(
+                [
+                    "git",
+                    "config",
+                    "--add",
+                    "http.https://github.com/.extraheader",
+                    saved_extraheader,
+                ],
+                check=False,
+            )
+        raise
 
 
 def _called_process_error_message(error: subprocess.CalledProcessError) -> str:

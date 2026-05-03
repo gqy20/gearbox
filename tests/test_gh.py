@@ -101,6 +101,12 @@ class TestConfigureAuthenticatedOrigin:
             [
                 "git",
                 "config",
+                "--get",
+                "http.https://github.com/.extraheader",
+            ],
+            [
+                "git",
+                "config",
                 "--unset-all",
                 "http.https://github.com/.extraheader",
             ],
@@ -112,6 +118,73 @@ class TestConfigureAuthenticatedOrigin:
                 "https://x-access-token:pat-token@github.com/owner/repo.git",
             ],
         ]
+
+    def test_restores_extraheader_when_set_url_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If set-url fails, the extraheader must be restored to avoid breaking git state."""
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            if cmd[0:4] == ["git", "remote", "set-url", "origin"]:
+                raise subprocess.CalledProcessError(1, cmd, stderr="fatal: not a git repository")
+            if cmd == ["git", "config", "--get", "http.https://github.com/.extraheader"]:
+                return MagicMock(returncode=0, stdout="AUTHORIZATION: basic xxx")
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setenv("GH_TOKEN", "pat-token")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(subprocess.CalledProcessError):
+            configure_authenticated_origin("owner/repo")
+
+        # After failure, extraheader must be restored via --add
+        restore_cmd = [
+            "git",
+            "config",
+            "--add",
+            "http.https://github.com/.extraheader",
+            "AUTHORIZATION: basic xxx",
+        ]
+        assert restore_cmd in commands
+
+    def test_no_restore_when_extraheader_was_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When no extraheader existed, no restore command should be issued on failure."""
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            if cmd[0:4] == ["git", "remote", "set-url", "origin"]:
+                raise subprocess.CalledProcessError(1, cmd, stderr="error")
+            if cmd == ["git", "config", "--get", "http.https://github.com/.extraheader"]:
+                return MagicMock(returncode=1, stdout="")
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setenv("GH_TOKEN", "pat-token")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(subprocess.CalledProcessError):
+            configure_authenticated_origin("owner/repo")
+
+        # No --add restore when there was nothing to save
+        add_cmds = [c for c in commands if c[0:4] == ["git", "config", "--add"]]
+        assert len(add_cmds) == 0
+
+    def test_skips_when_no_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs) -> MagicMock:
+            del kwargs
+            commands.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        configure_authenticated_origin("owner/repo")
+
+        assert commands == []
 
 
 class TestAddIssueLabels:

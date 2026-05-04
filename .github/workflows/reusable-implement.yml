@@ -92,11 +92,6 @@ jobs:
     needs: [plan, implement-run]
     if: ${{ always() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
-      GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -112,7 +107,12 @@ jobs:
 
       - name: Aggregate implement results
         shell: bash
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         run: |
+          echo "::add-mask::$ANTHROPIC_AUTH_TOKEN"
           export PATH="$HOME/.local/bin:$PATH"
           CMD=(
             uv run --project "$GEARBOX_ACTION_ROOT" --directory "$GITHUB_WORKSPACE" gearbox agent implement-select

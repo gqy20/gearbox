@@ -328,3 +328,51 @@ class TestAutoMergeWorkflow:
         assert "skip_reason=" in workflow
         assert "::notice::" in workflow
         assert "::warning::" in workflow
+
+
+class TestSecretScoping:
+    """Secrets must not be exposed at job-level env; use step-level env + ::add-mask:: instead."""
+
+    _SECRET_ENV_LINE = re.compile(r"^\s+\w+:\s*\$\{\{\s*secrets\.\w+\s*\}\}")
+
+    def _workflow_files(self) -> list[Path]:
+        return sorted((_root() / ".github" / "workflows").glob("*.yml"))
+
+    def _find_job_level_secret_env(self, content: str) -> list[str]:
+        """Return (job_name, var_name) pairs for secrets inside job-level env: blocks."""
+        violations: list[str] = []
+        lines = content.split("\n")
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # Job-level env: is indented 4 spaces (under jobs: → job-name)
+            if re.match(r"^    env:\s*$", line):
+                # Scan forward: 6-indented lines before steps: or another 4-indented key
+                job_name = "<unknown>"
+                for back in range(i - 1, max(i - 20, -1), -1):
+                    m = re.match(r"^  (\S+):\s*$", lines[back])
+                    if m:
+                        job_name = m.group(1)
+                        break
+                j = i + 1
+                while j < len(lines):
+                    sl = lines[j]
+                    if re.match(r"^      \w", sl) and not sl.strip().startswith("steps:"):
+                        if self._SECRET_ENV_LINE.search(sl):
+                            var = sl.split(":")[0].strip()
+                            violations.append(f"{job_name}.{var}")
+                        j += 1
+                    else:
+                        break
+            i += 1
+        return violations
+
+    def test_no_secrets_at_job_level_env(self) -> None:
+        """Job-level env: must never contain ${{ secrets.* }} references."""
+        for wf_path in self._workflow_files():
+            content = wf_path.read_text(encoding="utf-8")
+            violations = self._find_job_level_secret_env(content)
+            assert violations == [], (
+                f"{wf_path.name} has secrets at job-level env (should be step-level):\n"
+                + "\n".join(f"  {v}" for v in violations)
+            )

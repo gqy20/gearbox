@@ -20,9 +20,11 @@ def write_implement_result(result: ImplementResult, output_path: Path) -> None:
 
 def load_implement_result(path: Path) -> ImplementResult:
     """从 artifact 文件加载 Implement 结果"""
+    from gearbox.agents.schemas import check_schema_version
     from gearbox.agents.shared.artifacts import read_json_artifact
 
     data = read_json_artifact(path)
+    check_schema_version(data, label=f"implement artifact ({path})")
     return ImplementResult.model_validate(data)
 
 

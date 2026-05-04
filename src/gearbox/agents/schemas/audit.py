@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .base import VersionedSchema
+
 
 class Issue(BaseModel):
     title: str
@@ -13,7 +15,7 @@ class Issue(BaseModel):
     labels: str
 
 
-class AuditResult(BaseModel):
+class AuditResult(VersionedSchema):
     repo: str
     profile: dict[str, Any] = Field(default_factory=dict)
     comparison_markdown: str = ""

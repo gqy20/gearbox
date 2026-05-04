@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from .base import VersionedSchema
 
 
-class ImplementResult(BaseModel):
+class ImplementResult(VersionedSchema):
     branch_name: str
     summary: str
     files_changed: list[str] = Field(default_factory=list)

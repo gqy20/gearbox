@@ -23,10 +23,34 @@ from pydantic import BaseModel, ValidationError
 
 from .audit import AuditResult, Issue
 from .backlog import BacklogItemResult
+from .base import SCHEMA_VERSION, VersionedSchema
 from .evaluator import EvaluationResult
 from .fix import FixResult
 from .implement import ImplementResult
 from .review import ReviewComment, ReviewResult
+
+
+def check_schema_version(data: dict[str, object], label: str = "artifact") -> None:
+    """Raise :class:`ValueError` if *data* lacks or mismatches ``schema_version``.
+
+    This is intended for **persisted artifacts** (files on disk).  Raw SDK
+    structured output that omits ``schema_version`` should *not* go through
+    this check — Pydantic will supply the default value instead.
+    """
+    version = data.get("schema_version")
+    if version is None:
+        raise ValueError(
+            f"{label} is missing schema_version field. "
+            f"The artifact may have been produced by an older version. "
+            f"Expected: {SCHEMA_VERSION!r}"
+        )
+    if version != SCHEMA_VERSION:
+        raise ValueError(
+            f"{label} has incompatible schema_version={version!r}. "
+            f"Expected: {SCHEMA_VERSION!r}. "
+            f"A migration path is required."
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +157,10 @@ __all__ = [
     "output_format_schema",
     "validate",
     "parse_with_model",
+    # Base
+    "SCHEMA_VERSION",
+    "VersionedSchema",
+    "check_schema_version",
     # Models
     "AuditResult",
     "Issue",

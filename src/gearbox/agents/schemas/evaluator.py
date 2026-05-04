@@ -6,6 +6,8 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, Field
 
+from .base import VersionedSchema
+
 
 def _coerce_score_keys(data: dict[str, Any]) -> dict[int, Any]:
     """Convert string keys to int, dropping non-numeric keys."""
@@ -29,7 +31,7 @@ ScoreDict = Annotated[
 ]
 
 
-class EvaluationResult(BaseModel):
+class EvaluationResult(VersionedSchema):
     winner: int = Field(ge=0, description="最佳结果索引 (0-based)")
     scores: ScoreDict = Field(default_factory=dict)
     reasoning: str = ""

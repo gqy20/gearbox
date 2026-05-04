@@ -28,9 +28,11 @@ def write_review_result(result: ReviewResult, output_path: Path) -> None:
 
 
 def load_review_result(path: Path) -> ReviewResult:
+    from gearbox.agents.schemas import check_schema_version
     from gearbox.agents.shared.artifacts import read_json_artifact
 
     data = read_json_artifact(path)
+    check_schema_version(data, label=f"review artifact ({path})")
     return ReviewResult.model_validate(data)
 
 

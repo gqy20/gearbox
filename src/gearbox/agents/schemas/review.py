@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .base import VersionedSchema
+
 
 class ReviewComment(BaseModel):
     file: str
@@ -14,7 +16,7 @@ class ReviewComment(BaseModel):
     severity: Literal["blocker", "warning", "info"] = "info"
 
 
-class ReviewResult(BaseModel):
+class ReviewResult(VersionedSchema):
     verdict: Literal["LGTM", "Request Changes", "Comment Only"]
     score: int = Field(ge=0, le=10)
     summary: str

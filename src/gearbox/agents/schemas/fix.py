@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from .base import VersionedSchema
 
 
-class FixResult(BaseModel):
+class FixResult(VersionedSchema):
     """Fix Agent 执行结果：根据 Review 反馈修补 PR。"""
 
     verdict: Literal["fixed", "partial", "skipped"] = Field(

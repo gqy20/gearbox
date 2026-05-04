@@ -73,11 +73,17 @@ def write_backlog_result(result: BacklogResult, output_path: Path) -> None:
 
 
 def load_backlog_result(path: Path) -> BacklogResult:
+    from gearbox.agents.schemas import check_schema_version
     from gearbox.agents.shared.artifacts import read_json_artifact
 
     data = read_json_artifact(path)
     raw_items = data.get("items", [])
     assert isinstance(raw_items, list)
+    for idx, item in enumerate(raw_items):
+        check_schema_version(
+            cast(dict[str, object], item),
+            label=f"backlog artifact ({path}) item[{idx}]",
+        )
     return BacklogResult(
         items=[
             BacklogItemResult.model_validate(item)

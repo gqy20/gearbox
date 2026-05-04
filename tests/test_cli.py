@@ -361,6 +361,7 @@ class TestAgentCommand:
                     {
                         "items": [
                             {
+                                "schema_version": "1.0",
                                 "issue_number": issue,
                                 "labels": ["enhancement"],
                                 "priority": "P2",
@@ -414,6 +415,7 @@ class TestAgentCommand:
                 {
                     "items": [
                         {
+                            "schema_version": "1.0",
                             "issue_number": 2,
                             "labels": ["enhancement"],
                             "priority": "P2",
@@ -494,6 +496,7 @@ class TestAgentCommand:
         (run_dir / "result.json").write_text(
             json.dumps(
                 {
+                    "schema_version": "1.0",
                     "verdict": "LGTM",
                     "score": 8,
                     "summary": "Looks good",

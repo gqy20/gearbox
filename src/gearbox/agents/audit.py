@@ -28,6 +28,7 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     issues_payload = {
+        "schema_version": result.schema_version,
         "repo": result.repo,
         "profile": result.profile,
         "benchmarks": result.benchmarks,
@@ -72,11 +73,14 @@ def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] 
 
 def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
     """缓存对标仓库列表"""
+    from gearbox.agents.schemas import SCHEMA_VERSION
+
     cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(
         json.dumps(
             {
+                "schema_version": SCHEMA_VERSION,
                 "benchmarks": benchmarks,
                 "cached_at": time.time(),
             }
@@ -86,6 +90,8 @@ def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
 
 def load_audit_result(output_dir: Path) -> AuditResult:
     """从 audit 产物目录恢复 AuditResult。"""
+    from gearbox.agents.schemas import check_schema_version
+
     issues_path = output_dir / "issues.json"
     comparison_path = output_dir / "comparison.md"
 
@@ -93,6 +99,8 @@ def load_audit_result(output_dir: Path) -> AuditResult:
         raise FileNotFoundError(f"Missing audit artifact: {issues_path}")
 
     issues_payload = json.loads(issues_path.read_text(encoding="utf-8"))
+    check_schema_version(issues_payload, label=f"audit artifact ({issues_path})")
+
     comparison_markdown = (
         comparison_path.read_text(encoding="utf-8") if comparison_path.exists() else ""
     )

@@ -111,10 +111,6 @@ jobs:
     needs: [plan, audit-run]
     if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.repo != '' }}
     runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -130,7 +126,12 @@ jobs:
 
       - name: Aggregate audit results
         shell: bash
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         run: |
+          echo "::add-mask::$ANTHROPIC_AUTH_TOKEN"
           export PATH="$HOME/.local/bin:$PATH"
           echo "::group::[audit] downloaded run artifacts"
           find "$GITHUB_WORKSPACE/audit-runs" -maxdepth 2 -type f | sort || true
@@ -161,8 +162,6 @@ jobs:
       (github.event_name == 'schedule')
     needs: aggregate-audit
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -174,6 +173,8 @@ jobs:
           path: ./audit-output
 
       - name: Publish Issues
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         uses: ./actions/publish
         with:
           input_path: ./audit-output/issues.json

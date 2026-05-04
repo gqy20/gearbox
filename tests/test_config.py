@@ -176,3 +176,29 @@ class TestAgentDefaults:
         assert "implement" in AGENT_DEFAULTS["max_turns"]
         assert "audit" in AGENT_DEFAULTS["max_turns"]
         assert AGENT_DEFAULTS["max_turns"]["implement"] == 80
+
+
+class TestGlmModelConsistency:
+    """测试 GLM 模型标识符一致性
+
+    PROVIDERS 字典中的 glm 模型名应与 get_anthropic_model() 的默认回退值一致，
+    否则通过 set_provider("glm") 配置的用户与使用默认值的用户会获得不同模型。
+    """
+
+    def test_glm_provider_model_matches_default_fallback(self) -> None:
+        """PROVIDERS["glm"]["model"] 应与无配置时的默认回退模型一致"""
+        # 清除环境变量和配置影响，获取纯默认回退值
+        env_keys = ["ANTHROPIC_MODEL", "XDG_CONFIG_HOME"]
+        saved: dict[str, str | None] = {}
+        for k in env_keys:
+            saved[k] = os.environ.pop(k, None)
+        try:
+            default_model = get_anthropic_model()
+            assert default_model == PROVIDERS["glm"]["model"], (
+                f"默认回退模型 '{default_model}' 与 "
+                f"PROVIDERS['glm']['model']='{PROVIDERS['glm']['model']}' 不一致"
+            )
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v

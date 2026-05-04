@@ -479,7 +479,7 @@ class TestFixAgent:
 
         import asyncio
 
-        with pytest.raises(RuntimeError, match="did not return structured output"):
+        with pytest.raises(RuntimeError, match="did not return valid structured output"):
             asyncio.run(run_fix("o/r", 1))
 
 

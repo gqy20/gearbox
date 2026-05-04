@@ -174,10 +174,11 @@ async def run_backlog_item(
 
     from claude_agent_sdk import ClaudeAgentOptions, query
 
-    from gearbox.agents.schemas import output_format_schema, parse_with_model
+    from gearbox.agents.schemas import output_format_schema
     from gearbox.agents.shared import clone_repository
     from gearbox.agents.shared.prompt_helpers import format_issues_summary
     from gearbox.agents.shared.runtime import prepare_agent_options
+    from gearbox.agents.shared.structured import query_structured_with_retry
     from gearbox.core.gh import list_open_issues
 
     issue = _gh_issue_view(repo, issue_number)
@@ -230,24 +231,19 @@ async def run_backlog_item(
         cwd=str(cwd),
     )
 
-    structured: BacklogItemResult | None = None
-
     try:
-        async for message in query(prompt=prompt, options=options):
-            sdk_logger.handle_message(message, echo_assistant_text=False)
-            if structured is None:
-                parsed = parse_with_model(message, BacklogItemResult)
-                if parsed is not None:
-                    structured = parsed
-                    # Inject issue_number since it's not part of the schema output
-                    structured.issue_number = issue_number
-                    break
+        structured = await query_structured_with_retry(
+            query_fn=query,
+            options=options,
+            prompt=prompt,
+            model_class=BacklogItemResult,
+            sdk_logger=sdk_logger,
+        )
+        # Inject issue_number since it's not part of the schema output
+        structured.issue_number = issue_number
     finally:
         sdk_logger.log_completion()
         if clone_dir is not None:
             clone_dir.cleanup()
-
-    if structured is None:
-        raise RuntimeError("Backlog agent did not return structured output")
 
     return structured

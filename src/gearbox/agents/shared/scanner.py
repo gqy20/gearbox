@@ -346,7 +346,7 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
             for future in concurrent.futures.as_completed(future_to_tool):
                 tool_name = future_to_tool[future]
                 try:
-                    result_data, status = future.result()
+                    result_data, status = future.result(timeout=300)
                     result.tool_statuses[tool_name] = status
                     if tool_name == "deptry":
                         result.deptry_issues = result_data
@@ -360,6 +360,8 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
                     elif tool_name == "govulncheck":
                         result.govulncheck_vulns = result_data
                         result.govulncheck_scanned = True
+                except concurrent.futures.TimeoutError:
+                    result.tool_statuses[tool_name] = "timeout"
                 except Exception as exc:
                     result.tool_statuses[tool_name] = f"exception:{exc}"
 

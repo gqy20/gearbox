@@ -5,14 +5,20 @@ import tempfile
 from pathlib import Path
 
 
-def clone_repository(repo: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
+def clone_repository(
+    repo: str, timeout: int = 600
+) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
     """将目标仓库克隆到临时目录，供扫描和 Agent 分析统一使用。
 
     Args:
         repo: 仓库标识（owner/name 或本地 git 仓库路径）
+        timeout: 克隆超时秒数，默认 600 秒（10 分钟）
 
     Returns:
         (clone_root, temp_dir) — clone_root 是仓库根目录，temp_dir 需在用完后 cleanup
+
+    Raises:
+        RuntimeError: 克隆失败或超时时抛出
     """
     temp_dir = tempfile.TemporaryDirectory(prefix="gearbox-clone-")
     clone_root = Path(temp_dir.name) / "repo"
@@ -23,7 +29,12 @@ def clone_repository(repo: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]
     else:
         cmd = ["gh", "repo", "clone", repo, str(clone_root), "--", "--depth", "1"]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        temp_dir.cleanup()
+        raise RuntimeError(f"clone timed out after {timeout}s for {repo}") from None
+
     if result.returncode != 0:
         temp_dir.cleanup()
         stderr = result.stderr.strip() or result.stdout.strip() or "unknown clone error"

@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from gearbox.agents.schemas import FixResult as _FixResultModel
-from gearbox.agents.schemas import output_format_schema, parse_with_model
+from gearbox.agents.schemas import output_format_schema
+from gearbox.agents.shared.structured import query_structured_with_retry
 
 FixResult = _FixResultModel
 
@@ -141,20 +142,15 @@ async def run_fix(
         cwd=str(Path.cwd()),
     )
 
-    structured: FixResult | None = None
-
     try:
-        async for message in query(prompt=prompt, options=options):
-            sdk_logger.handle_message(message, echo_assistant_text=False)
-            if structured is None:
-                parsed = parse_with_model(message, FixResult)
-                if parsed is not None:
-                    structured = parsed
-                    break
+        structured = await query_structured_with_retry(
+            query_fn=query,
+            options=options,
+            prompt=prompt,
+            model_class=FixResult,
+            sdk_logger=sdk_logger,
+        )
     finally:
         sdk_logger.log_completion()
-
-    if structured is None:
-        raise RuntimeError("Fix agent did not return structured output")
 
     return structured

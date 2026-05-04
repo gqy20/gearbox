@@ -477,3 +477,187 @@ class TestStructuredOutputErrorPaths:
     def test_legacy_parse_structured_output_string(self) -> None:
         result = parse_structured_output(self._result("not a dict"), lambda data: data["key"])
         assert result is None
+
+
+class TestQueryStructuredWithRetry:
+    """Test ValidationError → LLM feedback retry mechanism."""
+
+    @staticmethod
+    def _make_options():
+        from claude_agent_sdk import ClaudeAgentOptions
+
+        return ClaudeAgentOptions(
+            model="test-model",
+            max_turns=10,
+            output_format={"type": "json_schema", "schema": {}, "name": "Test", "strict": True},
+        )
+
+    @staticmethod
+    def _make_logger():
+        class FakeLogger:
+            def log_start(self, **kwargs):
+                pass
+
+            def handle_message(self, *args, **kwargs):
+                pass
+
+            def log_completion(self):
+                pass
+
+        return FakeLogger()
+
+    def test_succeeds_on_first_attempt(self) -> None:
+        """Happy path: first query returns valid structured output."""
+        import asyncio
+
+        from gearbox.agents.shared.structured import query_structured_with_retry
+
+        good_data = {
+            "repo": "owner/repo",
+            "profile": {"language": "python"},
+            "comparison_markdown": "# Test",
+            "benchmarks": [],
+            "issues": [],
+        }
+
+        async def fake_query(**kwargs):
+            del kwargs
+            yield _result_message(good_data)
+
+        result = asyncio.run(
+            query_structured_with_retry(
+                query_fn=fake_query,
+                options=self._make_options(),
+                prompt="audit this repo",
+                model_class=AuditResult,
+                sdk_logger=self._make_logger(),
+            )
+        )
+        assert result is not None
+        assert result.repo == "owner/repo"
+
+    def test_retries_on_validation_error_and_succeeds(self) -> None:
+        """ValidationError on first attempt triggers retry with feedback prompt."""
+        import asyncio
+
+        from gearbox.agents.shared.structured import query_structured_with_retry
+
+        # repo must be str; int will cause ValidationError
+        bad_data = {"repo": 123, "profile": {}}
+        good_data = {
+            "repo": "owner/repo",
+            "profile": {"language": "python"},
+            "comparison_markdown": "# Test",
+            "benchmarks": [],
+            "issues": [],
+        }
+        call_count = 0
+
+        async def fake_query(prompt=None, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            del kwargs
+            if call_count == 1:
+                yield _result_message(bad_data)
+            else:
+                # Verify retry prompt contains error details
+                assert prompt is not None
+                assert "校验失败" in prompt or "validation" in prompt.lower()
+                yield _result_message(good_data)
+
+        result = asyncio.run(
+            query_structured_with_retry(
+                query_fn=fake_query,
+                options=self._make_options(),
+                prompt="audit this repo",
+                model_class=AuditResult,
+                sdk_logger=self._make_logger(),
+            )
+        )
+        assert result is not None
+        assert result.repo == "owner/repo"
+        assert call_count == 2
+
+    def test_exhausts_retries_and_raises_runtime_error(self) -> None:
+        """After max retries, raises RuntimeError with failure info."""
+        import asyncio
+
+        from gearbox.agents.shared.structured import query_structured_with_retry
+
+        bad_data = {"repo": 123}  # invalid: repo should be str
+        call_count = 0
+
+        async def fake_query(prompt=None, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            del kwargs
+            yield _result_message(bad_data)
+
+        with pytest.raises(RuntimeError, match="did not return valid structured output"):
+            asyncio.run(
+                query_structured_with_retry(
+                    query_fn=fake_query,
+                    options=self._make_options(),
+                    prompt="audit this repo",
+                    model_class=AuditResult,
+                    sdk_logger=self._make_logger(),
+                    max_retries=2,
+                )
+            )
+        # Initial attempt + 2 retries = 3 calls
+        assert call_count == 3
+
+    def test_default_max_retries_is_two(self) -> None:
+        """Default max_retries should be 2."""
+        import inspect
+
+        from gearbox.agents.shared.structured import query_structured_with_retry
+
+        sig = inspect.signature(query_structured_with_retry)
+        default = sig.parameters["max_retries"].default
+        assert default == 2
+
+    def test_none_structured_output_triggers_retry(self) -> None:
+        """None structured output (no parseable data) also triggers retry."""
+        import asyncio
+
+        from gearbox.agents.shared.structured import query_structured_with_retry
+
+        good_data = {
+            "repo": "owner/repo",
+            "profile": {},
+            "comparison_markdown": "",
+            "benchmarks": [],
+            "issues": [],
+        }
+        call_count = 0
+
+        async def fake_query(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            del kwargs
+            if call_count == 1:
+                # Return message with no structured output (e.g., text-only response)
+                yield ResultMessage(
+                    subtype="result",
+                    duration_ms=100,
+                    duration_api_ms=80,
+                    is_error=False,
+                    num_turns=1,
+                    session_id="session",
+                    structured_output=None,
+                )
+            else:
+                yield _result_message(good_data)
+
+        result = asyncio.run(
+            query_structured_with_retry(
+                query_fn=fake_query,
+                options=self._make_options(),
+                prompt="audit this repo",
+                model_class=AuditResult,
+                sdk_logger=self._make_logger(),
+            )
+        )
+        assert result is not None
+        assert call_count == 2

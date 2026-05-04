@@ -202,12 +202,13 @@ async def run_audit(
         query,
     )
 
-    from gearbox.agents.schemas import output_format_schema, parse_with_model
+    from gearbox.agents.schemas import output_format_schema
     from gearbox.agents.shared.runtime import prepare_agent_options
     from gearbox.agents.shared.scanner import (
         format_scan_summary,
         scan_repository,
     )
+    from gearbox.agents.shared.structured import query_structured_with_retry
     from gearbox.config import get_anthropic_base_url, get_anthropic_model
 
     resolved_model = model or get_anthropic_model()
@@ -322,23 +323,26 @@ async def run_audit(
 
 请返回完整的结构化审计结果。"""
 
-        structured: AuditResult | None = None
+        from claude_agent_sdk import query
+
         total_cost: float | None = None
 
+        def _extract_cost(message: object) -> None:
+            nonlocal total_cost
+            total_cost = getattr(message, "total_cost_usd", total_cost)
+
         try:
-            async for message in query(prompt=prompt, options=options):
-                sdk_logger.handle_message(message, echo_assistant_text=False)
-                total_cost = getattr(message, "total_cost_usd", total_cost)
-                if structured is None:
-                    parsed = parse_with_model(message, AuditResult)
-                    if parsed is not None:
-                        structured = parsed
-                        break
+            structured = await query_structured_with_retry(
+                query_fn=query,
+                options=options,
+                prompt=prompt,
+                model_class=AuditResult,
+                sdk_logger=sdk_logger,
+                per_message_callback=_extract_cost,
+            )
         finally:
             sdk_logger.log_completion()
 
-        if structured is None:
-            raise RuntimeError("Audit agent did not return structured output")
         structured.cost = total_cost
 
         if structured.benchmarks and not benchmarks:

@@ -134,7 +134,7 @@ class SdkEventLogger:
 
     def __init__(self, agent_name: str) -> None:
         self.agent_name = agent_name
-        self._open_task_ids: set[str] = set()
+        self._open_task_ids: list[str] = []
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._started_at = time.monotonic()
@@ -307,7 +307,7 @@ class SdkEventLogger:
     def handle_message(self, message: object, *, echo_assistant_text: bool = False) -> None:
         if isinstance(message, TaskStartedMessage):
             _print_line(f"::group::[{self.agent_name}] {message.description}")
-            self._open_task_ids.add(message.task_id)
+            self._open_task_ids.append(message.task_id)
             self._log(
                 "task-started",
                 f"id={message.task_id}, type={message.task_type or 'unknown'}, session={message.session_id}",

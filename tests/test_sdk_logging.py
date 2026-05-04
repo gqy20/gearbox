@@ -1,8 +1,14 @@
 """测试 Claude Agent SDK 日志适配。"""
 
 import os
+from unittest.mock import patch
 
-from claude_agent_sdk import ClaudeAgentOptions, StreamEvent
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    StreamEvent,
+    TaskNotificationMessage,
+    TaskStartedMessage,
+)
 
 from gearbox.agents.shared.runtime import SdkEventLogger, prepare_agent_options
 
@@ -143,3 +149,101 @@ class TestSdkEventLogger:
             stage == "tool-use" and "tool=Bash, command=rg -n" in message
             for _, stage, message in entries
         )
+
+    def test_close_open_groups_uses_lifo_order(self) -> None:
+        """Groups must close in LIFO order so ::endgroup:: matches ::group:: nesting."""
+        logger = SdkEventLogger("audit")
+
+        def _make_started(task_id: str, desc: str) -> TaskStartedMessage:
+            return TaskStartedMessage(
+                subtype="start",
+                data={},
+                task_id=task_id,
+                description=desc,
+                uuid=f"uuid-{task_id}",
+                session_id="s1",
+                task_type="agent",
+            )
+
+        started_a = _make_started("task-a", "Task A")
+        started_b = _make_started("task-b", "Task B")
+        started_c = _make_started("task-c", "Task C")
+
+        # Verify _open_task_ids is an ordered sequence (list), not a set
+        assert isinstance(logger._open_task_ids, list)
+
+        logger.handle_message(started_a)
+        logger.handle_message(started_b)
+        logger.handle_message(started_c)
+
+        # Internal tracking must preserve insertion order
+        assert logger._open_task_ids == ["task-a", "task-b", "task-c"]
+
+        with patch("gearbox.agents.shared.runtime._print_line") as mock_print:
+            # Close all groups — should emit ::endgroup:: in reverse (LIFO) order
+            logger.close_open_groups()
+
+        endgroup_calls = [
+            call[0][0] for call in mock_print.call_args_list if call[0][0] == "::endgroup::"
+        ]
+        assert len(endgroup_calls) == 3
+        # After closing all, list must be empty
+        assert logger._open_task_ids == []
+
+    def test_task_notification_removes_correct_task(self) -> None:
+        """TaskNotification should remove its own task_id and emit one ::endgroup::."""
+        logger = SdkEventLogger("audit")
+
+        started_a = TaskStartedMessage(
+            subtype="start",
+            data={},
+            task_id="task-a",
+            description="Task A",
+            uuid="uuid-a",
+            session_id="s1",
+            task_type="agent",
+        )
+        started_b = TaskStartedMessage(
+            subtype="start",
+            data={},
+            task_id="task-b",
+            description="Task B",
+            uuid="uuid-b",
+            session_id="s1",
+            task_type="agent",
+        )
+
+        with patch("gearbox.agents.shared.runtime._print_line") as mock_print:
+            logger.handle_message(started_a)
+            logger.handle_message(started_b)
+
+            # Notify completion of task-b (the later-opened group)
+            notification = TaskNotificationMessage(
+                subtype="notification",
+                data={},
+                task_id="task-b",
+                status="completed",
+                output_file="/tmp/out",
+                summary="done",
+                uuid="uuid-b-done",
+                session_id="s1",
+                usage=None,
+            )
+            logger.handle_message(notification)
+
+            # Only one endgroup should have been emitted for task-b
+            endgroup_calls = [
+                call[0][0]
+                for call in mock_print.call_args_list
+                if call[0][0] == "::endgroup::"
+            ]
+            assert len(endgroup_calls) == 1
+
+            # task-a should still be open; closing it now emits exactly one more
+            logger.close_open_groups()
+            endgroup_calls = [
+                call[0][0]
+                for call in mock_print.call_args_list
+                if call[0][0] == "::endgroup::"
+            ]
+            assert len(endgroup_calls) == 2

@@ -217,6 +217,7 @@ async def run_audit(
     clone_dir: tempfile.TemporaryDirectory[str] | None = None
     scan_result = None
     scan_summary = ""
+    scan_failure_reason: str | None = None
 
     try:
         click.echo(f"📥 克隆目标仓库: {repo}")
@@ -250,6 +251,7 @@ async def run_audit(
                     f"🛡️ Go 漏洞: {len(scan_result.govulncheck_vulns)}"
                 )
             except Exception as e:
+                scan_failure_reason = str(e)
                 click.echo(f"⚠️ 扫描失败: {e}", err=True)
 
         if not benchmarks:
@@ -275,6 +277,11 @@ async def run_audit(
         prompt_parts = []
         if scan_summary and enable_prescan:
             prompt_parts.append(f"```json\n{scan_summary}\n```")
+        elif scan_failure_reason and enable_prescan:
+            prompt_parts.append(
+                f"> ⚠️ **扫描未完成**: 静态分析扫描失败 ({scan_failure_reason})。\n"
+                f"> 以下审计结果**缺乏扫描数据支撑**，请在 `failure_reason` 中标注此情况。"
+            )
         prompt_parts.append(existing_issues_str)
 
         if prompt_parts:
@@ -340,6 +347,12 @@ async def run_audit(
         if structured is None:
             raise RuntimeError("Audit agent did not return structured output")
         structured.cost = total_cost
+
+        # Propagate scan failure to result so downstream can detect incomplete audits
+        if scan_failure_reason and not structured.failure_reason:
+            structured.failure_reason = (
+                f"扫描未完成: {scan_failure_reason}。审计结果缺乏静态分析数据支撑。"
+            )
 
         if structured.benchmarks and not benchmarks:
             _cache_benchmarks(repo, structured.benchmarks)

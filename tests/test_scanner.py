@@ -410,6 +410,66 @@ class TestScanRepositoryOrchestration:
 
 
 # ---------------------------------------------------------------------------
+# scan_repository 超时保护 (Issue #91)
+# ---------------------------------------------------------------------------
+
+
+class TestScanRepositoryTimeout:
+    """scan_repository() per-future 超时保护 (Issue #91)"""
+
+    def test_future_timeout_recorded_in_tool_statuses(self, tmp_path: Path) -> None:
+        """future.result() 超时时应将 'timeout' 记录到 tool_statuses，不影响其他工具结果"""
+        import concurrent.futures
+
+        original_result = concurrent.futures.Future.result
+
+        def patched_result(self, timeout=None):
+            if timeout is not None:
+                raise concurrent.futures.TimeoutError()
+            return original_result(self)
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=({}, "ok")),
+            patch("gearbox.agents.shared.scanner.run_deptry", return_value=([], "ok")),
+            patch("gearbox.agents.shared.scanner.run_trivy", return_value=([], "ok")),
+            patch("gearbox.agents.shared.scanner.run_semgrep", return_value=([], "ok")),
+            patch.object(concurrent.futures.Future, "result", patched_result),
+        ):
+            actual = scan_repository(tmp_path)
+
+        # 至少有一个工具因超时被标记（所有 4 个并行任务都会超时）
+        timeout_tools = [k for k, v in actual.tool_statuses.items() if "timeout" in v.lower()]
+        assert len(timeout_tools) >= 1
+
+    def test_timeout_does_not_crash_scan_repository(self, tmp_path: Path) -> None:
+        """即使所有并行任务都超时，scan_repository 也应正常返回（不抛异常）"""
+        import concurrent.futures
+
+        def always_timeout(self, timeout=None):
+            if timeout is not None:
+                raise concurrent.futures.TimeoutError()
+            return ([], "ok")
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=({}, "ok")),
+            patch.object(concurrent.futures.Future, "result", always_timeout),
+        ):
+            actual = scan_repository(tmp_path)
+
+        # 应正常返回，tool_statuses 中应有 timeout 标记
+        assert isinstance(actual, RepoScanResult)
+        assert any("timeout" in v.lower() for v in actual.tool_statuses.values())
+
+
+# ---------------------------------------------------------------------------
 # format_scan_summary
 # ---------------------------------------------------------------------------
 

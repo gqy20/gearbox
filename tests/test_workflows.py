@@ -328,3 +328,47 @@ class TestAutoMergeWorkflow:
         assert "skip_reason=" in workflow
         assert "::notice::" in workflow
         assert "::warning::" in workflow
+
+
+class TestCIWorkflow:
+    def test_ci_uses_python_version_matrix_matching_project_minimum(self) -> None:
+        """CI must use a matrix of Python versions that includes the project minimum (3.10).
+
+        Running CI on a single newer version (e.g. 3.13 only) hides compatibility issues
+        on older versions where syntax like ``type[X]`` shorthand or ExceptionGroup
+        would raise SyntaxError.
+        """
+        root = _root()
+        ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        # Must use a matrix strategy, not a single python-version
+        assert "strategy:" in ci, "CI job must use a matrix strategy for Python versions"
+        assert "matrix:" in ci, "CI job must define a version matrix"
+        assert (
+            "python-version:" in ci
+        ), "Matrix must include a python-version axis"
+
+        # Extract the matrix values and verify they cover the supported range
+        # Look for the matrix definition containing version strings
+        matrix_match = re.search(
+            r"python-version:\s*\[([^\]]+)\]", ci, re.DOTALL
+        )
+        assert matrix_match is not None, "Could not find python-version matrix values"
+
+        versions_str = matrix_match.group(1)
+        versions = re.findall(r"'(3\.\d+)'", versions_str)
+
+        assert len(versions) >= 2, (
+            f"CI must test at least 2 Python versions; found: {versions}"
+        )
+        assert "3.10" in versions, (
+            f"CI matrix must include 3.10 (project minimum); found: {versions}"
+        )
+        assert "3.13" in versions, (
+            f"CI matrix should include latest stable 3.13; found: {versions}"
+        )
+
+        # The setup-python step must reference the matrix variable
+        assert (
+            "${{ matrix.python-version }}" in ci
+        ), "setup-python step must use matrix.python-version"

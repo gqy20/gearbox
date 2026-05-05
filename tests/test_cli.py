@@ -513,8 +513,13 @@ class TestAgentCommand:
         async def fake_select_best_result(*args, **kwargs):
             del args, kwargs
             from gearbox.agents.review import load_review_result
+            from gearbox.agents.shared.selection import SelectionResult
 
-            return 0, load_review_result(run_dir / "result.json")
+            return SelectionResult(
+                index=0,
+                result=load_review_result(run_dir / "result.json"),
+                is_fallback=False,
+            )
 
         monkeypatch.setattr("gearbox.commands.agent.select_best_result", fake_select_best_result)
         monkeypatch.setattr(

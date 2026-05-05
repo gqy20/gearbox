@@ -404,7 +404,7 @@ def backlog_select(
         candidates = by_issue[issue_number]
         names = [name for name, _ in candidates]
         results = [item for _, item in candidates]
-        winner_index, winner_result = asyncio.run(
+        selected = asyncio.run(
             select_best_result(
                 results,
                 result_type=f"Backlog Issue #{issue_number} 分类结果",
@@ -413,10 +413,10 @@ def backlog_select(
                 max_turns=max_turns,
             )
         )
-        selected_items.append(winner_result)
-        _apply_backlog_item_with_comments(repo, winner_result, comment_mode=comment_mode)
+        selected_items.append(selected.result)
+        _apply_backlog_item_with_comments(repo, selected.result, comment_mode=comment_mode)
         click.echo(
-            f"✅ Selected backlog result: issue={issue_number}, winner={names[winner_index]}"
+            f"✅ Selected backlog result: issue={issue_number}, winner={names[selected.index]}"
         )
 
     result = BacklogResult(items=selected_items)

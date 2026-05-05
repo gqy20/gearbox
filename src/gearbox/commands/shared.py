@@ -82,13 +82,15 @@ async def _select_single(
     results = [r for _, r in candidates]
     names = [n for n, _ in candidates]
 
-    winner_index, winner_result = await select_best_result(
+    selected = await select_best_result(
         results,
         result_type=result_type,
         result_names=names,
         model=model,
         max_turns=max_turns,
     )
+    winner_index = selected.index
+    winner_result = selected.result
     winner_name = names[winner_index]
 
     if winner_callback:

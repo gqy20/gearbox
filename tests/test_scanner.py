@@ -478,6 +478,84 @@ class TestFormatScanSummary:
         assert output["_stats"]["scanned_tools"]["trivy"] is True
         assert output["_stats"]["scanned_tools"]["deptry"] is True
 
+    def test_truncated_field_present_when_within_limits(self) -> None:
+        """When counts are within limits, _truncated should exist with all False."""
+        scan = self._base_scan()
+        # Base scan has 2 vulns, 2 findings, 1 dep issue — all under limits
+        output = json.loads(format_scan_summary(scan))
+
+        assert "_truncated" in output
+        assert output["_truncated"]["vulnerabilities"] is False
+        assert output["_truncated"]["code_issues"] is False
+        assert output["_truncated"]["dependency_issues"] is False
+
+    def test_truncated_field_true_when_exceeding_limits(self) -> None:
+        """When counts exceed limits, _truncated should flag which sections were cut."""
+        scan = self._base_scan()
+        scan.trivy_vulnerabilities = [
+            {"VulnerabilityID": f"V-{i}", "Severity": "HIGH", "Title": f"vuln {i}"}
+            for i in range(15)
+        ]
+        scan.semgrep_findings = [
+            {"id": f"S-{i}", "severity": "WARNING", "message": f"finding {i}"}
+            for i in range(20)
+        ]
+        scan.deptry_issues = [
+            {"type": "deprecated", "error": {"code": f"D-{i}", "message": f"dep {i}"}}
+            for i in range(12)
+        ]
+        output = json.loads(format_scan_summary(scan))
+
+        assert output["_truncated"]["vulnerabilities"] is True
+        assert output["_truncated"]["code_issues"] is True
+        assert output["_truncated"]["dependency_issues"] is True
+
+    def test_truncation_sorts_vulnerabilities_by_severity(self) -> None:
+        """Critical vulnerabilities should be retained over LOW when truncated."""
+        scan = self._base_scan()
+        # Create 15 vulns: 5 CRITICAL at end, 10 LOW at start — without sort, LOW wins
+        vulns = []
+        for i in range(10):
+            vulns.append(
+                {"VulnerabilityID": f"LOW-{i}", "Severity": "LOW", "Title": f"low {i}"}
+            )
+        for i in range(5):
+            vulns.append(
+                {
+                    "VulnerabilityID": f"CRIT-{i}",
+                    "Severity": "CRITICAL",
+                    "Title": f"critical {i}",
+                }
+            )
+        scan.trivy_vulnerabilities = vulns
+        output = json.loads(format_scan_summary(scan))
+
+        displayed_ids = [v["id"] for v in output["vulnerabilities"]]
+        # All 5 CRITICAL must be present in the top-10 result
+        for i in range(5):
+            assert f"CRIT-{i}" in displayed_ids
+
+    def test_truncation_sorts_code_issues_by_severity(self) -> None:
+        """High-severity semgrep findings should be retained over INFO when truncated."""
+        scan = self._base_scan()
+        findings = []
+        # 20 INFO findings first, then 5 ERROR findings
+        for i in range(20):
+            findings.append(
+                {"check_id": f"INFO-{i}", "severity": "info", "message": f"info {i}"}
+            )
+        for i in range(5):
+            findings.append(
+                {"check_id": f"ERR-{i}", "severity": "error", "message": f"err {i}"}
+            )
+        scan.semgrep_findings = findings
+        output = json.loads(format_scan_summary(scan))
+
+        displayed_ids = [f["rule"] for f in output["code_issues"]]
+        # All 5 ERROR findings must survive truncation to 15
+        for i in range(5):
+            assert f"ERR-{i}" in displayed_ids
+
 
 # ---------------------------------------------------------------------------
 # _fallback_file_counts

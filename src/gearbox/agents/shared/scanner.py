@@ -366,9 +366,50 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
     return result
 
 
+# Trivy severity order (highest priority first)
+_SEVERITY_ORDER: dict[str, int] = {
+    "CRITICAL": 0,
+    "HIGH": 1,
+    "MEDIUM": 2,
+    "LOW": 3,
+    "UNKNOWN": 4,
+}
+
+# Semgrep severity order (highest priority first)
+_SEMGREP_SEVERITY_ORDER: dict[str, int] = {
+    "ERROR": 0,
+    "WARNING": 1,
+    "INFO": 2,
+}
+
+_MAX_VULNS = 10
+_MAX_CODE_ISSUES = 15
+_MAX_DEP_ISSUES = 10
+
+
+def _sort_trivy_by_severity(vulns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort trivy vulnerabilities so critical items survive truncation."""
+    return sorted(
+        vulns,
+        key=lambda v: _SEVERITY_ORDER.get(v.get("Severity", "").upper(), 99),
+    )
+
+
+def _sort_semgrep_by_severity(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort semgrep findings so high-severity items survive truncation."""
+    return sorted(
+        findings,
+        key=lambda f: _SEMGREP_SEVERITY_ORDER.get(f.get("severity", "").upper(), 99),
+    )
+
+
 def format_scan_summary(scan: RepoScanResult) -> str:
     """将扫描结果格式化为 JSON（供 Agent 直接解析）"""
     import json
+
+    # Sort by severity before truncating so high-priority items are retained
+    sorted_vulns = _sort_trivy_by_severity(scan.trivy_vulnerabilities)
+    sorted_findings = _sort_semgrep_by_severity(scan.semgrep_findings)
 
     payload: dict[str, Any] = {
         "project_type": scan.project_type,
@@ -390,7 +431,7 @@ def format_scan_summary(scan: RepoScanResult) -> str:
                 "severity": v.get("Severity", ""),
                 "title": v.get("Title", v.get("Description", ""))[:80],
             }
-            for v in scan.trivy_vulnerabilities[:10]
+            for v in sorted_vulns[:_MAX_VULNS]
         ],
         "govulncheck_vulns": [
             {
@@ -405,15 +446,20 @@ def format_scan_summary(scan: RepoScanResult) -> str:
                 "rule": f.get("check_id", ""),
                 "message": f.get("message", "")[:100],
             }
-            for f in scan.semgrep_findings[:15]
+            for f in sorted_findings[:_MAX_CODE_ISSUES]
         ],
         "dependency_issues": [
             {
                 "type": i.get("type", i.get("error", {}).get("code", "")),
                 "message": i.get("message", i.get("error", {}).get("message", ""))[:100],
             }
-            for i in scan.deptry_issues[:10]
+            for i in scan.deptry_issues[:_MAX_DEP_ISSUES]
         ],
+        "_truncated": {
+            "vulnerabilities": len(scan.trivy_vulnerabilities) > _MAX_VULNS,
+            "code_issues": len(scan.semgrep_findings) > _MAX_CODE_ISSUES,
+            "dependency_issues": len(scan.deptry_issues) > _MAX_DEP_ISSUES,
+        },
         "_stats": {
             "total_vulnerabilities": len(scan.trivy_vulnerabilities),
             "total_code_issues": len(scan.semgrep_findings),

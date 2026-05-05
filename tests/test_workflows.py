@@ -328,3 +328,86 @@ class TestAutoMergeWorkflow:
         assert "skip_reason=" in workflow
         assert "::notice::" in workflow
         assert "::warning::" in workflow
+
+
+class TestAuditCostGuardrails:
+    """Verify audit.yml has cost-protection mechanisms for scheduled runs."""
+
+    def test_audit_cron_is_not_hourly(self) -> None:
+        """Cron schedule must not be every hour (0 * * * *)."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # Must NOT contain hourly cron
+        assert "cron: '0 * * * *'" not in workflow
+        # Must contain a cron schedule (not empty)
+        assert re.search(r"cron:\s*'[^\']+'", workflow) is not None
+
+    def test_audit_has_max_daily_runs_limit(self) -> None:
+        """Audit workflow must define a maximum daily execution limit."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # Should reference a daily run limit (env var or hardcoded)
+        assert (
+            "MAX_DAILY_RUNS" in workflow or "max_daily_runs" in workflow or "max_daily" in workflow
+        )
+
+    def test_audit_has_cost_guardrail_step(self) -> None:
+        """Audit plan job must include a cost guardrail / rate-limit step."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # Should have guardrail-related step name or logic
+        assert (
+            "guardrail" in workflow.lower()
+            or "rate.limit" in workflow.lower()
+            or "cost.guard" in workflow.lower()
+            or "daily.budget" in workflow.lower()
+            or "should_run" in workflow
+        )
+
+    def test_audit_guardrail_checks_daily_execution_count(self) -> None:
+        """Guardrail must count today's completed runs to enforce daily limit."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # Should use gh run list to count executions
+        assert "gh run list" in workflow
+
+    def test_audit_guardrail_has_change_detection(self) -> None:
+        """Guardrail should check for recent repo changes before running."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # Should check commits or changes for skip condition
+        assert (
+            "gh api" in workflow
+            and "commits" in workflow
+            or "git log" in workflow
+            or "since" in workflow
+            and "commit" in workflow.lower()
+        )
+
+    def test_audit_guardrail_controls_downstream_jobs(self) -> None:
+        """Downstream jobs must respect the guardrail's should_run output."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # The audit-run job or its upstream dependency should check should_run
+        # Either plan job checks it, or there's an explicit condition
+        assert "should_run" in workflow
+
+    def test_audit_manual_dispatch_bypasses_guardrail(self) -> None:
+        """Manual workflow_dispatch must not be blocked by cost guardrails."""
+        root = _root()
+        workflow = (root / ".github" / "workflows" / "audit.yml").read_text(encoding="utf-8")
+
+        # workflow_dispatch must appear as an independent trigger path, never gated behind should_run
+        assert "workflow_dispatch" in workflow
+        # The audit-run job condition must allow dispatch without checking should_run
+        assert (
+            "github.event_name == 'workflow_dispatch'" in workflow
+            and "github.event_name == 'workflow_dispatch' ||" in workflow
+            or "github.event_name == 'workflow_dispatch' \\" in workflow
+        )

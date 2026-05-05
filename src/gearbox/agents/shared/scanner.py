@@ -153,9 +153,10 @@ def run_cloc(repo_path: Path) -> tuple[dict[str, Any], str]:
     if returncode == 0:
         try:
             data = json.loads(stdout)
-            assert isinstance(data, dict)
+            if not isinstance(data, dict):
+                raise TypeError(f"cloc expected dict, got {type(data).__name__}")
             return data, "ok"
-        except (json.JSONDecodeError, AssertionError):
+        except (json.JSONDecodeError, TypeError):
             return {}, "parse_failed"
     detail = stderr.strip() or "command_failed"
     return {}, detail
@@ -206,9 +207,10 @@ def run_trivy(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
         try:
             data = json.loads(stdout)
             results = data.get("Results", [])
-            assert isinstance(results, list)
+            if not isinstance(results, list):
+                raise TypeError(f"trivy Results expected list, got {type(results).__name__}")
             return results, "ok"
-        except (json.JSONDecodeError, AssertionError):
+        except (json.JSONDecodeError, TypeError):
             return [], "parse_failed"
     detail = stderr.strip() or "command_failed"
     return [], detail
@@ -240,13 +242,14 @@ def run_deptry(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
                 issues = data
             else:
                 issues = data.get("issues", [])
-                assert isinstance(issues, list)
+                if not isinstance(issues, list):
+                    raise TypeError(f"deptry issues expected list, got {type(issues).__name__}")
 
             if issues:
                 return issues, f"issues={len(issues)}"
             if returncode == 0:
                 return issues, "ok"
-        except (json.JSONDecodeError, AssertionError, OSError):
+        except (json.JSONDecodeError, TypeError, OSError):
             if returncode == 0:
                 return [], "parse_failed"
 
@@ -269,9 +272,10 @@ def run_govulncheck(repo_path: Path) -> tuple[list[dict[str, Any]], str]:
         try:
             data = json.loads(stdout)
             vulns = data.get("vulnerabilities", [])
-            assert isinstance(vulns, list)
+            if not isinstance(vulns, list):
+                raise TypeError(f"govulncheck vulnerabilities expected list, got {type(vulns).__name__}")
             return vulns, "ok"
-        except (json.JSONDecodeError, AssertionError):
+        except (json.JSONDecodeError, TypeError):
             return [], "parse_failed"
     detail = stderr.strip() or "command_failed"
     return [], detail

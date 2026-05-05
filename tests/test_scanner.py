@@ -296,6 +296,95 @@ class TestToolRunners:
         assert vulns[0]["id"] == "GO-1"
 
 
+class TestAssertReplacedWithTypeChecks:
+    """验证 assert isinstance 被替换为显式 TypeError 后，类型错误数据不会流入下游。
+
+    这些测试模拟工具返回了合法 JSON 但字段类型不符合预期的场景。
+    在 python -O 下 assert 会被剥离，因此必须用显式类型检查替代。
+    """
+
+    @staticmethod
+    def _fake_run(returncode: int, stdout: str = "", stderr: str = ""):
+        def _fake(cmd, cwd, timeout=None):
+            return returncode, stdout, stderr
+
+        return _fake
+
+    # -- run_cloc: 期望 data 是 dict --
+
+    def test_cloc_non_dict_output_returns_parse_failed(self, tmp_path: Path) -> None:
+        """cloc 返回 JSON 数组而非对象时，应返回 parse_failed 而非让 data.get 崩溃"""
+        fake = self._fake_run(0, '[1, 2, 3]')
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            data, status = run_cloc(tmp_path)
+
+        assert data == {}
+        assert status == "parse_failed"
+
+    def test_cloc_string_output_returns_parse_failed(self, tmp_path: Path) -> None:
+        """cloc 返回 JSON 字符串（非对象）时，应返回 parse_failed"""
+        fake = self._fake_run(0, '"just a string"')
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            data, status = run_cloc(tmp_path)
+
+        assert data == {}
+        assert status == "parse_failed"
+
+    # -- run_trivy: 期望 Results 是 list --
+
+    def test_trivy_results_not_list_returns_parse_failed(self, tmp_path: Path) -> None:
+        """trivy 的 Results 字段是字符串时，应返回 parse_failed"""
+        fake = self._fake_run(0, json.dumps({"Results": "not-a-list"}))
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            results, status = run_trivy(tmp_path)
+
+        assert results == []
+        assert status == "parse_failed"
+
+    def test_trivy_results_is_int_returns_parse_failed(self, tmp_path: Path) -> None:
+        """trivy 的 Results 字段是整数时，应返回 parse_failed"""
+        fake = self._fake_run(0, json.dumps({"Results": 42}))
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            results, status = run_trivy(tmp_path)
+
+        assert results == []
+        assert status == "parse_failed"
+
+    # -- run_deptry: 期望 issues 是 list (旧格式路径) --
+
+    def test_deptry_old_format_issues_not_list_returns_parse_failed(self, tmp_path: Path) -> None:
+        """deptry 旧格式输出中 issues 字段不是列表时，应返回 parse_failed"""
+        fake_run = self._fake_run(0, "", "")
+        with (
+            patch("gearbox.agents.shared.scanner._run_command", fake_run),
+            patch("pathlib.Path.read_text", return_value=json.dumps({"issues": "broken"})),
+        ):
+            issues, status = run_deptry(tmp_path)
+
+        assert issues == []
+        assert status == "parse_failed"
+
+    # -- run_govulncheck: 期望 vulnerabilities 是 list --
+
+    def test_govulncheck_vulns_not_list_returns_parse_failed(self, tmp_path: Path) -> None:
+        """govulncheck 的 vulnerabilities 字段是字符串时，应返回 parse_failed"""
+        fake = self._fake_run(0, json.dumps({"vulnerabilities": "oops"}))
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            vulns, status = run_govulncheck(tmp_path)
+
+        assert vulns == []
+        assert status == "parse_failed"
+
+    def test_govulncheck_vulns_is_none_returns_parse_failed(self, tmp_path: Path) -> None:
+        """govulncheck 的 vulnerabilities 字段为 null 时，应返回 parse_failed"""
+        fake = self._fake_run(0, json.dumps({"vulnerabilities": None}))
+        with patch("gearbox.agents.shared.scanner._run_command", fake):
+            vulns, status = run_govulncheck(tmp_path)
+
+        assert vulns == []
+        assert status == "parse_failed"
+
+
 # ---------------------------------------------------------------------------
 # scan_repository 编排逻辑
 # ---------------------------------------------------------------------------

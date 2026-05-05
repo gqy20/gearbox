@@ -1,5 +1,7 @@
 """测试 agents 模块。"""
 
+import tempfile
+
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
 from pydantic import ValidationError
@@ -477,3 +479,267 @@ class TestStructuredOutputErrorPaths:
     def test_legacy_parse_structured_output_string(self) -> None:
         result = parse_structured_output(self._result("not a dict"), lambda data: data["key"])
         assert result is None
+
+
+class TestBacklogCloneReuse:
+    """Tests for Issue #87: clone reuse and --no-clone in backlog agent."""
+
+    def _fake_query_result(self) -> dict:
+        return {
+            "labels": ["bug"],
+            "priority": "P2",
+            "complexity": "S",
+            "ready_to_implement": False,
+        }
+
+    async def _fake_query(*args, **kwargs):
+        del args, kwargs
+        yield _result_message(
+            {
+                "labels": ["bug"],
+                "priority": "P2",
+                "complexity": "S",
+                "ready_to_implement": False,
+            }
+        )
+
+    def test_run_backlog_item_uses_pre_cloned_root_without_calling_clone(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """When a pre-cloned root is passed, run_backlog_item must NOT call clone_repository."""
+        import asyncio
+
+        captured: dict[str, object] = {}
+        clone_called: list[bool] = []
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                captured.update(kwargs)
+
+            def handle_message(self, *args, **kwargs) -> None:
+                del args, kwargs
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            del agent_name
+            captured["cwd"] = str(options.cwd)
+            return options, FakeLogger()
+
+        def fake_clone(repo):
+            clone_called.append(True)
+            raise RuntimeError("clone should not be called")
+
+        monkeypatch.setattr(
+            backlog,
+            "_gh_issue_view",
+            lambda *a, **k: {"title": "T", "body": "B", "labels": [], "state": "open"},
+        )
+        monkeypatch.setattr("gearbox.core.gh.list_open_issues", lambda *a, **k: [])
+        monkeypatch.setattr("gearbox.agents.shared.git.clone_repository", fake_clone)
+        monkeypatch.setattr("claude_agent_sdk.query", self._fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.setattr(
+            "gearbox.agents.shared.prompt_helpers.format_issues_summary",
+            lambda *a, **k: "## Issues Summary\n(no other issues)",
+        )
+
+        pre_cloned = tmp_path / "pre-clone"
+        pre_cloned.mkdir()
+
+        result = asyncio.run(
+            backlog.run_backlog_item(
+                "owner/repo",
+                42,
+                model="test-model",
+                clone_root=pre_cloned,
+            )
+        )
+
+        assert result.issue_number == 42
+        assert clone_called == [], "clone_repository should not have been called"
+        assert captured.get("cwd") == str(pre_cloned)
+
+    def test_run_backlog_item_no_clone_skips_clone_and_uses_cwd(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """When no_clone=True, run_backlog_item must skip cloning and use Path.cwd()."""
+        import asyncio
+
+        captured: dict[str, object] = {}
+        clone_called: list[bool] = []
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                captured.update(kwargs)
+
+            def handle_message(self, *args, **kwargs) -> None:
+                del args, kwargs
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            del agent_name
+            captured["cwd"] = str(options.cwd)
+            return options, FakeLogger()
+
+        def fake_clone(repo):
+            clone_called.append(True)
+            raise RuntimeError("clone should not be called")
+
+        monkeypatch.setattr(
+            backlog,
+            "_gh_issue_view",
+            lambda *a, **k: {"title": "T", "body": "B", "labels": [], "state": "open"},
+        )
+        monkeypatch.setattr("gearbox.core.gh.list_open_issues", lambda *a, **k: [])
+        monkeypatch.setattr("gearbox.agents.shared.git.clone_repository", fake_clone)
+        monkeypatch.setattr("claude_agent_sdk.query", self._fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.setattr(
+            "gearbox.agents.shared.prompt_helpers.format_issues_summary",
+            lambda *a, **k: "## Issues Summary\n(no other issues)",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = asyncio.run(
+            backlog.run_backlog_item(
+                "owner/repo",
+                7,
+                model="test-model",
+                no_clone=True,
+            )
+        )
+
+        assert result.issue_number == 7
+        assert clone_called == [], "clone_repository should not have been called with no_clone=True"
+        assert captured.get("cwd") == str(tmp_path)
+
+    def test_run_backlog_item_pre_cloned_does_not_cleanup_passed_dir(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """When a pre-cloned root is passed from outside, run_backlog_item must NOT clean it up."""
+        import asyncio
+
+        cleanup_called: list[bool] = []
+
+        class TrackingTempDir:
+            def __init__(self, *args, **kwargs):
+                del args, kwargs
+                self.name = str(tmp_path / "tracking")
+                import os
+
+                os.makedirs(self.name, exist_ok=True)
+
+            def cleanup(self):
+                cleanup_called.append(True)
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                pass
+
+            def handle_message(self, *args, **kwargs) -> None:
+                del args, kwargs
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            del agent_name
+            return options, FakeLogger()
+
+        monkeypatch.setattr(
+            backlog,
+            "_gh_issue_view",
+            lambda *a, **k: {"title": "T", "body": "B", "labels": [], "state": "open"},
+        )
+        monkeypatch.setattr("gearbox.core.gh.list_open_issues", lambda *a, **k: [])
+        monkeypatch.setattr("claude_agent_sdk.query", self._fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.setattr(
+            "gearbox.agents.shared.prompt_helpers.format_issues_summary",
+            lambda *a, **k: "## Issues Summary\n(no other issues)",
+        )
+        # Ensure no internal clone happens (which would create its own tempdir)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.git.clone_repository",
+            lambda repo: (tmp_path / "internal", TrackingTempDir()),
+        )
+
+        pre_cloned = tmp_path / "external-clone"
+        pre_cloned.mkdir()
+
+        asyncio.run(
+            backlog.run_backlog_item(
+                "owner/repo",
+                3,
+                model="test-model",
+                clone_root=pre_cloned,
+            )
+        )
+
+        # The external directory should still exist (not cleaned up by us)
+        assert pre_cloned.exists(), "externally provided clone_root must not be cleaned up"
+
+    def test_run_backlog_item_falls_back_to_internal_clone_when_no_pre_cloned(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Without clone_root or no_clone, the function must clone internally (backward compat)."""
+        import asyncio
+
+        clone_calls: list[str] = []
+
+        class FakeLogger:
+            def log_start(self, **kwargs) -> None:
+                pass
+
+            def handle_message(self, *args, **kwargs) -> None:
+                del args, kwargs
+
+            def log_completion(self) -> None:
+                pass
+
+        def fake_prepare_agent_options(options, agent_name):
+            del agent_name
+            return options, FakeLogger()
+
+        def fake_clone(repo):
+            clone_calls.append(repo)
+            inner = tmp_path / "auto-cloned"
+            inner.mkdir()
+            td = tempfile.TemporaryDirectory()
+            return inner, td
+
+        monkeypatch.setattr(
+            backlog,
+            "_gh_issue_view",
+            lambda *a, **k: {"title": "T", "body": "B", "labels": [], "state": "open"},
+        )
+        monkeypatch.setattr("gearbox.core.gh.list_open_issues", lambda *a, **k: [])
+        monkeypatch.setattr("gearbox.agents.shared.clone_repository", fake_clone)
+        monkeypatch.setattr("claude_agent_sdk.query", self._fake_query)
+        monkeypatch.setattr(
+            "gearbox.agents.shared.runtime.prepare_agent_options",
+            fake_prepare_agent_options,
+        )
+        monkeypatch.setattr(
+            "gearbox.agents.shared.prompt_helpers.format_issues_summary",
+            lambda *a, **k: "## Issues Summary\n(no other issues)",
+        )
+
+        result = asyncio.run(backlog.run_backlog_item("owner/repo", 1, model="test-model"))
+
+        assert result.issue_number == 1
+        assert len(clone_calls) == 1, "should have cloned once internally"
+        assert clone_calls[0] == "owner/repo"

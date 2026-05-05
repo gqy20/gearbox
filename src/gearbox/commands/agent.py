@@ -2,6 +2,7 @@
 
 import asyncio
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -71,6 +72,12 @@ def agent() -> None:
     default=False,
     help="是否应用 GitHub 标签/评论副作用（并行时建议关闭）",
 )
+@click.option(
+    "--no-clone",
+    is_flag=True,
+    default=False,
+    help="跳过仓库克隆（纯文本分类场景，节省 I/O 和 API 配额）",
+)
 @click.option("--output", default="/tmp/github_output", help="输出文件路径")
 def backlog(
     repo: str,
@@ -79,9 +86,11 @@ def backlog(
     max_turns: int,
     artifact_path: str,
     apply_side_effects: bool,
+    no_clone: bool,
     output: str,
 ) -> None:
     """运行 Backlog Agent - 统一处理单个或多个 Issue 分类。"""
+    from gearbox.agents.shared import clone_repository
     from gearbox.config import get_anthropic_model
 
     issue_numbers = parse_issue_numbers(issues)
@@ -89,28 +98,46 @@ def backlog(
         raise click.ClickException("--issues must contain at least one issue number")
 
     resolved_model = model or get_anthropic_model()
-    items = [
-        asyncio.run(
-            run_backlog_item(
-                repo,
-                issue_number,
-                model=resolved_model,
-                max_turns=max_turns,
+
+    # Clone once for all issues; pass clone_root to each run_backlog_item call.
+    # This avoids N redundant clones when processing a batch of issues.
+    shared_clone_root: Path | None = None
+    shared_clone_dir: tempfile.TemporaryDirectory[str] | None = None
+
+    if not no_clone and "/" in repo:
+        try:
+            shared_clone_root, shared_clone_dir = clone_repository(repo)
+        except Exception:
+            shared_clone_root = None
+
+    try:
+        items = [
+            asyncio.run(
+                run_backlog_item(
+                    repo,
+                    issue_number,
+                    model=resolved_model,
+                    max_turns=max_turns,
+                    clone_root=shared_clone_root,
+                    no_clone=no_clone,
+                )
             )
-        )
-        for issue_number in issue_numbers
-    ]
-    result = BacklogResult(items=items)
-    click.echo(f"✅ Backlog: issues={','.join(str(item.issue_number) for item in items)}")
+            for issue_number in issue_numbers
+        ]
+        result = BacklogResult(items=items)
+        click.echo(f"✅ Backlog: issues={','.join(str(item.issue_number) for item in items)}")
 
-    if artifact_path:
-        write_backlog_result(result, Path(artifact_path))
+        if artifact_path:
+            write_backlog_result(result, Path(artifact_path))
 
-    if apply_side_effects:
-        for item in result.items:
-            _apply_backlog_item(repo, item)
+        if apply_side_effects:
+            for item in result.items:
+                _apply_backlog_item(repo, item)
 
-    result_to_github_output(result, output)
+        result_to_github_output(result, output)
+    finally:
+        if shared_clone_dir is not None:
+            shared_clone_dir.cleanup()
 
 
 @agent.command()

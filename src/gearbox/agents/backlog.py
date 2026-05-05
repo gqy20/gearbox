@@ -157,6 +157,8 @@ async def run_backlog_item(
     *,
     model: str = "claude-sonnet-4-6",
     max_turns: int = 15,
+    clone_root: Path | None = None,
+    no_clone: bool = False,
 ) -> BacklogItemResult:
     """
     执行 Issue 分类。
@@ -166,6 +168,8 @@ async def run_backlog_item(
         issue_number: Issue 编号
         model: 使用的模型
         max_turns: 最大对话轮次
+        clone_root: 预克隆的仓库根目录（传入后跳过内部克隆）
+        no_clone: 是否跳过克隆（纯文本分类场景）
 
     Returns:
         BacklogItemResult 结构
@@ -200,17 +204,22 @@ async def run_backlog_item(
 ---
 {SYSTEM_PROMPT}"""
 
-    clone_root: Path | None = None
-    clone_dir: tempfile.TemporaryDirectory[str] | None = None
+    _clone_dir: tempfile.TemporaryDirectory[str] | None = None
 
-    # 仅远程仓库（owner/repo 格式）需要克隆，本地路径不具备 GitHub API 上下文
-    if "/" in repo:
+    if no_clone:
+        cwd = Path.cwd()
+    elif clone_root is not None:
+        # 外部传入的预克隆目录，不负责清理
+        cwd = clone_root
+    elif "/" in repo:
+        # 仅远程仓库（owner/repo 格式）需要克隆，本地路径不具备 GitHub API 上下文
         try:
-            clone_root, clone_dir = clone_repository(repo)
+            internal_root, _clone_dir = clone_repository(repo)
+            cwd = internal_root
         except Exception:
-            pass  # 克隆失败时 cwd 未定义，由 Agent 自行处理
-
-    cwd = clone_root if clone_root else Path.cwd()
+            cwd = Path.cwd()  # 克隆失败时 cwd 未定义，由 Agent 自行处理
+    else:
+        cwd = Path.cwd()
 
     options, sdk_logger = prepare_agent_options(
         ClaudeAgentOptions(
@@ -244,8 +253,8 @@ async def run_backlog_item(
                     break
     finally:
         sdk_logger.log_completion()
-        if clone_dir is not None:
-            clone_dir.cleanup()
+        if _clone_dir is not None:
+            _clone_dir.cleanup()
 
     if structured is None:
         raise RuntimeError("Backlog agent did not return structured output")

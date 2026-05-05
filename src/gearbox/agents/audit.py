@@ -1,6 +1,8 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
+import fcntl
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -57,31 +59,72 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
 
 
 def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] | None:
-    """获取缓存的对标仓库列表"""
+    """获取缓存的对标仓库列表（带共享锁，防止读取部分写入的文件）"""
     cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
-    if cache_file.exists():
+    if not cache_file.exists():
+        return None
+
+    fd: int | None = None
+    try:
+        # Open for reading; create parent if missing so open() doesn't fail.
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(cache_file), os.O_RDONLY)
+        fcntl.flock(fd, fcntl.LOCK_SH)
         try:
-            data = json.loads(cache_file.read_text())
-            # 缓存有效期 7 天
-            if time.time() - data.get("cached_at", 0) < 7 * 24 * 3600:
-                return data.get("benchmarks")  # type: ignore[return-value, no-any-return]
+            data = json.loads(os.read(fd, 10 * 1024 * 1024).decode("utf-8"))
         except Exception:
-            pass
-    return None
+            return None
+        # 缓存有效期 7 天
+        if time.time() - data.get("cached_at", 0) < 7 * 24 * 3600:
+            return data.get("benchmarks")  # type: ignore[return-value, no-any-return]
+        return None
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def _cache_benchmarks(repo: str, benchmarks: list[str]) -> None:
-    """缓存对标仓库列表"""
+    """缓存对标仓库列表（排他锁 + 原子写入：temp file + os.replace）"""
     cache_file = _BENCHMARK_CACHE_DIR / f"{repo.replace('/', '_')}.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(
-        json.dumps(
+
+    lock_file = cache_file.with_suffix(".json.lock")
+    fd: int | None = None
+    try:
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+        # Atomic write: temp file → os.replace
+        payload = json.dumps(
             {
                 "benchmarks": benchmarks,
                 "cached_at": time.time(),
             }
         )
-    )
+        fd_tmp, tmp_path_str = tempfile.mkstemp(
+            suffix=".json.tmp", dir=str(cache_file.parent), prefix=".gearbox-cache-"
+        )
+        try:
+            os.write(fd_tmp, payload.encode("utf-8"))
+            os.fsync(fd_tmp)
+        finally:
+            os.close(fd_tmp)
+        os.replace(tmp_path_str, str(cache_file))
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def load_audit_result(output_dir: Path) -> AuditResult:

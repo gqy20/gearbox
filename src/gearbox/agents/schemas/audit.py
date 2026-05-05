@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class Issue(BaseModel):
     title: str
     body: str
-    labels: str
+    labels: list[str] = Field(default_factory=list)
 
 
 class AuditResult(BaseModel):

@@ -107,7 +107,7 @@ def load_audit_result(output_dir: Path) -> AuditResult:
                 {
                     "title": item.get("title", ""),
                     "body": item.get("body", ""),
-                    "labels": item.get("labels", "enhancement"),
+                    "labels": item.get("labels", ["enhancement"]),
                 }
                 for item in issues_payload.get("issues", [])
             ],

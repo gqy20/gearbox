@@ -50,7 +50,7 @@ class TestStructuredOutputParsing:
                     {
                         "title": "Add type hints",
                         "body": "## Problem",
-                        "labels": "high,enhancement",
+                        "labels": ["high", "enhancement"],
                     }
                 ],
             }
@@ -334,7 +334,7 @@ class TestEvaluatorPrompt:
         results = [
             AuditResult(
                 repo="owner/repo",
-                issues=[AuditIssue(title="A", body="B", labels="high")],
+                issues=[AuditIssue(title="A", body="B", labels=["high"])],
             )
         ]
         prompt = build_evaluation_prompt(results, "Audit 审计结果", ["run_0"])

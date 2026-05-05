@@ -53,12 +53,12 @@ def sample_issues_json() -> dict:
             {
                 "title": "缺少类型注解",
                 "body": "## 问题\n代码缺少类型注解\n\n## 解决方案\n1. 添加 py.typed\n2. 运行 mypy",
-                "labels": "high,enhancement",
+                "labels": ["high", "enhancement"],
             },
             {
                 "title": "测试覆盖不足",
                 "body": "## 问题\n测试覆盖率低于 80%\n\n## 解决方案\n1. 添加 pytest-cov\n2. 补充单元测试",
-                "labels": "medium,testing",
+                "labels": ["medium", "testing"],
             },
         ],
     }

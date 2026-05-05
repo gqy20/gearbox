@@ -27,7 +27,7 @@ on:
         type: boolean
 
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 9,21 * * *'
 
   issue_comment:
     types: [created]
@@ -51,6 +51,7 @@ jobs:
     outputs:
       repo: ${{ steps.target.outputs.repo }}
       matrix_json: ${{ steps.matrix.outputs.matrix_json }}
+      should_run: ${{ steps.cost_guardrail.outputs.should_run }}
     steps:
       - name: Determine target repo
         id: target
@@ -64,6 +65,72 @@ jobs:
             echo "repo=${{ inputs.target_repo }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Cost guardrail — daily budget & change detection
+        id: cost_guardrail
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          MAX_DAILY_RUNS: ${{ vars.AUDIT_MAX_DAILY_RUNS || '2' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${{ steps.target.outputs.repo }}"
+          TODAY=$(date -u +%Y-%m-%d)
+
+          # 1) Count today's completed audit runs (success or failure both count as executions)
+          RUN_COUNT=$(gh run list \
+            --workflow=audit.yml \
+            --limit 100 \
+            --json status,createdAt,event \
+            --jq "[.[] | select(.event == 'schedule' and (.status == 'completed' or .status == 'in_progress') and (.createdAt | startswith(\"$TODAY\")))] | length" \
+            2>/dev/null || echo "0")
+
+          echo "::group::[guardrail] today's schedule runs = $RUN_COUNT / $MAX_DAILY_RUNS"
+
+          if [ "$RUN_COUNT" -ge "$MAX_DAILY_RUNS" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=Daily limit reached ($RUN_COUNT/$MAX_DAILY_RUNS)" >> "$GITHUB_OUTPUT"
+            echo "::warning::Audit skipped: daily execution limit ($MAX_DAILY_RUNS) already reached"
+            echo "::endgroup::"
+            exit 0
+          fi
+
+          # 2) Check whether target repo has new commits since last successful audit run
+          LAST_SUCCESS=$(gh run list \
+            --workflow=audit.yml \
+            --limit 20 \
+            --json status,createdAt,conclusion \
+            --jq "[.[] | select(.event == 'schedule' and .conclusion == 'success')] | .[0].createdAt" \
+            2>/dev/null || echo "")
+
+          if [ -n "$LAST_SUCCESS" ]; then
+            # Convert ISO timestamp to format expected by gh api (RFC3339)
+            SINCE_ISO=$(python3 -c "
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat('$LAST_SUCCESS'.replace('Z', '+00:00'))
+            print(dt.isoformat())
+            " 2>/dev/null || echo "$LAST_SUCCESS")
+
+            NEW_COMMITS=$(gh api "repos/$REPO/commits?since=$SINCE_ISO&per_page=1" \
+              --jq '. | length' 2>/dev/null || echo "1")
+
+            if [ "$NEW_COMMITS" -eq 0 ]; then
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=No new commits since last audit ($LAST_SUCCESS)" >> "$GITHUB_OUTPUT"
+              echo "::notice::Audit skipped: no new commits in $REPO since $LAST_SUCCESS"
+              echo "::endgroup::"
+              exit 0
+            fi
+
+            echo "[guardrail] $NEW_COMMITS new commit(s) since last audit — proceeding"
+          else
+            echo "[guardrail] No previous successful audit found — proceeding with first run"
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
       - name: Checkout
         uses: actions/checkout@v5
 
@@ -75,7 +142,12 @@ jobs:
 
   audit-run:
     needs: plan
-    if: needs.plan.outputs.repo != ''
+    if: |
+      needs.plan.outputs.repo != '' && (
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'issue_comment' ||
+        (github.event_name == 'schedule' && needs.plan.outputs.should_run == 'true')
+      )
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -109,7 +181,12 @@ jobs:
 
   aggregate-audit:
     needs: [plan, audit-run]
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.repo != '' }}
+    if: |
+      ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.repo != '' }} && (
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'issue_comment' ||
+        (github.event_name == 'schedule' && needs.plan.outputs.should_run == 'true')
+      )
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}

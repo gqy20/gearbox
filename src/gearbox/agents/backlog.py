@@ -77,7 +77,8 @@ def load_backlog_result(path: Path) -> BacklogResult:
 
     data = read_json_artifact(path)
     raw_items = data.get("items", [])
-    assert isinstance(raw_items, list)
+    if not isinstance(raw_items, list):
+        raise ValueError(f'Expected "items" to be a list, got {type(raw_items).__name__}')
     return BacklogResult(
         items=[
             BacklogItemResult.model_validate(item)

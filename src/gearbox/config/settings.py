@@ -1,6 +1,7 @@
 """配置管理 - 读写用户配置"""
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -53,11 +54,17 @@ def load_config() -> dict[str, Any]:
 
 
 def save_config(config: dict[str, Any]) -> None:
-    """保存配置文件"""
+    """保存配置文件（原子写入：先写临时文件，再 os.replace 替换）"""
     ensure_config_dir()
-
-    with open(get_config_path(), "wb") as f:
-        tomli_w.dump(config, f)
+    config_path = get_config_path()
+    fd, tmp_path = tempfile.mkstemp(dir=_config_dir(), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            tomli_w.dump(config, f)
+        os.replace(tmp_path, config_path)
+    except BaseException:
+        os.unlink(tmp_path)
+        raise
 
 
 def get_github_token() -> str | None:

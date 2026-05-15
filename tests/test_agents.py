@@ -1,5 +1,7 @@
 """测试 agents 模块。"""
 
+from pathlib import Path
+
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
 from pydantic import ValidationError
@@ -8,6 +10,7 @@ from gearbox.agents import backlog, implement
 from gearbox.agents.backlog import (
     BacklogResult,
     github_labels_for_backlog_item,
+    load_backlog_result,
     parse_issue_numbers,
 )
 from gearbox.agents.evaluator import build_evaluation_prompt
@@ -404,6 +407,62 @@ class TestPydanticValidation:
                     "ready_to_implement": False,
                 }
             )
+
+
+class TestLoadBacklogResult:
+    """load_backlog_result — 运行时数据校验（Issue #109）。"""
+
+    def test_load_valid_backlog_result(self, tmp_path: Path) -> None:
+        """正常数据应正确解析。"""
+        import json
+
+        artifact = tmp_path / "backlog.json"
+        artifact.write_text(
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "labels": ["bug"],
+                            "priority": "P1",
+                            "complexity": "S",
+                            "ready_to_implement": False,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = load_backlog_result(artifact)
+        assert len(result.items) == 1
+        assert result.items[0].priority == "P1"
+
+    def test_load_items_not_list_raises_valueerror(self, tmp_path: Path) -> None:
+        """items 字段为非 list 类型时应抛出 ValueError，而非在 python -O 下静默绕过。"""
+        import json
+
+        artifact = tmp_path / "backlog_corrupt.json"
+        # items 是字符串而非列表
+        artifact.write_text(json.dumps({"items": "not-a-list"}), encoding="utf-8")
+        with pytest.raises(ValueError, match='Expected "items" to be a list'):
+            load_backlog_result(artifact)
+
+    def test_load_items_is_dict_raises_valueerror(self, tmp_path: Path) -> None:
+        """items 为 dict 时应抛出 ValueError。"""
+        import json
+
+        artifact = tmp_path / "backlog_dict.json"
+        artifact.write_text(json.dumps({"items": {"0": {"labels": []}}}), encoding="utf-8")
+        with pytest.raises(ValueError, match='Expected "items" to be a list'):
+            load_backlog_result(artifact)
+
+    def test_load_missing_items_returns_empty(self, tmp_path: Path) -> None:
+        """缺少 items 键时应返回空结果。"""
+        import json
+
+        artifact = tmp_path / "backlog_no_items.json"
+        artifact.write_text(json.dumps({}), encoding="utf-8")
+        result = load_backlog_result(artifact)
+        assert result.items == []
 
 
 class TestStructuredOutputErrorPaths:

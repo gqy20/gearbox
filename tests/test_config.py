@@ -1,7 +1,11 @@
 """测试 config 模块"""
 
 import os
+import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from gearbox.config import (
     AGENT_DEFAULTS,
@@ -51,6 +55,69 @@ class TestSaveConfig:
         with open(path, "r") as f:
             content = f.read()
             assert "test_key" in content
+
+    def test_atomic_write_no_corrupt_file_on_failure(self, temp_home: Path) -> None:
+        """写入失败时，目标路径不应存在损坏的文件"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+
+        # 先写入一个有效配置
+        save_config({"original_key": "original_value"})
+        assert get_config_path().exists()
+
+        # 模拟 tomli_w.dump 写入过程中抛出异常
+        with patch("gearbox.config.settings.tomli_w.dump", side_effect=OSError("disk full")):
+            with pytest.raises(OSError):
+                save_config({"new_key": "new_value"})
+
+        # 原始配置文件应保持完好（原子写入：失败不覆盖原文件）
+        config = load_config()
+        assert config.get("original_key") == "original_value"
+        assert "new_key" not in config
+
+    def test_atomic_write_uses_temp_file_and_replace(self, temp_home: Path) -> None:
+        """验证使用 tempfile + os.replace 的原子写入模式"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+
+        mock_file = unittest.mock.MagicMock()
+        mock_file.__enter__ = unittest.mock.MagicMock(return_value=mock_file)
+        mock_file.__exit__ = unittest.mock.MagicMock(return_value=False)
+
+        with (
+            patch("gearbox.config.settings.os.replace") as mock_replace,
+            patch("gearbox.config.settings.tempfile.mkstemp") as mock_mkstemp,
+            patch("gearbox.config.settings.os.fdopen", return_value=mock_file),
+            patch("gearbox.config.settings.os.unlink") as _mock_unlink,
+        ):
+            mock_mkstemp.return_value = (42, str(config_dir / "config.toml.tmp"))
+            save_config({"atomic_test": "value"})
+
+        # 验证调用了 mkstemp 创建临时文件
+        mock_mkstemp.assert_called_once()
+        _, kwargs = mock_mkstemp.call_args
+        assert ".tmp" in kwargs.get("suffix", "")
+
+        # 验证调用 os.replace 原子替换目标文件
+        mock_replace.assert_called_once()
+
+    def test_temp_file_cleaned_up_on_exception(self, temp_home: Path) -> None:
+        """异常时应清理临时文件"""
+        config_dir = temp_home / ".config" / "gearbox"
+        config_dir.mkdir(parents=True)
+        os.environ["XDG_CONFIG_HOME"] = str(temp_home)
+
+        tmp_files_before = list(config_dir.glob("*.tmp"))
+
+        with patch("gearbox.config.settings.tomli_w.dump", side_effect=RuntimeError("write error")):
+            with pytest.raises(RuntimeError):
+                save_config({"key": "val"})
+
+        tmp_files_after = list(config_dir.glob("*.tmp"))
+        # 临时文件数量不应增加（异常时已清理）
+        assert len(tmp_files_after) == len(tmp_files_before)
 
 
 class TestGithubToken:

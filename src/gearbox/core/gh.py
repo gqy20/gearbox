@@ -6,6 +6,44 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+# Timeout constants (seconds)
+_TIMEOUT_READ = 30  # list / view / get operations
+_TIMEOUT_WRITE = 60  # create / edit / add-label operations
+_TIMEOUT_GIT = 120  # checkout / branch / push operations
+
+
+def _run_gh(
+    cmd: list[str], timeout: int = _TIMEOUT_READ, **kwargs: Any
+) -> subprocess.CompletedProcess[str]:
+    """Wrap subprocess.run with a default timeout and convert TimeoutExpired.
+
+    All ``gh`` and ``git`` subprocess calls in this module should route through
+    this helper so that network partitions or API rate-limit stalls cannot block
+    a CI runner indefinitely.
+
+    Args:
+        cmd: Command and arguments to execute.
+        timeout: Maximum wall-clock seconds (default 30).
+        **kwargs: Forwarded verbatim to :func:`subprocess.run`.
+
+    Returns:
+        The completed process result.
+
+    Raises:
+        subprocess.CalledProcessError: On non-zero exit or on timeout (wrapped).
+        subprocess.TimeoutExpired: Only if *check* is False.
+    """
+    try:
+        return subprocess.run(cmd, timeout=timeout, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        # Convert to CalledProcessError so existing except clauses catch it.
+        # Mimic CalledProcessError signature for compatibility.
+        raise subprocess.CalledProcessError(
+            returncode=-1,
+            cmd=exc.cmd,
+            stderr=f"Command timed out after {timeout}s: {' '.join(exc.cmd)}",
+        ) from exc
+
 
 @dataclass
 class PostReviewResult:
@@ -54,7 +92,7 @@ def create_repo_label(repo: str, label: str) -> PostReviewResult:
     """创建仓库标签。"""
     color, description = _label_metadata(label)
     try:
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "label",
@@ -67,6 +105,7 @@ def create_repo_label(repo: str, label: str) -> PostReviewResult:
                 "--description",
                 description,
             ],
+            timeout=_TIMEOUT_WRITE,
             check=True,
             capture_output=True,
             text=True,
@@ -104,7 +143,7 @@ def post_review_comment(
     }.get(event, "--comment")
 
     try:
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "pr",
@@ -116,6 +155,7 @@ def post_review_comment(
                 body,
                 event_flag,
             ],
+            timeout=_TIMEOUT_WRITE,
             check=True,
             capture_output=True,
             text=True,
@@ -132,7 +172,7 @@ def post_issue_comment(
 ) -> PostReviewResult:
     """发布 Issue 评论。"""
     try:
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "issue",
@@ -143,6 +183,7 @@ def post_issue_comment(
                 "--body",
                 body,
             ],
+            timeout=_TIMEOUT_WRITE,
             check=True,
             capture_output=True,
             text=True,
@@ -177,7 +218,7 @@ def add_issue_labels(
                 print(f"⚠️ 创建标签失败: {label}: {create_result.url}", file=sys.stderr)
 
     try:
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "issue",
@@ -188,6 +229,7 @@ def add_issue_labels(
                 "--add-label",
                 ",".join(labels),
             ],
+            timeout=_TIMEOUT_WRITE,
             check=True,
             capture_output=True,
             text=True,
@@ -207,7 +249,7 @@ def remove_issue_labels(
         return PostReviewResult(success=True)
 
     try:
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "issue",
@@ -218,6 +260,7 @@ def remove_issue_labels(
                 "--remove-label",
                 ",".join(labels),
             ],
+            timeout=_TIMEOUT_WRITE,
             check=True,
             capture_output=True,
             text=True,
@@ -230,7 +273,7 @@ def remove_issue_labels(
 def get_issue_labels(repo: str, issue_number: int) -> list[str]:
     """获取 Issue 当前标签列表。"""
     try:
-        result = subprocess.run(
+        result = _run_gh(
             [
                 "gh",
                 "issue",
@@ -243,6 +286,7 @@ def get_issue_labels(repo: str, issue_number: int) -> list[str]:
                 "--jq",
                 "[.labels[].name]",
             ],
+            timeout=_TIMEOUT_READ,
             check=True,
             capture_output=True,
             text=True,
@@ -268,7 +312,7 @@ def get_issue_label_events(
 ) -> list[LabelEvent]:
     """获取指定标签在近 N 天内的变更事件（labeled/unlabeled）。"""
     try:
-        result = subprocess.run(
+        result = _run_gh(
             [
                 "gh",
                 "api",
@@ -276,6 +320,7 @@ def get_issue_label_events(
                 "--jq",
                 '.[] | select(.event == "labeled" or .event == "unlabeled") | {event: .event, label: .label.name, created_at: .created_at}',
             ],
+            timeout=_TIMEOUT_READ,
             check=True,
             capture_output=True,
             text=True,
@@ -319,7 +364,7 @@ def list_open_issues(
         cmd.extend(["--label", label])
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = _run_gh(cmd, timeout=_TIMEOUT_READ, check=True, capture_output=True, text=True)
         issues = json.loads(result.stdout)
         return [
             IssueSummary(
@@ -338,7 +383,7 @@ def list_open_issues(
 def get_issue_summary(repo: str, issue_number: int) -> IssueSummary | None:
     """获取单个开放 Issue 摘要。"""
     try:
-        result = subprocess.run(
+        result = _run_gh(
             [
                 "gh",
                 "issue",
@@ -349,6 +394,7 @@ def get_issue_summary(repo: str, issue_number: int) -> IssueSummary | None:
                 "--json",
                 "number,title,labels,url,createdAt,state",
             ],
+            timeout=_TIMEOUT_READ,
             check=True,
             capture_output=True,
             text=True,
@@ -399,8 +445,9 @@ def get_repo_labels(repo: str) -> list[str]:
         标签名称列表
     """
     try:
-        result = subprocess.run(
+        result = _run_gh(
             ["gh", "label", "list", "--repo", repo, "--json", "name"],
+            timeout=_TIMEOUT_READ,
             check=True,
             capture_output=True,
             text=True,
@@ -419,9 +466,10 @@ def prepare_branch(base_branch: str, temp_branch: str) -> None:
         base_branch: 基础分支名
         temp_branch: 临时分支名
     """
-    subprocess.run(["git", "fetch", "origin", base_branch], check=True)
-    subprocess.run(
+    _run_gh(["git", "fetch", "origin", base_branch], timeout=_TIMEOUT_GIT, check=True)
+    _run_gh(
         ["git", "checkout", "-b", temp_branch, f"origin/{base_branch}"],
+        timeout=_TIMEOUT_GIT,
         check=True,
     )
 
@@ -436,9 +484,10 @@ def prepare_working_branch(base_branch: str) -> str:
     import uuid
 
     temp_branch = f"gearbox/temp-{uuid.uuid4().hex[:8]}"
-    subprocess.run(["git", "fetch", "origin", base_branch], check=True)
-    subprocess.run(
+    _run_gh(["git", "fetch", "origin", base_branch], timeout=_TIMEOUT_GIT, check=True)
+    _run_gh(
         ["git", "checkout", "-b", temp_branch, f"origin/{base_branch}"],
+        timeout=_TIMEOUT_GIT,
         check=True,
     )
     return temp_branch
@@ -461,25 +510,29 @@ def finalize_and_push(
         configure_authenticated_origin(repo)
 
         # 重命名分支
-        subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
+        _run_gh(
+            ["git", "branch", "-m", temp_branch, final_branch], timeout=_TIMEOUT_GIT, check=True
+        )
 
         # 添加文件
         if files:
             for f in files:
-                subprocess.run(["git", "add", f], check=True)
+                _run_gh(["git", "add", f], timeout=_TIMEOUT_GIT, check=True)
         else:
-            subprocess.run(["git", "add", "-A"], check=True)
+            _run_gh(["git", "add", "-A"], timeout=_TIMEOUT_GIT, check=True)
 
         # 检查是否有变更
-        result = subprocess.run(
+        result = _run_gh(
             ["git", "diff", "--staged", "--quiet"],
+            timeout=_TIMEOUT_GIT,
             capture_output=True,
         )
         if result.returncode == 1:  # 有变更
             ensure_git_author()
-            subprocess.run(["git", "commit", "-m", commit_message], check=True)
-            subprocess.run(
+            _run_gh(["git", "commit", "-m", commit_message], timeout=_TIMEOUT_GIT, check=True)
+            _run_gh(
                 ["git", "push", "-u", "origin", final_branch],
+                timeout=_TIMEOUT_GIT,
                 check=True,
                 capture_output=True,
                 text=True,
@@ -509,21 +562,25 @@ def finalize_and_create_pr(
         configure_authenticated_origin(repo)
 
         # 重命名分支
-        subprocess.run(["git", "branch", "-m", temp_branch, final_branch], check=True)
+        _run_gh(
+            ["git", "branch", "-m", temp_branch, final_branch], timeout=_TIMEOUT_GIT, check=True
+        )
 
         # 添加文件
-        subprocess.run(["git", "add", "-A"], check=True)
+        _run_gh(["git", "add", "-A"], timeout=_TIMEOUT_GIT, check=True)
 
         # 检查是否有变更
-        result = subprocess.run(
+        result = _run_gh(
             ["git", "diff", "--staged", "--quiet"],
+            timeout=_TIMEOUT_GIT,
             capture_output=True,
         )
         if result.returncode == 1:
             ensure_git_author()
-            subprocess.run(["git", "commit", "-m", commit_message], check=True)
-            subprocess.run(
+            _run_gh(["git", "commit", "-m", commit_message], timeout=_TIMEOUT_GIT, check=True)
+            _run_gh(
                 ["git", "push", "-u", "origin", final_branch],
+                timeout=_TIMEOUT_GIT,
                 check=True,
                 capture_output=True,
                 text=True,
@@ -555,7 +612,7 @@ def create_pr(
         CreatePrResult
     """
     try:
-        result = subprocess.run(
+        result = _run_gh(
             [
                 "gh",
                 "pr",
@@ -571,6 +628,7 @@ def create_pr(
                 "--base",
                 base,
             ],
+            timeout=_TIMEOUT_WRITE,
             check=True,
             capture_output=True,
             text=True,
@@ -582,23 +640,25 @@ def create_pr(
 
 def checkout_branch(branch_name: str) -> None:
     """切换到指定分支。"""
-    subprocess.run(["git", "checkout", branch_name], check=True)
+    _run_gh(["git", "checkout", branch_name], timeout=_TIMEOUT_GIT, check=True)
 
 
 def delete_branch(branch_name: str) -> None:
     """删除本地分支。"""
-    subprocess.run(["git", "branch", "-D", branch_name], check=False)
+    _run_gh(["git", "branch", "-D", branch_name], timeout=_TIMEOUT_GIT, check=False)
 
 
 def ensure_git_author() -> None:
     """Ensure git commits have an identity in non-interactive CI runners."""
-    name = subprocess.run(
+    name = _run_gh(
         ["git", "config", "--get", "user.name"],
+        timeout=_TIMEOUT_GIT,
         capture_output=True,
         text=True,
     ).stdout.strip()
-    email = subprocess.run(
+    email = _run_gh(
         ["git", "config", "--get", "user.email"],
+        timeout=_TIMEOUT_GIT,
         capture_output=True,
         text=True,
     ).stdout.strip()
@@ -608,7 +668,7 @@ def ensure_git_author() -> None:
         token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_PAT")
         if token:
             try:
-                result = subprocess.run(
+                result = _run_gh(
                     [
                         "gh",
                         "api",
@@ -630,16 +690,17 @@ def ensure_git_author() -> None:
 
     if not name:
         actor = os.environ.get("GITHUB_ACTOR") or "github-actions"
-        subprocess.run(["git", "config", "user.name", actor], check=True)
+        _run_gh(["git", "config", "user.name", actor], timeout=_TIMEOUT_GIT, check=True)
     if not email:
         actor_id = os.environ.get("GITHUB_ACTOR_ID") or "41898282"
-        subprocess.run(
+        _run_gh(
             [
                 "git",
                 "config",
                 "user.email",
                 f"{actor_id}+github-actions[bot]@users.noreply.github.com",
             ],
+            timeout=_TIMEOUT_GIT,
             check=True,
         )
 
@@ -652,11 +713,12 @@ def configure_authenticated_origin(repo: str) -> None:
 
     # actions/checkout injects an extraheader for github.token that overrides
     # origin credentials. Remove it so PAT scopes on GH_TOKEN are honored.
-    subprocess.run(
+    _run_gh(
         ["git", "config", "--unset-all", "http.https://github.com/.extraheader"],
+        timeout=_TIMEOUT_GIT,
         check=False,
     )
-    subprocess.run(
+    _run_gh(
         [
             "git",
             "remote",
@@ -664,6 +726,7 @@ def configure_authenticated_origin(repo: str) -> None:
             "origin",
             f"https://x-access-token:{token}@github.com/{repo}.git",
         ],
+        timeout=_TIMEOUT_GIT,
         check=True,
     )
 
@@ -774,7 +837,7 @@ def create_issue(
     ]
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = _run_gh(cmd, timeout=_TIMEOUT_WRITE, check=True, capture_output=True, text=True)
         url = result.stdout.strip()
     except subprocess.CalledProcessError as e:
         return CreatePrResult(success=False, error=e.stderr.strip())

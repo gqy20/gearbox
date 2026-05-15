@@ -10,12 +10,14 @@ from gearbox.core.gh import (
     VALID_ISSUE_LABELS,
     IssueSummary,
     PostReviewResult,
+    _run_gh,
     add_issue_labels,
     build_review_body,
     configure_authenticated_origin,
     create_issue,
     finalize_and_create_pr,
     finalize_and_push,
+    get_issue_labels,
     get_issue_summary,
     get_repo_labels,
     list_open_issues,
@@ -536,3 +538,109 @@ class TestValidIssueLabels:
         from gearbox.core.gh import VALID_ISSUE_LABELS
 
         assert isinstance(VALID_ISSUE_LABELS, (set, frozenset))
+
+
+class TestRunGhWrapper:
+    """测试 _run_gh() 包装函数的超时和异常处理。"""
+
+    def test_passes_timeout_to_subprocess_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_run_gh 应将 timeout 参数传递给 subprocess.run。"""
+        mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="ok", stderr=""))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = _run_gh(["gh", "issue", "list"], timeout=42)
+
+        assert result.returncode == 0
+        mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["timeout"] == 42
+
+    def test_defaults_timeout_to_30(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """未指定 timeout 时应默认为 30 秒。"""
+        mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="ok", stderr=""))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        _run_gh(["gh", "issue", "view", "1"])
+
+        assert mock_run.call_args.kwargs["timeout"] == 30
+
+    def test_converts_timeout_expired_to_called_process_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """TimeoutExpired 应被转换为 CalledProcessError 以便上层统一捕获。"""
+        expired = subprocess.TimeoutExpired(cmd=["gh"], timeout=10)
+        mock_run = MagicMock(side_effect=expired)
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            _run_gh(["gh", "api", "user"], timeout=5)
+
+        err = exc_info.value.stderr or ""
+        assert "timed out" in err.lower() or "timeout" in err.lower()
+
+    def test_preserves_original_called_process_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """非超时的 CalledProcessError 应原样抛出。"""
+        original = subprocess.CalledProcessError(1, "gh", stderr="not found")
+        mock_run = MagicMock(side_effect=original)
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            _run_gh(["gh", "issue", "create"], timeout=60)
+
+        assert exc_info.value is original
+
+    def test_forwards_all_kwargs_to_subprocess_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """check、capture_output、text 等参数应透传给 subprocess.run。"""
+        mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="{}", stderr=""))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        _run_gh(
+            ["gh", "issue", "view", "1"],
+            timeout=30,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["check"] is True
+        assert kwargs["capture_output"] is True
+        assert kwargs["text"] is True
+
+
+class TestSubprocessTimeouts:
+    """验证所有公开函数通过 _run_gh() 调用并携带合理的 timeout。"""
+
+    @pytest.mark.parametrize(
+        ("func", "args", "expected_min_timeout"),
+        [
+            (get_repo_labels, ("owner/repo",), 30),
+            (get_issue_labels, ("owner/repo", 1), 30),
+            (list_open_issues, ("owner/repo",), 30),
+            (get_issue_summary, ("owner/repo", 1), 30),
+            (post_issue_comment, ("owner/repo", 1, "hi"), 60),
+            (post_review_comment, ("owner/repo", 1, "body"), 60),
+            (add_issue_labels, ("owner/repo", 1, ["bug"]), 60),
+        ],
+    )
+    def test_read_write_operations_use_timeout(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        func: Any,
+        args: tuple,
+        expected_min_timeout: int,
+    ) -> None:
+        """读操作 timeout>=30，写操作 timeout>=60。"""
+        captured_timeouts: list[int] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_timeouts.append(kwargs.get("timeout", 0))
+            return MagicMock(returncode=0, stdout="{}", stderr="")
+
+        monkeypatch.setattr("gearbox.core.gh._run_gh", fake_run)
+        # Also need to mock get_repo_labels for add_issue_labels since it calls it internally
+        if func is add_issue_labels:
+            monkeypatch.setattr("gearbox.core.gh.get_repo_labels", lambda r: args[2])
+
+        func(*args)
+
+        assert any(t >= expected_min_timeout for t in captured_timeouts)

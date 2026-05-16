@@ -66,10 +66,9 @@ runs:
     uses: ./actions/_setup
 
   - name: Check API key
-    if: inputs.anthropic_api_key == ''
     shell: bash
     env:
-      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_AUTH_TOKEN || inputs.anthropic_api_key }}
     run: |
       if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
         echo "::error::API key required"
@@ -80,8 +79,9 @@ runs:
     id: run
     shell: bash
     env:
-      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-      ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+      ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_AUTH_TOKEN || inputs.anthropic_api_key }}
+      ANTHROPIC_BASE_URL_INPUT: ${{ env.ANTHROPIC_BASE_URL || inputs.anthropic_base_url }}
+      ANTHROPIC_MODEL_INPUT: ${{ env.ANTHROPIC_MODEL || inputs.model }}
       GH_TOKEN: ${{ github.token }}
     run: |
       set -e
@@ -97,7 +97,7 @@ runs:
       echo "repo=${{ inputs.repo }}"
       echo "output_dir=$OUTPUT_DIR"
       echo "max_turns=${{ inputs.max_turns }}"
-      echo "model=${{ inputs.model || '(default)' }}"
+      echo "model=${{ ANTHROPIC_MODEL_INPUT || '(default)' }}"
       echo "clone_strategy=always"
       if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
         echo "anthropic_base_url=$ANTHROPIC_BASE_URL_INPUT"
@@ -126,8 +126,8 @@ runs:
         CMD+=(--system-prompt "${{ inputs.system_prompt }}")
       fi
 
-      if [ -n "${{ inputs.model }}" ]; then
-        CMD+=(--model "${{ inputs.model }}")
+      if [ -n "$ANTHROPIC_MODEL_INPUT" ]; then
+        CMD+=(--model "$ANTHROPIC_MODEL_INPUT")
       fi
 
       "${CMD[@]}"

@@ -50,8 +50,9 @@ runs:
     id: run
     shell: bash
     env:
-      ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-      ANTHROPIC_BASE_URL_INPUT: ${{ inputs.anthropic_base_url }}
+      ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_AUTH_TOKEN || inputs.anthropic_api_key }}
+      ANTHROPIC_BASE_URL_INPUT: ${{ env.ANTHROPIC_BASE_URL || inputs.anthropic_base_url }}
+      ANTHROPIC_MODEL_INPUT: ${{ env.ANTHROPIC_MODEL || inputs.model }}
       GH_TOKEN: ${{ github.token }}
     run: |
       set -e
@@ -81,8 +82,8 @@ runs:
         --max-turns "${{ inputs.max_turns }}"
       )
 
-      if [ -n "${{ inputs.model }}" ]; then
-        CMD+=(--model "${{ inputs.model }}")
+      if [ -n "$ANTHROPIC_MODEL_INPUT" ]; then
+        CMD+=(--model "$ANTHROPIC_MODEL_INPUT")
       fi
       if [ -n "$ARTIFACT_PATH" ]; then
         CMD+=(--artifact-path "$ARTIFACT_PATH")

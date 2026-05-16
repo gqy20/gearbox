@@ -62,18 +62,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Mask secrets
+        shell: bash
+        run: |
+          echo "::add-mask::${{ secrets.ANTHROPIC_AUTH_TOKEN }}"
+          echo "::add-mask::${{ secrets.ANTHROPIC_BASE_URL }}"
+
       - name: Run Implement
         uses: gqy20/gearbox/actions/implement@main
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         with:
           repo: ${{ inputs.repo }}
           issue_number: ${{ inputs.issue_number }}
           base_branch: ${{ inputs.base_branch }}
           max_turns: '80'
-          model: ${{ secrets.ANTHROPIC_MODEL }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           artifact_path: ./implement-output/result.json
           push_candidate_branch: 'true'
           create_pr: 'false'
@@ -100,6 +106,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Mask secrets
+        shell: bash
+        run: |
+          echo "::add-mask::${{ secrets.ANTHROPIC_AUTH_TOKEN }}"
+          echo "::add-mask::${{ secrets.ANTHROPIC_BASE_URL }}"
 
       - name: Setup Gearbox runtime
         uses: gqy20/gearbox/actions/_runtime@main

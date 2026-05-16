@@ -85,15 +85,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Mask secrets
+        shell: bash
+        run: |
+          echo "::add-mask::${{ secrets.ANTHROPIC_AUTH_TOKEN }}"
+          echo "::add-mask::${{ secrets.ANTHROPIC_BASE_URL }}"
+
       - name: Run Audit
         uses: ./actions/audit
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         with:
           repo: ${{ needs.plan.outputs.repo }}
           benchmarks: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmarks || '' }}
           output_dir: ./audit-output
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-          model: ${{ secrets.ANTHROPIC_MODEL }}
           is_comment_event: ${{ github.event_name == 'issue_comment' }}
           comment_event_type: ${{ github.event_name }}
           issue_number: ${{ github.event.issue.number }}
@@ -118,6 +125,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Mask secrets
+        shell: bash
+        run: |
+          echo "::add-mask::${{ secrets.ANTHROPIC_AUTH_TOKEN }}"
+          echo "::add-mask::${{ secrets.ANTHROPIC_BASE_URL }}"
 
       - name: Setup Gearbox runtime
         uses: ./actions/_runtime

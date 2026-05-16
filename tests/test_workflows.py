@@ -248,6 +248,51 @@ class TestDispatchWorkflow:
         )
 
 
+class TestSecretsNotInInputs:
+    """Secrets must never be passed through composite action `with:` (inputs)
+    because GitHub logs input values in plaintext.  They must use `env:` instead."""
+
+    _SECRET_INPUT_NAMES = ("anthropic_api_key", "anthropic_base_url", "model")
+    _WORKFLOW_FILES = [
+        ".github/workflows/audit.yml",
+        ".github/workflows/reusable-audit.yml",
+        ".github/workflows/reusable-review.yml",
+        ".github/workflows/reusable-implement.yml",
+    ]
+
+    def test_secrets_not_passed_via_with_inputs(self) -> None:
+        root = _root()
+        for fname in self._WORKFLOW_FILES:
+            workflow = (root / fname).read_text(encoding="utf-8")
+            for secret_name in self._SECRET_INPUT_NAMES:
+                # Reject patterns like:  anthropic_api_key: ${{ secrets.XXX }}
+                pattern = rf"{secret_name}:\s+\${{\s*secrets\."
+                assert not re.search(pattern, workflow), (
+                    f"{fname}: secret '{secret_name}' is passed via `with:` (input), "
+                    f"which leaks it into GitHub Actions logs. Use `env:` instead."
+                )
+
+    def test_secrets_use_env_mapping_in_workflows(self) -> None:
+        root = _root()
+        # At minimum, audit.yml and reusable-audit.yml must pass secrets via env
+        audit_workflow = (root / ".github/workflows/audit.yml").read_text(encoding="utf-8")
+        reusable_audit = (root / ".github/workflows/reusable-audit.yml").read_text(encoding="utf-8")
+
+        # Helper: check that a secret is mapped under an env: block (not with:)
+        def _has_env_secret(yaml_text: str, secret_name: str) -> bool:
+            # Use normal string so \\$ produces the two-char regex sequence \$
+            # (raw strings swallow \$ as just $, which is the regex end-anchor).
+            pattern = "env:.*" + secret_name + ":.*\\${{\\s*secrets\\."
+            return bool(re.search(pattern, yaml_text, re.DOTALL))
+
+        for fname, text in [
+            ("audit.yml", audit_workflow),
+            ("reusable-audit.yml", reusable_audit),
+        ]:
+            for var in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+                assert _has_env_secret(text, var), f"{fname} must pass {var} via env:, not with:"
+
+
 class TestAutoMergeWorkflow:
     def test_auto_merge_triggers_on_pull_request_review_submitted(self) -> None:
         root = _root()

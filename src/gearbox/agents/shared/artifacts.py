@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
@@ -27,9 +29,24 @@ def to_jsonable(value: object) -> object:
 
 def write_json_artifact(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    content = json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2).encode("utf-8")
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        os.write(fd, content)
+        os.close(fd)
+        fd = -1  # mark as closed so except block doesn't double-close
+        Path(tmp_path).rename(path)
+    except BaseException:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def read_json_artifact(path: Path) -> dict[str, object]:

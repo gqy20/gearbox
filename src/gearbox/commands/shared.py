@@ -69,6 +69,7 @@ async def _select_single(
     *,
     model: str,
     max_turns: int,
+    max_runs: int = 0,
     winner_callback: Callable[[Any, str], None] | None = None,
     output: str = "/tmp/github_output",
 ) -> tuple[Any, str]:
@@ -88,6 +89,7 @@ async def _select_single(
         result_names=names,
         model=model,
         max_turns=max_turns,
+        max_runs=max_runs,
     )
     winner_name = names[winner_index]
 

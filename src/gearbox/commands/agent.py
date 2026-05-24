@@ -333,8 +333,9 @@ def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, o
         raise click.Abort()
 
     # Load results with per-directory error handling (audit stores artifacts in subdirs)
+    all_run_dirs = sorted(p for p in root.iterdir() if p.is_dir())
     candidates: list[tuple[str, object]] = []
-    for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+    for run_dir in all_run_dirs:
         try:
             candidates.append((run_dir.name, load_audit_result(run_dir)))
         except FileNotFoundError as exc:
@@ -356,6 +357,7 @@ def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, o
             result_type="Audit 审计结果",
             model=model or "",
             max_turns=max_turns,
+            max_runs=len(all_run_dirs),
             winner_callback=promote_winner,
             output=output,
         )

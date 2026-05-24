@@ -1,12 +1,14 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
+import logging
 import shutil
 import tempfile
 import time
 from pathlib import Path
 
 import click
+import pydantic
 
 from gearbox.agents.schemas import AuditResult as _AuditResultModel
 from gearbox.agents.schemas import Issue as _IssueModel
@@ -113,6 +115,24 @@ def load_audit_result(output_dir: Path) -> AuditResult:
             ],
         }
     )
+
+
+logger = logging.getLogger(__name__)
+
+
+def load_audit_output(output_dir: Path) -> AuditResult | None:
+    """Load single run output with per-run error isolation (#113).
+
+    Returns ``None`` when the artifact is corrupted (e.g. malformed
+    ``issues.json`` that causes a pydantic ``ValidationError``, wrong types,
+    missing keys, etc.), so the caller can skip the damaged run without
+    crashing the whole aggregation pipeline.
+    """
+    try:
+        return load_audit_result(output_dir)
+    except (pydantic.ValidationError, AttributeError, TypeError, KeyError) as exc:
+        logger.warning("Skipping corrupted audit output %s: %s", output_dir, exc)
+        return None
 
 
 # =============================================================================

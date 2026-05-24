@@ -9,7 +9,12 @@ from typing import cast
 
 import click
 
-from gearbox.agents.audit import AuditResult, load_audit_result, promote_audit_outputs, run_audit
+from gearbox.agents.audit import (
+    AuditResult,
+    load_audit_output,
+    promote_audit_outputs,
+    run_audit,
+)
 from gearbox.agents.backlog import (
     BacklogItemResult,
     BacklogResult,
@@ -335,10 +340,11 @@ def audit_select(input_root: str, output_dir: str, model: str, max_turns: int, o
     # Load results with per-directory error handling (audit stores artifacts in subdirs)
     candidates: list[tuple[str, object]] = []
     for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        try:
-            candidates.append((run_dir.name, load_audit_result(run_dir)))
-        except FileNotFoundError as exc:
-            click.echo(f"⚠️ 跳过无效结果目录 {run_dir.name}: {exc}")
+        result = load_audit_output(run_dir)
+        if result is None:
+            click.echo(f"⚠️ 跳过损坏或无效的结果目录 {run_dir.name}")
+            continue
+        candidates.append((run_dir.name, result))
 
     if not candidates:
         click.echo("❌ 没有可用于聚合的 audit 结果", err=True)

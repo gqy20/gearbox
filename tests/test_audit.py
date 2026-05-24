@@ -4,8 +4,100 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from gearbox.agents.audit import load_audit_output, load_audit_result
+from gearbox.agents.schemas import AuditResult as _AuditResultModel
 from gearbox.agents.shared import clone_repository, scanner
 from gearbox.agents.shared.scanner import scan_repository
+
+
+class TestLoadAuditOutputErrorIsolation:
+    """Verify that load_audit_output isolates per-run validation errors (#113)."""
+
+    def _write_valid_issues(self, dir_: Path) -> None:
+        payload = {
+            "repo": "owner/repo",
+            "profile": {"language": "python"},
+            "benchmarks": ["a/b"],
+            "issues": [
+                {
+                    "repo": "owner/repo",
+                    "title": "Fix X",
+                    "body": "Do Y\n> **severity**: high",
+                    "labels": "bug",
+                }
+            ],
+        }
+        (dir_ / "issues.json").write_text(json.dumps(payload), encoding="utf-8")
+        (dir_ / "comparison.md").write_text("# Comparison\n", encoding="utf-8")
+
+    def _write_corrupted_issues(self, dir_: Path) -> None:
+        # Wrong type: 'issues' is an int instead of list → model_validate raises ValidationError
+        payload = {
+            "repo": "owner/repo",
+            "profile": {"language": 42},  # int where dict expected
+            "benchmarks": [1, 2, 3],  # ints where strings expected
+            "issues": "not-a-list",  # string where list expected
+        }
+        (dir_ / "issues.json").write_text(json.dumps(payload), encoding="utf-8")
+        (dir_ / "comparison.md").write_text("# Broken\n", encoding="utf-8")
+
+    def test_load_audit_output_returns_none_on_corrupted_json(self, tmp_path: Path) -> None:
+        """Corrupted issues.json returns None instead of raising."""
+        run_dir = tmp_path / "run-corrupted"
+        run_dir.mkdir()
+        self._write_corrupted_issues(run_dir)
+
+        result = load_audit_output(run_dir)
+        assert result is None
+
+    def test_load_audit_output_returns_result_on_valid_json(self, tmp_path: Path) -> None:
+        """Valid issues.json returns AuditResult."""
+        run_dir = tmp_path / "run-valid"
+        run_dir.mkdir()
+        self._write_valid_issues(run_dir)
+
+        result = load_audit_output(run_dir)
+        assert result is not None
+        assert isinstance(result, _AuditResultModel)
+        assert result.repo == "owner/repo"
+        assert len(result.issues) == 1
+
+    def test_load_audit_result_raises_on_corrupted_json(self, tmp_path: Path) -> None:
+        """Original load_audit_result still raises on corrupted data (no isolation)."""
+        run_dir = tmp_path / "run-broken"
+        run_dir.mkdir()
+        self._write_corrupted_issues(run_dir)
+
+        with pytest.raises(Exception):
+            load_audit_result(run_dir)
+
+    def test_aggregation_skips_corrupted_run(self, tmp_path: Path) -> None:
+        """Multiple runs where one is corrupted: only valid runs survive."""
+        valid1 = tmp_path / "run-1"
+        valid1.mkdir()
+        self._write_valid_issues(valid1)
+
+        broken = tmp_path / "run-2"
+        broken.mkdir()
+        self._write_corrupted_issues(broken)
+
+        valid2 = tmp_path / "run-3"
+        valid2.mkdir()
+        self._write_valid_issues(valid2)
+
+        results = []
+        for d in sorted(tmp_path.iterdir()):
+            out = load_audit_output(d)
+            if out is not None:
+                results.append((d.name, out))
+
+        assert len(results) == 2
+        names = [r[0] for r in results]
+        assert "run-1" in names
+        assert "run-3" in names
+        assert "run-2" not in names
 
 
 def test_clone_repository_supports_local_git_repo(tmp_path: Path) -> None:

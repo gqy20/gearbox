@@ -44,6 +44,7 @@ class RepoScanResult:
     has_docker: bool = False
     has_security_config: bool = False
     tool_statuses: dict[str, str] = field(default_factory=dict)
+    failed_tools: list[str] = field(default_factory=list)  # Issue #120: 失败工具名列表
 
 
 def _run_command(
@@ -361,9 +362,33 @@ def scan_repository(repo_path: Path) -> RepoScanResult:
                         result.govulncheck_vulns = result_data
                         result.govulncheck_scanned = True
                 except Exception as exc:
-                    result.tool_statuses[tool_name] = f"exception:{exc}"
+                    result.tool_statuses[tool_name] = f"failed:{exc}"
+                    result.failed_tools.append(tool_name)  # Issue #120: 记录失败工具
 
     return result
+
+
+def _build_scanned_tools(scan: RepoScanResult) -> dict[str, Any]:
+    """构建 tri-state 扫描工具状态：ok / failed / skipped（Issue #120）"""
+    tools: dict[str, Any] = {}
+    for name in ("deptry", "trivy", "semgrep", "govulncheck"):
+        if name in scan.failed_tools:
+            tools[name] = "failed"
+        elif scan.tool_statuses.get(name) == "skipped":
+            tools[name] = "skipped"
+        elif name == "deptry" and scan.deptry_scanned:
+            tools[name] = "ok"
+        elif name == "trivy" and scan.trivy_scanned:
+            tools[name] = "ok"
+        elif name == "semgrep" and scan.semgrep_scanned:
+            tools[name] = "ok"
+        elif name == "govulncheck" and scan.govulncheck_scanned:
+            tools[name] = "ok"
+        else:
+            tools[name] = "skipped"
+    # cloc 始终执行，使用原始状态
+    tools["cloc"] = scan.tool_statuses.get("cloc", "unknown")
+    return tools
 
 
 def format_scan_summary(scan: RepoScanResult) -> str:
@@ -418,13 +443,8 @@ def format_scan_summary(scan: RepoScanResult) -> str:
             "total_vulnerabilities": len(scan.trivy_vulnerabilities),
             "total_code_issues": len(scan.semgrep_findings),
             "total_dependency_issues": len(scan.deptry_issues),
-            "scanned_tools": {
-                "cloc": scan.tool_statuses.get("cloc", "unknown"),
-                "trivy": scan.trivy_scanned,
-                "semgrep": scan.semgrep_scanned,
-                "deptry": scan.deptry_scanned,
-                "govulncheck": scan.govulncheck_scanned,
-            },
+            "scanned_tools": _build_scanned_tools(scan),
+            "failed_tools": scan.failed_tools,  # Issue #120: 失败工具列表
             "tool_statuses": scan.tool_statuses,
         },
     }

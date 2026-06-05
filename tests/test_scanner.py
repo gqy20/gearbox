@@ -391,7 +391,9 @@ class TestScanRepositoryOrchestration:
         assert actual.tool_statuses["semgrep"] == "skipped"
         assert actual.tool_statuses["govulncheck"] == "skipped"
 
-    def test_tool_exception_recorded_as_status(self, tmp_path: Path) -> None:
+    def test_tool_exception_recorded_as_failed_status(self, tmp_path: Path) -> None:
+        """工具抛异常时状态应为 failed: 前缀（Issue #120）"""
+
         def failing_deptry(_path):
             raise RuntimeError("boom")
 
@@ -406,7 +408,88 @@ class TestScanRepositoryOrchestration:
         ):
             actual = scan_repository(tmp_path)
 
-        assert "exception:boom" in actual.tool_statuses.get("deptry", "")
+        # 失败状态使用 failed: 前缀，而非 exception:
+        assert actual.tool_statuses.get("deptry", "").startswith("failed:")
+
+    def test_failed_tool_distinguishable_from_skipped_in_summary(self, tmp_path: Path) -> None:
+        """format_scan_summary 的 _stats.failed_tools 应包含失败工具名，与 skipped 不同（Issue #120）"""
+
+        def failing_deptry(_path):
+            raise RuntimeError("deptry crashed")
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=({}, "ok")),
+            patch("gearbox.agents.shared.scanner.run_deptry", side_effect=failing_deptry),
+            patch("gearbox.agents.shared.scanner.run_trivy", return_value=([], "ok")),
+            patch("gearbox.agents.shared.scanner.run_semgrep", return_value=([], "ok")),
+        ):
+            actual = scan_repository(tmp_path)
+
+        summary = json.loads(format_scan_summary(actual))
+        stats = summary["_stats"]
+
+        # deptry 失败了，应出现在 failed_tools 中
+        assert "deptry" in stats["failed_tools"]
+        # trivy 和 semgrep 成功，不应在 failed_tools 中
+        assert "trivy" not in stats["failed_tools"]
+        assert "semgrep" not in stats["failed_tools"]
+        # deptry 的 scanned_tools 布尔值应反映失败状态（不是简单的 True/False）
+        assert stats["scanned_tools"]["deptry"] == "failed"
+
+    def test_skipped_tool_not_in_failed_tools(self, tmp_path: Path) -> None:
+        """skipped 的工具不应出现在 failed_tools 中（Issue #120）"""
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("typescript", "npm", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=({}, "ok")),
+            patch("gearbox.agents.shared.scanner.run_semgrep", return_value=([], "ok")),
+            patch("gearbox.agents.shared.scanner.run_trivy", return_value=([], "ok")),
+        ):
+            actual = scan_repository(tmp_path)
+
+        summary = json.loads(format_scan_summary(actual))
+        stats = summary["_stats"]
+
+        # deptry 和 govulncheck 对 typescript 项目是 skipped
+        assert "deptry" not in stats.get("failed_tools", [])
+        assert "govulncheck" not in stats.get("failed_tools", [])
+        # skipped 工具的 scanned_tools 值应为 "skipped"
+        assert stats["scanned_tools"]["deptry"] == "skipped"
+        assert stats["scanned_tools"]["govulncheck"] == "skipped"
+
+    def test_multiple_failed_tools_all_reported(self, tmp_path: Path) -> None:
+        """多个工具同时失败时均应报告（Issue #120）"""
+
+        def failing_deptry(_path):
+            raise OSError("deptry oops")
+
+        def failing_semgrep(_path):
+            raise ValueError("semgrep oops")
+
+        with (
+            patch(
+                "gearbox.agents.shared.scanner.detect_project_type",
+                return_value=("python", "pip", False, False),
+            ),
+            patch("gearbox.agents.shared.scanner.run_cloc", return_value=({}, "ok")),
+            patch("gearbox.agents.shared.scanner.run_deptry", side_effect=failing_deptry),
+            patch("gearbox.agents.shared.scanner.run_semgrep", side_effect=failing_semgrep),
+            patch("gearbox.agents.shared.scanner.run_trivy", return_value=([], "ok")),
+        ):
+            actual = scan_repository(tmp_path)
+
+        summary = json.loads(format_scan_summary(actual))
+        failed = summary["_stats"]["failed_tools"]
+
+        assert "deptry" in failed
+        assert "semgrep" in failed
+        assert len(failed) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -475,8 +558,9 @@ class TestFormatScanSummary:
         output = json.loads(format_scan_summary(self._base_scan()))
 
         assert output["_stats"]["total_vulnerabilities"] == 2
-        assert output["_stats"]["scanned_tools"]["trivy"] is True
-        assert output["_stats"]["scanned_tools"]["deptry"] is True
+        # Issue #120: scanned_tools 使用 tri-state (ok/failed/skipped)
+        assert output["_stats"]["scanned_tools"]["trivy"] == "ok"
+        assert output["_stats"]["scanned_tools"]["deptry"] == "ok"
 
 
 # ---------------------------------------------------------------------------

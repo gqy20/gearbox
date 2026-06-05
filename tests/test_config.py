@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 from gearbox.config import (
     AGENT_DEFAULTS,
@@ -176,3 +177,116 @@ class TestAgentDefaults:
         assert "implement" in AGENT_DEFAULTS["max_turns"]
         assert "audit" in AGENT_DEFAULTS["max_turns"]
         assert AGENT_DEFAULTS["max_turns"]["implement"] == 80
+
+
+class TestConfigConsistency:
+    """测试配置读取一致性：多次 getter 调用应返回同一快照的值 (Issue #119)"""
+
+    @staticmethod
+    def _clear_anthropic_env() -> dict[str, str | None]:
+        """移除可能干扰测试的 Anthropic 环境变量"""
+        saved: dict[str, str | None] = {}
+        for key in ("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+            saved[key] = os.environ.pop(key, None)
+        return saved
+
+    @staticmethod
+    def _restore_env(saved: dict[str, str | None]) -> None:
+        for key, val in saved.items():
+            if val is not None:
+                os.environ[key] = val
+            elif key in os.environ:
+                del os.environ[key]
+
+    def test_single_file_read_for_multiple_getters(self, tmp_path: Path) -> None:
+        """连续调用多个 getter 只触发一次文件 I/O（缓存生效）"""
+        import gearbox.config.settings as settings_mod
+
+        saved = self._clear_anthropic_env()
+        try:
+            cfg_dir = tmp_path / ".config" / "gearbox"
+            cfg_dir.mkdir(parents=True)
+            cfg_file = cfg_dir / "config.toml"
+
+            with open(cfg_file, "wb") as f:
+                import tomli_w
+
+                tomli_w.dump({"provider": "glm"}, f)
+
+            # Patch get_config_path so load_config reads our temp file
+            with patch.object(settings_mod, "get_config_path", return_value=cfg_file):
+                # 清除可能存在的旧缓存
+                settings_mod.load_config.cache_clear()  # type: ignore[attr-defined]
+
+                read_count = 0
+                _original_open = open
+
+                def counting_open(path, *args, **kwargs):
+                    nonlocal read_count
+                    if str(path) == str(cfg_file) and "rb" in args and len(args) > 0:
+                        read_count += 1
+                    return _original_open(path, *args, **kwargs)
+
+                with patch("builtins.open", side_effect=counting_open):
+                    get_anthropic_base_url()
+                    get_anthropic_model()
+                    get_anthropic_api_key()
+
+            # 缓存生效：三次 getter 只产生一次文件读取
+            assert read_count == 1, f"Expected 1 file read, got {read_count}"
+        finally:
+            self._restore_env(saved)
+
+    def test_getters_return_consistent_provider_pair(self, tmp_path: Path) -> None:
+        """base_url 和 model 必须来自同一 provider 快照"""
+        import gearbox.config.settings as settings_mod
+
+        saved = self._clear_anthropic_env()
+        try:
+            cfg_dir = tmp_path / ".config" / "gearbox"
+            cfg_dir.mkdir(parents=True)
+            cfg_file = cfg_dir / "config.toml"
+
+            with open(cfg_file, "wb") as f:
+                import tomli_w
+
+                tomli_w.dump({"provider": "minimax"}, f)
+
+            with patch.object(settings_mod, "get_config_path", return_value=cfg_file):
+                settings_mod.load_config.cache_clear()  # type: ignore[attr-defined]
+
+                base_url = get_anthropic_base_url()
+                model = get_anthropic_model()
+
+            # 两者必须来自同一 provider 的预设
+            assert (base_url, model) == (
+                PROVIDERS["minimax"]["base_url"],
+                PROVIDERS["minimax"]["model"],
+            ), f"base_url/model 不匹配: ({base_url}, {model})"
+        finally:
+            self._restore_env(saved)
+
+    def test_cache_invalidated_after_save(self, tmp_path: Path) -> None:
+        """save_config 后缓存应失效，下次读取获取新值"""
+        import gearbox.config.settings as settings_mod
+
+        saved = self._clear_anthropic_env()
+        try:
+            cfg_dir = tmp_path / ".config" / "gearbox"
+            cfg_dir.mkdir(parents=True)
+            cfg_file = cfg_dir / "config.toml"
+
+            with patch.object(settings_mod, "get_config_path", return_value=cfg_file):
+                settings_mod.load_config.cache_clear()  # type: ignore[attr-defined]
+
+                # 初始：minimax
+                save_config({"provider": "minimax"})
+                assert get_anthropic_base_url() == PROVIDERS["minimax"]["base_url"]
+                assert get_anthropic_model() == PROVIDERS["minimax"]["model"]
+
+                # 保存新值后缓存自动清除
+                save_config({"provider": "anthropic"})
+                assert get_anthropic_base_url() == PROVIDERS["anthropic"]["base_url"]
+                assert get_anthropic_model() == PROVIDERS["anthropic"]["model"]
+        finally:
+            self._restore_env(saved)

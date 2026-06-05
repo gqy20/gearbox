@@ -1,6 +1,7 @@
 """配置管理 - 读写用户配置"""
 
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -35,8 +36,9 @@ def get_config_path() -> Path:
     return _config_file()
 
 
+@lru_cache(maxsize=1)
 def load_config() -> dict[str, Any]:
-    """加载配置文件"""
+    """加载配置文件（带缓存，同调用链内返回一致快照）"""
     config_file = get_config_path()
     if not config_file.exists():
         return {}
@@ -52,12 +54,19 @@ def load_config() -> dict[str, Any]:
         return {}
 
 
+def _invalidate_config_cache() -> None:
+    """清除 load_config 缓存，使下次调用重新读取文件"""
+    load_config.cache_clear()  # type: ignore[attr-defined]
+
+
 def save_config(config: dict[str, Any]) -> None:
-    """保存配置文件"""
+    """保存配置文件（同时清除读取缓存）"""
     ensure_config_dir()
 
     with open(get_config_path(), "wb") as f:
         tomli_w.dump(config, f)
+
+    _invalidate_config_cache()
 
 
 def get_github_token() -> str | None:

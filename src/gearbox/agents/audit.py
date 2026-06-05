@@ -1,6 +1,7 @@
 """Audit Agent — 仓库审计，生成改进建议"""
 
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -24,7 +25,11 @@ _BENCHMARK_CACHE_DIR = Path.home() / ".cache" / "gearbox" / "benchmarks"
 
 
 def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
-    """由宿主进程统一写出 audit 产物文件。"""
+    """由宿主进程统一写出 audit 产物文件（原子写入）。
+
+    所有产物先写入临时目录，全部完成后通过 os.replace() 原子性移至目标位置，
+    确保不会出现部分更新的不一致状态。
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     issues_payload = {
@@ -42,18 +47,29 @@ def _write_audit_outputs(result: AuditResult, output_dir: Path) -> None:
         ],
     }
 
-    (output_dir / "issues.json").write_text(
-        json.dumps(issues_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (output_dir / "profile.json").write_text(
-        json.dumps(result.profile, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    comparison_markdown = result.comparison_markdown.strip()
-    if not comparison_markdown:
-        comparison_markdown = "# Audit Comparison\n\nNo comparison markdown returned."
-    (output_dir / "comparison.md").write_text(comparison_markdown + "\n", encoding="utf-8")
+    # Phase 1: write all files to a staging directory
+    staging = tempfile.mkdtemp(dir=output_dir, prefix=".audit_tmp_")
+    staging_path = Path(staging)
+
+    try:
+        (staging_path / "issues.json").write_text(
+            json.dumps(issues_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (staging_path / "profile.json").write_text(
+            json.dumps(result.profile, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        comparison_markdown = result.comparison_markdown.strip()
+        if not comparison_markdown:
+            comparison_markdown = "# Audit Comparison\n\nNo comparison markdown returned."
+        (staging_path / "comparison.md").write_text(comparison_markdown + "\n", encoding="utf-8")
+
+        # Phase 2: atomically move each file to the final location
+        for name in OUTPUT_FILES:
+            os.replace(str(staging_path / name), str(output_dir / name))
+    finally:
+        shutil.rmtree(staging_path, ignore_errors=True)
 
 
 def _get_cached_benchmarks(repo: str, language: str | None = None) -> list[str] | None:

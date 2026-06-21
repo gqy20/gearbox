@@ -49,7 +49,7 @@ def test_build_marketplace_bundle_renders_router_and_runtime_setup(tmp_path: Pat
     assert "uses: ./actions/_runtime" in setup_action
     assert "uv tool install semgrep" in setup_action
     assert "uv tool install deptry" in setup_action
-    assert "sudo apt-get update -qq && sudo apt-get install -y -qq $TOOLS" in setup_action
+    assert 'sudo apt-get update -qq && sudo apt-get install -y -qq "$TOOLS"' in setup_action
     assert "python3 -m pip install" not in setup_action
     assert "pip install deptry" not in setup_action
     assert "uses: ./actions/_runtime" in publish_action

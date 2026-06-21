@@ -1,5 +1,6 @@
 """Tests for GitHub Actions workflow and action file structure."""
 
+import os
 import re
 from pathlib import Path
 
@@ -328,3 +329,209 @@ class TestAutoMergeWorkflow:
         assert "skip_reason=" in workflow
         assert "::notice::" in workflow
         assert "::warning::" in workflow
+
+
+# ---------------------------------------------------------------------------
+# Shell injection protection tests (Issue #22)
+# ---------------------------------------------------------------------------
+
+_ACTION_DIR = _root() / "actions"
+
+
+def _read_action(name: str) -> str:
+    return (_ACTION_DIR / name / "action.yml").read_text(encoding="utf-8")
+
+
+def _read_lib(name: str) -> str:
+    return (_ACTION_DIR / "_lib" / name).read_text(encoding="utf-8")
+
+
+class TestShellInjectionProtection:
+    """Verify that all composite actions validate user inputs before use."""
+
+    def test_shared_validate_script_exists(self) -> None:
+        """A shared validation script must exist with repo/number/path validators."""
+        script = _read_lib("validate.sh")
+        assert "validate_repo()" in script
+        assert "validate_number()" in script
+        assert "validate_path()" in script
+
+    def test_validate_repo_rejects_shell_metacharacters(self) -> None:
+        """Repo validator must reject $, `, ;, |, &, (, ), newlines."""
+        script = _read_lib("validate.sh")
+        # The regex should block dangerous characters
+        assert re.search(r"[\$`;&|()\n]", script) or "regex" in script.lower()
+
+    def test_audit_action_validates_repo(self) -> None:
+        """audit/action.yml must call validate_repo before using inputs.repo."""
+        action = _read_action("audit")
+        assert 'validate_repo "${{ inputs.repo }}"' in action
+
+    def test_audit_action_validates_benchmarks(self) -> None:
+        """audit/action.yml must validate benchmarks input."""
+        action = _read_action("audit")
+        assert (
+            "validate_repo_list" in action
+            or 'validate_repo "${{ inputs.benchmarks }}"' in action
+            or ("benchmarks" in action and ("validate" in action or "sanitize" in action))
+        )
+
+    def test_implement_action_validates_inputs(self) -> None:
+        """implement/action.yml must validate repo and issue_number."""
+        action = _read_action("implement")
+        assert 'validate_repo "${{ inputs.repo }}"' in action
+        assert "validate_number" in action and "${{ inputs.issue_number }}" in action
+
+    def test_review_action_validates_inputs(self) -> None:
+        """review/action.yml must validate repo and pr_number."""
+        action = _read_action("review")
+        assert 'validate_repo "${{ inputs.repo }}"' in action
+        assert "validate_number" in action and "${{ inputs.pr_number }}" in action
+
+    def test_backlog_action_validates_inputs(self) -> None:
+        """backlog/action.yml must validate repo input."""
+        action = _read_action("backlog")
+        assert 'validate_repo "${{ inputs.repo }}"' in action
+
+    def test_dispatch_action_validates_inputs(self) -> None:
+        """dispatch/action.yml must validate repo input."""
+        action = _read_action("dispatch")
+        assert 'validate_repo "${{ inputs.repo }}"' in action
+
+    def test_cleanup_action_validates_inputs(self) -> None:
+        """cleanup/action.yml must validate repo and issue_number."""
+        action = _read_action("cleanup")
+        assert 'validate_repo "${{ inputs.repo }}"' in action
+        assert "validate_number" in action and "${{ inputs.issue_number }}" in action
+
+    def test_publish_action_validates_input_path(self) -> None:
+        """publish/action.yml must validate input_path."""
+        action = _read_action("publish")
+        assert 'validate_path "${{ inputs.input_path }}"' in action
+
+    def test_setup_action_quotes_tools_variable(self) -> None:
+        """_setup/action.yml must quote $TOOLS to prevent word-splitting injection."""
+        action = _read_action("_setup")
+        # $TOOLS must be quoted in apt-get command
+        assert '$TOOLS"' in action or '"$TOOLS"' in action
+        # Must NOT have unquoted $TOOLS in an apt-get context
+        lines = action.split("\n")
+        for line in lines:
+            if "apt-get" in line and "$TOOLS" in line:
+                assert '"$TOOLS"' in line, f"Unquoted $TOOLS in apt-get line: {line}"
+
+    def test_runtime_action_curl_pipe_is_safe(self) -> None:
+        """_runtime/action.yml curl pipe must use a pinned URL (no user input)."""
+        action = _read_action("_runtime")
+        # The curl URL should be a hardcoded literal, not contain ${{ }}
+        if "curl" in action:
+            for line in action.split("\n"):
+                if "curl" in line and "| sh" in line:
+                    assert "${{ inputs." not in line, f"User input in curl pipe: {line}"
+                    assert "${{" not in line or "astral.sh" in line, (
+                        f"Template expr in curl: {line}"
+                    )
+
+    def test_matrix_action_validates_count(self) -> None:
+        """matrix/action.yml must validate count is a positive integer."""
+        action = _read_action("matrix")
+        assert "^[0-9]+$" in action
+
+    def test_actions_source_validate_lib(self) -> None:
+        """Every action that uses user inputs must source the validation lib."""
+        actions_with_user_inputs = [
+            "audit",
+            "implement",
+            "review",
+            "backlog",
+            "dispatch",
+            "cleanup",
+            "publish",
+        ]
+        for action_name in actions_with_user_inputs:
+            action = _read_action(action_name)
+            assert 'source "$GITHUB_ACTION_PATH/../_lib/validate.sh"' in action or (
+                "validate.sh" in action and "source" in action
+            ), f"{action_name}/action.yml does not source validate.sh"
+
+
+class TestValidateShellScript:
+    """Unit tests for the validation shell script logic."""
+
+    @staticmethod
+    def _run_validate(func: str, value: str) -> tuple[int, str]:
+        """Run a single validation function from validate.sh and return (exit_code, output).
+
+        Uses environment variable to pass the raw value so shell metacharacters
+        are not interpreted by the outer invocation shell.
+        """
+        import subprocess
+
+        script_path = _root() / "actions" / "_lib" / "validate.sh"
+        # Pass value via env var to prevent outer shell from interpreting
+        # metacharacters like $(whoami), backticks, etc.
+        cmd = [
+            "bash",
+            "-c",
+            f'. "{script_path}" && {func} "$_TEST_VALUE"',
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**os.environ, "_TEST_VALUE": value},
+        )
+        return result.returncode, result.stderr + result.stdout
+
+    def test_validate_repo_accepts_valid(self) -> None:
+        code, _ = self._run_validate("validate_repo", "owner/repo")
+        assert code == 0
+
+    def test_validate_repo_rejects_shell_injection_dollar(self) -> None:
+        code, out = self._run_validate("validate_repo", "owner/$(whoami)")
+        assert code != 0, f"Should reject $(whoami): {out}"
+
+    def test_validate_repo_rejects_backtick(self) -> None:
+        code, out = self._run_validate("validate_repo", "owner/`whoami`")
+        assert code != 0, f"Should reject backtick: {out}"
+
+    def test_validate_repo_rejects_semicolon(self) -> None:
+        code, out = self._run_validate("validate_repo", "owner/repo;rm -rf /")
+        assert code != 0, f"Should reject semicolon: {out}"
+
+    def test_validate_repo_rejects_pipe(self) -> None:
+        code, out = self._run_validate("validate_repo", "owner/repo|cat /etc/passwd")
+        assert code != 0, f"Should reject pipe: {out}"
+
+    def test_validate_repo_rejects_newline(self) -> None:
+        code, out = self._run_validate("validate_repo", "owner/\nrepo")
+        assert code != 0, f"Should reject newline: {out}"
+
+    def test_validate_number_accepts_valid(self) -> None:
+        code, _ = self._run_validate("validate_number", "42")
+        assert code == 0
+
+    def test_validate_number_rejects_negative(self) -> None:
+        code, out = self._run_validate("validate_number", "-1")
+        assert code != 0, f"Should reject negative: {out}"
+
+    def test_validate_number_rejects_non_numeric(self) -> None:
+        code, out = self._run_validate("validate_number", "abc")
+        assert code != 0, f"Should reject non-numeric: {out}"
+
+    def test_validate_number_rejects_injection(self) -> None:
+        code, out = self._run_validate("validate_number", "$(id)")
+        assert code != 0, f"Should reject injection: {out}"
+
+    def test_validate_path_accepts_valid_relative(self) -> None:
+        code, _ = self._run_validate("validate_path", "./output/issues.json")
+        assert code == 0
+
+    def test_validate_path_accepts_valid_absolute(self) -> None:
+        code, _ = self._run_validate("validate_path", "/tmp/output/issues.json")
+        assert code == 0
+
+    def test_validate_path_rejects_injection(self) -> None:
+        code, out = self._run_validate("validate_path", "/tmp/$(whoami)")
+        assert code != 0, f"Should reject injection: {out}"
